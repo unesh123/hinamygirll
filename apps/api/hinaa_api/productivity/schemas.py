@@ -12,6 +12,7 @@ Platform = Literal["instagram", "tiktok", "youtube", "x", "linkedin", "facebook"
 PostStatus = Literal["idea", "draft", "scheduled", "published"]
 ProjectStatus = Literal["planning", "active", "blocked", "done"]
 Priority = Literal["low", "medium", "high"]
+PublishPrivacy = Literal["private", "unlisted", "public"]
 Period = Literal["day", "week", "month"]
 
 PLATFORMS: tuple[str, ...] = ("instagram", "tiktok", "youtube", "x", "linkedin", "facebook", "other")
@@ -52,6 +53,8 @@ class ContentPostCreate(_Body):
     status: PostStatus = "idea"
     tags: list[Tag] = Field(default_factory=list, max_length=20)
     notes: Text = Field("", max_length=5000)
+    mediaPath: Text | None = Field(None, max_length=500)
+    publishPrivacy: PublishPrivacy | None = None
 
 
 class ContentPostPatch(_Body):
@@ -62,6 +65,8 @@ class ContentPostPatch(_Body):
     status: PostStatus | None = None
     tags: list[Tag] | None = Field(None, max_length=20)
     notes: Text | None = Field(None, max_length=5000)
+    mediaPath: Text | None = Field(None, max_length=500)
+    publishPrivacy: PublishPrivacy | None = None
 
     @field_validator("title", "platform", "status", "tags", "caption", "notes")
     @classmethod

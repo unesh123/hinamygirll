@@ -575,6 +575,7 @@ def test_a11_33_atomic_task_status_updates(temp_dir: Path):
     assert len(loaded.nodes) == 1
 
 
+@pytest.mark.skipif(bool(os.environ.get("HINAA_TEST_DATABASE_URL")), reason="SQLite WAL specific")
 def test_a11_34_sqlite_wal_mode_enabled(temp_dir: Path):
     """Verify SQLite database journal mode is WAL."""
     store = TaskStore(db_path=temp_dir / "tasks_wal.db")

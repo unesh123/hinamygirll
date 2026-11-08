@@ -5,6 +5,8 @@ import logging
 import time
 from typing import Any
 import httpx
+
+from ..ops import genai
 from ..config import Settings
 from .base import ProviderResult
 
@@ -43,6 +45,12 @@ def build_anthropic_content(text: str, attachments: list[Any] | None = None) -> 
     return blocks
 
 
+_BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+
+
 class AnthropicDirectProvider:
     """Direct client for Anthropic's official Messages API (https://api.anthropic.com/v1/messages).
 
@@ -54,8 +62,9 @@ class AnthropicDirectProvider:
     def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
         self.settings = settings
         self._client = client
-        self.base_url = "https://api.anthropic.com/v1"
-        self.default_model = "claude-3-7-sonnet-20250219"
+        base = (settings.active_claude_base_url or "https://api.anthropic.com").rstrip("/")
+        self.base_url = base if base.endswith("/v1") else f"{base}/v1"
+        self.default_model = settings.active_claude_model
 
     def _get_api_key(self) -> str:
         key = self.settings.claude_api_key
@@ -63,9 +72,48 @@ class AnthropicDirectProvider:
             return key.get_secret_value()
         return ""
 
+    def request_headers(self, api_key: str) -> dict[str, str]:
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": self.settings.claude_api_version,
+            "content-type": "application/json",
+            # Cloudflare-guarded gateways reject the default httpx UA (error
+            # 1010); api.anthropic.com itself ignores it.
+            "User-Agent": _BROWSER_UA,
+        }
+        if self.settings.is_mwapi_claude_gateway:
+            headers["Authorization"] = f"Bearer {api_key}"
+        return headers
+
     async def health(self) -> bool:
         """Checks whether Anthropic direct API key is configured."""
         return bool(self._get_api_key())
+
+    async def create_message(
+        self, payload: dict[str, Any], *, timeout_s: float = 120.0
+    ) -> dict[str, Any]:
+        """POST a prepared Messages payload and return the decoded JSON body."""
+        api_key = self._get_api_key()
+        if not api_key:
+            raise ValueError("ANTHROPIC_API_KEY is not configured.")
+        client = self._client or httpx.AsyncClient(timeout=timeout_s)
+        try:
+            with genai.llm_call(
+                provider=genai.PROVIDER_ANTHROPIC,
+                model=payload.get("model"),
+                max_tokens=payload.get("max_tokens"),
+            ) as call:
+                call.set_input(payload.get("messages"), payload.get("system"))
+                resp = await client.post(
+                    f"{self.base_url}/messages", headers=self.request_headers(api_key), json=payload
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                call.record_anthropic_response(data)
+                return data
+        finally:
+            if not self._client:
+                await client.aclose()
 
     async def generate(
         self,
@@ -75,102 +123,32 @@ class AnthropicDirectProvider:
         max_tokens: int | None = None,
         attachments: list[Any] | None = None,
     ) -> ProviderResult[str]:
-        api_key = self._get_api_key()
-        if not api_key:
+        if not self._get_api_key():
             raise ValueError("ANTHROPIC_API_KEY is not configured.")
         if max_tokens is None:
             try:
-                from ..config import get_settings
-
-                max_tokens = int(get_settings().llm_max_output_tokens)
+                max_tokens = int(self.settings.llm_max_output_tokens)
             except Exception:  # pragma: no cover
                 max_tokens = 16_384
 
-        selected_model = model or self.default_model
         start_time = time.time()
-
-        if selected_model == "claude-opus-5.5":
-            from ..config import get_settings
-            settings = get_settings()
-            if not settings.explabs_configured:
-                raise ValueError("EXPLABS_API_KEY is not set. Please create one under Settings -> API Keys and export it.")
-            assert settings.active_explabs_key
-            key = settings.active_explabs_key.get_secret_value()
-            base_url = settings.active_explabs_base_url
-            messages = [{"role": "user", "content": prompt if isinstance(prompt, str) else str(prompt)}]
-            if system:
-                messages.insert(0, {"role": "system", "content": system})
-            exp_headers = {
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json",
-            }
-            exp_payload: dict[str, Any] = {
-                "model": "claude-opus-5.5",
-                "messages": messages,
-            }
-            if max_tokens:
-                exp_payload["max_tokens"] = max_tokens
-            client = self._client or httpx.AsyncClient(timeout=30.0)
-            try:
-                resp = await client.post(f"{base_url}/chat/completions", headers=exp_headers, json=exp_payload)
-                resp.raise_for_status()
-                data = resp.json()
-                text = data["choices"][0]["message"]["content"]
-                latency = int((time.time() - start_time) * 1000)
-                return ProviderResult(
-                    value=text,
-                    provider="experiential",
-                    latency_ms=latency,
-                )
-            finally:
-                if not self._client:
-                    await client.aclose()
-
-        headers = {
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-            # Cloudflare-guarded gateways in front of the Messages API return
-            # error 1010 ("ban based on browser signature") when the client
-            # fingerprint looks like a script, which is the default httpx UA.
-            # The other gateway-backed adapters (agent_router.py, openai_llm.py)
-            # already send a browser UA for this reason; this one did not, so a
-            # request that should have reached Anthropic died at the edge. Only
-            # the UA signature changes -- the Messages contract is untouched, and
-            # api.anthropic.com itself ignores these.
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-            ),
-        }
-
-        if isinstance(prompt, str):
-            user_content = build_anthropic_content(prompt, attachments)
-        else:
-            user_content = prompt
-
+        user_content = (
+            build_anthropic_content(prompt, attachments) if isinstance(prompt, str) else prompt
+        )
         payload: dict[str, Any] = {
-            "model": selected_model,
+            "model": model or self.default_model,
             "max_tokens": max_tokens,
             "messages": [{"role": "user", "content": user_content}],
         }
         if system:
             payload["system"] = system
 
-        client = self._client or httpx.AsyncClient(timeout=30.0)
-        try:
-            resp = await client.post(f"{self.base_url}/messages", headers=headers, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            content_blocks = data.get("content", [])
-            text_blocks = [b.get("text", "") for b in content_blocks if b.get("type") == "text"]
-            result_text = "".join(text_blocks)
-            latency = int((time.time() - start_time) * 1000)
-            return ProviderResult(
-                value=result_text,
-                provider=self.id,
-                latency_ms=latency,
-            )
-        finally:
-            if not self._client:
-                await client.aclose()
+        data = await self.create_message(payload, timeout_s=30.0)
+        result_text = "".join(
+            b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"
+        )
+        return ProviderResult(
+            value=result_text,
+            provider=self.id,
+            latency_ms=int((time.time() - start_time) * 1000),
+        )

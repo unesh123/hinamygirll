@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -13,7 +14,28 @@ from ..config import Settings
 from .orm import Base
 
 
+def normalize_database_url(database_url: str) -> str:
+    """Map provider-style Postgres URLs onto the psycopg (v3) SQLAlchemy driver."""
+    url = database_url.strip()
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
+
+def is_postgres_url(database_url: str | None) -> bool:
+    return bool(database_url) and normalize_database_url(database_url).startswith("postgresql")
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, "") or default)
+    except ValueError:
+        return default
+
+
 def make_engine(database_url: str) -> Engine:
+    database_url = normalize_database_url(database_url)
     if database_url.startswith("sqlite"):
         database_path = make_url(database_url).database
         if database_path and database_path != ":memory:":
@@ -39,6 +61,16 @@ def make_engine(database_url: str) -> Engine:
             cursor.close()
 
         return engine
+    if database_url.startswith("postgresql"):
+        return create_engine(
+            database_url,
+            future=True,
+            pool_pre_ping=True,
+            pool_size=_env_int("HINAA_DB_POOL_SIZE", 5),
+            max_overflow=_env_int("HINAA_DB_MAX_OVERFLOW", 10),
+            pool_recycle=_env_int("HINAA_DB_POOL_RECYCLE", 1800),
+            pool_timeout=_env_int("HINAA_DB_POOL_TIMEOUT", 30),
+        )
     return create_engine(database_url, future=True)
 
 

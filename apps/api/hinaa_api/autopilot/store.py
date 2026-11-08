@@ -10,6 +10,8 @@ import json
 import logging
 import os
 import sqlite3
+
+from ..persistence import sqlcompat
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -40,6 +42,7 @@ class StaleFencingTokenError(Exception):
 class AutopilotStore:
     def __init__(self, db_path: str = "hinaa_autopilot.db"):
         self.db_path = db_path
+        self._pg = sqlcompat.pg_target(db_path, is_default=db_path == "hinaa_autopilot.db")
         self._mem_conn: Optional[sqlite3.Connection] = None
         if self.db_path == ":memory:":
             self._mem_conn = sqlite3.connect(":memory:", check_same_thread=False)
@@ -49,6 +52,8 @@ class AutopilotStore:
     def _get_connection(self) -> sqlite3.Connection:
         if self._mem_conn is not None:
             return self._mem_conn
+        if self._pg:
+            return sqlcompat.connect_pg(self._pg)
         conn = sqlite3.connect(self.db_path, timeout=10.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")

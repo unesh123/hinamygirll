@@ -10,6 +10,8 @@ httpx==0.28.1
 websockets>=13,<16
 SQLAlchemy==2.0.43
 alembic==1.16.5
+psycopg[binary]==3.3.8
+psycopg-pool==3.3.3
 anthropic==0.84.0
 clerk-backend-api==7.0.0
 reportlab==4.4.5
@@ -28,3 +30,12 @@ exa-py==2.25.0
 tzdata==2026.5
 # Bikram Sambat conversion for Nepal date grounding (prompts/assembly.py)
 nepali-datetime==1.0.8.5
+
+# Observability (docs/observability.md)
+opentelemetry-api==1.45.2
+opentelemetry-sdk==1.45.2
+opentelemetry-exporter-otlp-proto-http==1.45.2
+opentelemetry-instrumentation-fastapi==0.66b2
+opentelemetry-instrumentation-httpx==0.66b2
+opentelemetry-instrumentation-sqlalchemy==0.66b2
+sentry-sdk==2.74.0

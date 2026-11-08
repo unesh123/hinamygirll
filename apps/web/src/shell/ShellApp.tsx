@@ -11,6 +11,8 @@ const SecurityPage = lazy(() => import("./pages/SecurityPage"));
 const IntegrationsPage = lazy(() => import("./pages/IntegrationsPage"));
 const MemoryPage = lazy(() => import("./pages/MemoryPage"));
 const ProductivityPage = lazy(() => import("./pages/ProductivityPage"));
+const NewsPage = lazy(() => import("./pages/NewsPage"));
+const OrganisationPage = lazy(() => import("./pages/OrganisationPage"));
 
 function ModeHome() {
   return <Navigate to={MODE_PATHS[getShellState().mode]} replace />;
@@ -33,6 +35,8 @@ export function ShellRoutes() {
         <Route path="/integrations" element={<IntegrationsPage />} />
         <Route path="/memory" element={<MemoryPage />} />
         <Route path="/productivity" element={<ProductivityPage />} />
+        <Route path="/news" element={<NewsPage />} />
+        <Route path="/organisation" element={<OrganisationPage />} />
         <Route path="*" element={<ModeHome />} />
       </Route>
     </Routes>

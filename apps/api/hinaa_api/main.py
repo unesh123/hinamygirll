@@ -55,8 +55,10 @@ from .brain_ledger import (
 )
 from .reachability import is_ephemeral_tunnel, probe_gateway, probe_gateway_models
 from .reminder_scheduler import run_scheduler as run_reminder_scheduler
+from .news.scheduler import run_scheduler as run_news_scheduler
 from .telephony.router import is_webhook_path as is_telephony_webhook
-from .ops import metrics
+from .ops import genai, metrics
+from .ops.health import check_database
 from .ops.context import configure_logging, user_id_var
 from .ops.middleware import BodyLimitMiddleware, ObservabilityMiddleware
 from .ops.ratelimit import EXEMPT_PATHS as RATE_EXEMPT_PATHS
@@ -503,6 +505,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if not handler:
                 raise HinaaError("TOOL_UNAVAILABLE", f"Tool handler for {step.tool_name} not found", 404)
             tool_policy.enforce(step.tool_name, active_settings)
+            tool_policy.check_arguments(step.tool_name, step.tool_parameters)
             import inspect
             from typing import get_type_hints
             from pydantic import BaseModel
@@ -994,6 +997,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ),
                 name="hinaa-reminder-scheduler",
             )
+        news_task = None
+        if active_settings.news_scheduler_enabled and active_settings.persistence_enabled:
+            news_task = asyncio.create_task(
+                run_news_scheduler(
+                    settings=active_settings,
+                    stop=scheduler_stop,
+                    tick_seconds=active_settings.news_tick_seconds,
+                ),
+                name="hinaa-news-scheduler",
+            )
         # Autonomous Heartbeat Daemon initialization & background loop
         from .intelligence.heartbeat import heartbeat_daemon
         heartbeat_daemon.initialize(
@@ -1024,6 +1037,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scheduler_stop.set()
         if scheduler_task is not None:
             await asyncio.gather(scheduler_task, return_exceptions=True)
+        if news_task is not None:
+            await asyncio.gather(news_task, return_exceptions=True)
         tasks = [*project_tasks.values(), *tool_tasks]
         for task in tasks:
             task.cancel()
@@ -1060,6 +1075,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from .productivity.router import build_productivity_router
     for _prod_prefix in ("/v1/productivity", "/api/v1/productivity"):
         app.include_router(build_productivity_router(active_settings, conversation_auth), prefix=_prod_prefix)
+    from .orgs.gate import OrgGate
+    from .orgs.router import build_org_router
+    org_gate = OrgGate(active_settings, memory_service, conversation_auth)
+    for _org_prefix in ("/v1/org", "/api/v1/org"):
+        app.include_router(build_org_router(org_gate), prefix=_org_prefix)
+    from .news.router import build_news_router
+    from .social.router import build_social_router
+    for _news_prefix in ("/v1/news", "/api/v1/news"):
+        app.include_router(build_news_router(active_settings, conversation_auth), prefix=_news_prefix)
+    for _social_prefix in ("/v1/social", "/api/v1/social"):
+        app.include_router(build_social_router(active_settings, conversation_auth), prefix=_social_prefix)
     from .telephony.router import build_telephony_router
     app.include_router(build_telephony_router(active_settings, service, memory_service, conversation_auth))
     app.state.settings = active_settings
@@ -1288,7 +1314,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         expose_headers=["X-Correlation-ID", "X-Request-Id", "Retry-After", "X-HINAA-Provider", "X-HINAA-Latency-Ms", "X-Trace-Id", "traceparent", "Server-Timing"],
     )
     app.add_middleware(ObservabilityMiddleware)
-    init_otel(app, active_settings)
+    init_otel(app, active_settings, session_factory=session_factory)
 
     @app.get("/health/live")
     @app.get("/api/health")
@@ -1914,6 +1940,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         tenant_id = request.headers.get("X-Tenant-ID", "default_tenant")
         job = await creative_service.cancel_job(job_id, tenant_id)
         return {"jobId": job.job_id, "status": job.state.value}
+
+    @app.post("/api/creative/lyric-video")
+    @app.post("/v1/creative/lyric-video")
+    async def submit_lyric_video(spec: dict[str, Any] = Body(...), request: Request = None) -> Any:
+        """Starts a deterministic motion-graphics lyric-video render (async job)."""
+        from pydantic import ValidationError
+
+        from .creative.lyric_video import LyricVideoSpec
+        from .creative.lyric_video.jobs import lyric_video_service
+        try:
+            parsed = LyricVideoSpec.model_validate(spec)
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail=jsonable_encoder(exc.errors(include_url=False, include_context=False))) from exc
+        job = await lyric_video_service.submit(
+            parsed,
+            tenant_id=request.headers.get("X-Tenant-ID", "default_tenant"),
+            user_id=request.headers.get("X-User-ID", "default_user"),
+        )
+        return JSONResponse(status_code=202, content=job.to_dict())
+
+    @app.get("/api/creative/lyric-video/{job_id}")
+    @app.get("/v1/creative/lyric-video/{job_id}")
+    async def get_lyric_video(job_id: str, request: Request) -> dict[str, Any]:
+        from .creative.lyric_video.jobs import lyric_video_service
+        return lyric_video_service.get(job_id, request.headers.get("X-Tenant-ID", "default_tenant")).to_dict()
+
+    @app.post("/api/creative/lyric-video/{job_id}/cancel")
+    @app.post("/v1/creative/lyric-video/{job_id}/cancel")
+    async def cancel_lyric_video(job_id: str, request: Request) -> dict[str, Any]:
+        from .creative.lyric_video.jobs import lyric_video_service
+        return (await lyric_video_service.cancel(job_id, request.headers.get("X-Tenant-ID", "default_tenant"))).to_dict()
 
     @app.post("/api/creative/jobs/{job_id}/retry")
     @app.post("/v1/creative/jobs/{job_id}/retry")
@@ -2625,8 +2682,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             vmc_bridge.remove_client(ws)
 
-    @app.get("/health")
     @app.get("/healthz")
+    async def process_liveness() -> dict[str, str]:
+        # Liveness only: never touches the DB or providers.
+        return {"status": "ok", "service": "hinaa-api", "version": __version__}
+
+    @app.get("/health")
     async def health_alias() -> JSONResponse:
         return await readiness()
 
@@ -2643,7 +2704,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             missing = active_settings.missing_real_configuration()
         else:
             missing = []
-        ready = not missing
+        database = await check_database(session_factory)
+        ready = not missing and database["ok"]
         # The HTTP code stays a readiness contract: only absent configuration
         # fails it. `status` is held to a higher bar than "the env vars exist",
         # because a deployment whose configured brain never answered used to report
@@ -2658,7 +2720,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "requestedServed": routing["requestedServed"],
                 "fallback": routing["fallback"],
                 "routing": routing["reason"],
-                "missingConfiguration": missing if not ready else [],
+                "missingConfiguration": missing,
+                "database": database,
                 "persistenceEnabled": active_settings.persistence_enabled,
                 "authMode": active_settings.auth_mode,
                 "authSafety": auth_safety_report(active_settings),
@@ -4447,9 +4510,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         tool_def = registry.get_tool(body.toolName)
         if not tool_def:
             raise HTTPException(status_code=404, detail="Tool not found")
+        org_gate.authorize_tool(request, body.toolName)
         verdict = tool_policy.decide(body.toolName, active_settings, request.headers.get("host"))
         if not verdict.permitted:
             raise HinaaError(verdict.code, verdict.message, 403, False, True)
+        tool_policy.check_arguments(body.toolName, body.parameters)
         is_user_approved = body.confirmed and body.approvalSource == "user"
         is_safe_standing_consent = (
             body.confirmed
@@ -4498,7 +4563,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "subagent_fork",
             )
         )
-        if tool_def.requires_confirmation and not (is_user_approved or is_safe_standing_consent):
+        if tool_def.requires_confirmation and not (
+            is_user_approved or is_safe_standing_consent or tool_policy.confirmation_waived(body.toolName)
+        ):
             raise HinaaError(
                 "TOOL_CONFIRMATION_REQUIRED",
                 f"Confirm the {tool_def.display_name} action before HINAA runs it.",
@@ -4642,7 +4709,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     parsed_params = param_type(**parsed_params)
 
             owner = _resolved_tool_owner(server_user_id)
-            return await _execute_registered_tool(tool_def, handler, parsed_params, body, owner)
+            with genai.tool_call(name=body.toolName, call_id=body.id):
+                return await _execute_registered_tool(tool_def, handler, parsed_params, body, owner)
         except HinaaError:
             raise
         except Exception:
@@ -6957,6 +7025,40 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             detail=payload.get("detail"),
         )
         return {"ok": True}
+
+    @app.post("/api/v1/brain/claude")
+    async def brain_claude_turn(request: Request) -> dict[str, Any]:
+        """One Claude-routed agentic turn (native tool loop; confirmations stay pending)."""
+        from .providers.claude_brain import run_claude_turn
+
+        body = await request.json()
+        text = str(body.get("text", "")).strip()
+        if not text:
+            raise HinaaError("INVALID_REQUEST", "text is required", 400, False, True)
+        if not active_settings.claude_configured:
+            raise HinaaError("PROVIDER_CONFIGURATION_MISSING", "Claude is not configured.", 503, False, True)
+        result = await run_claude_turn(
+            active_settings,
+            text,
+            system=body.get("system"),
+            is_voice=bool(body.get("isVoice")),
+            use_tools=bool(body.get("useTools", True)),
+            host_header=request.headers.get("host"),
+            user_id=_resolve_user_id(request),
+        )
+        return {
+            "text": result.text,
+            "model": result.route.model,
+            "tier": result.route.tier,
+            "steps": result.steps,
+            "maxStepsReached": result.max_steps_reached,
+            "toolEvents": [
+                {"tool": e.tool, "status": e.status} for e in result.tool_events
+            ],
+            "pendingConfirmations": [
+                {"tool": e.tool, "parameters": e.input} for e in result.pending_confirmations
+            ],
+        }
 
     @app.post("/api/v1/brain/run")
     async def brain_run_stream(request: Request):

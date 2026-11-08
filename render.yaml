@@ -1,22 +1,80 @@
+# Render Blueprint: managed Postgres + the Hinaa API as a Docker web service.
+# Docs: docs/deploy-hosted.md. Every `sync: false` value is prompted for once
+# in the Render dashboard when the Blueprint is first applied; none live in git.
+databases:
+  - name: hinaa-db
+    databaseName: hinaa
+    user: hinaa
+    plan: basic-256mb   # `free` databases expire after 30 days; use free only to trial
+    region: oregon
+    postgresMajorVersion: "16"
+
 services:
   - type: web
     name: hinaa-api
     runtime: docker
-    dockerfilePath: Dockerfile
-    plan: free
+    dockerfilePath: ./Dockerfile
+    plan: starter       # persistent disks need a paid plan
     region: oregon
-    healthCheckPath: /health
+    healthCheckPath: /health/live
     autoDeploy: true
+    # Blobs / generated media / per-machine caches live under the container user's
+    # home (see docs/deploy-hosted.md for what is and is not in Postgres).
+    disk:
+      name: hinaa-data
+      mountPath: /home/hina
+      sizeGB: 5
     envVars:
+      # --- database (managed Postgres; schema is migrated at startup) ---
+      - key: HINAA_DATABASE_URL
+        fromDatabase:
+          name: hinaa-db
+          property: connectionString
+      - key: HINAA_DB_POOL_SIZE
+        value: "5"
+      # Phase-10 memory (SQLite + FTS5) and other file stores live on the disk.
+      - key: HINAA_DATA_DIR
+        value: /home/hina/data
+      # --- runtime ---
+      - key: PORT
+        value: "8000"
+      - key: ENVIRONMENT
+        value: production
+      - key: HINAA_AUTH_MODE
+        value: clerk
+      - key: HINAA_PERSISTENCE_ENABLED
+        value: "true"
       - key: HINAA_PROVIDER_MODE
         value: real
       - key: GEMINI_MODEL
         value: gemini-3.5-flash
       - key: GEMINI_PLANNER_MODEL
         value: gemini-3.5-flash
+      # --- auth (required by scripts/start-api-container.py; it refuses to boot without them) ---
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: HINAA_ALLOWED_USER_IDS
+        sync: false
+      - key: CLERK_AUTHORIZED_PARTIES
+        sync: false   # e.g. https://hinaa-workspace.vercel.app
+      - key: HINAA_ALLOWED_ORIGINS
+        sync: false   # e.g. https://hinaa-workspace.vercel.app
+      # --- provider keys (optional; set the ones you use) ---
       - key: GEMINI_API_KEY
         sync: false
       - key: CODE_CRAFT_API_KEY
         sync: false
-      - key: HINAA_DATABASE_URL
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: AZURE_SPEECH_KEY
+        sync: false
+      - key: AZURE_SPEECH_REGION
+        sync: false
+      - key: EXA_API_KEY
         sync: false

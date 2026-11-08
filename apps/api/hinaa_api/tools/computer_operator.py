@@ -168,6 +168,15 @@ class ComputerLoopReport(BaseModel):
 # Native Computer-Use Engine v2
 # ---------------------------------------------------------------------------
 
+def _sendkeys_chord(keys: str) -> str:
+    """'ctrl+shift+l' -> '^+l'; anything else passes through unchanged."""
+    parts = [p.strip().lower() for p in keys.split("+")]
+    mods = {"ctrl": "^", "shift": "+", "alt": "%"}
+    if len(parts) < 2 or not all(p in mods for p in parts[:-1]) or len(parts[-1]) != 1:
+        return keys
+    return "".join(mods[p] for p in parts[:-1]) + parts[-1]
+
+
 class NativeComputerOperator:
     """
     General-purpose Autonomous Computer Operator Engine with 3-eye perception,
@@ -705,7 +714,7 @@ class NativeComputerOperator:
                     "alt+tab": "%{TAB}",
                     "space": " ",
                 }
-                mapped = key_map.get(keys.lower(), keys)
+                mapped = key_map.get(keys.lower()) or _sendkeys_chord(keys)
                 ps = f"""
                 $wscript = New-Object -ComObject WScript.Shell
                 $wscript.SendKeys('{mapped}')
@@ -930,6 +939,12 @@ class NativeComputerOperator:
         requiring explicit authorization before sending.
         """
         cls.emit_motion_event("computer_action", f"Draft message for {recipient or app_name}")
+
+        if "whatsapp" in app_name.lower():
+            # Owner rule: WhatsApp only ever goes to the allow-listed chats.
+            from ..integrations.whatsapp_guard import validate_recipient
+
+            validate_recipient(recipient)
         
         if recipient and "whatsapp" in app_name.lower():
             clean_phone = "".join(c for c in recipient if c.isdigit() or c == "+")
@@ -987,6 +1002,10 @@ class NativeComputerOperator:
         """
         Sends the message only if explicit confirmation is provided.
         """
+        if "whatsapp" in app_name.lower():
+            from ..integrations.whatsapp_guard import validate_recipient
+
+            validate_recipient(recipient)
         if not confirmed and not (confirmation_token and confirmation_token in cls._pending_confirmations):
             # Divert to draft_message for safety
             return await cls.draft_message(app_name, text, recipient)

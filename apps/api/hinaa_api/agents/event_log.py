@@ -13,6 +13,7 @@ import threading
 from pathlib import Path
 from typing import AsyncGenerator, List, Optional
 
+from ..persistence import sqlcompat
 from .contracts import TaskEvent, TaskStatus, _now_iso
 
 logger = logging.getLogger("hinaa.agents.event_log")
@@ -22,7 +23,10 @@ class EventLogStore:
     """Thread-safe SQLite-backed append-only task event journal."""
 
     def __init__(self, db_path: Optional[str | Path] = None) -> None:
-        if db_path is None:
+        self._pg = sqlcompat.pg_target(db_path, is_default=db_path is None)
+        if self._pg:
+            self.db_path = Path(":memory:")
+        elif db_path is None:
             try:
                 from ..config import DATA_DIR
                 self.db_path = DATA_DIR / "hinaa_agent_events.db"
@@ -32,11 +36,14 @@ class EventLogStore:
         else:
             self.db_path = Path(db_path)
 
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        if not self._pg:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
+        if self._pg:
+            return sqlcompat.connect_pg(self._pg, autocommit=True)  # type: ignore[return-value]
         if str(self.db_path) == ":memory:":
             if not hasattr(self, "_mem_conn") or self._mem_conn is None:
                 self._mem_conn = sqlite3.connect(":memory:", check_same_thread=False, isolation_level=None)

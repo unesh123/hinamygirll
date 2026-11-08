@@ -931,6 +931,7 @@ class TestGroupI_ResilienceFailClosedPerformance:
         keystore = sec_suite["keystore"]
         assert keystore.get_secret("NONEXISTENT_KEY_XYZ") is None
 
+    @pytest.mark.skipif(bool(os.environ.get("HINAA_TEST_DATABASE_URL")), reason="SQLite file-path specific")
     def test_s15_70_migration_and_rollback_safety(self, tmp_path: Path):
         """S15-70 [I]: Calling _init_db multiple times is idempotent and safe."""
         db_path = tmp_path / "idempotent.db"

@@ -11,7 +11,12 @@ from uuid import uuid4
 
 _TEST_STATE = Path(__file__).resolve().parents[3] / ".runtime" / "test-state" / uuid4().hex
 _TEST_STATE.mkdir(parents=True, exist_ok=True)
-os.environ["HINAA_DATABASE_URL"] = f"sqlite+pysqlite:///{_TEST_STATE / 'test.db'}"
+# Opt-in: run the suite against a real Postgres (CI service container or local).
+TEST_PG_URL = os.environ.get("HINAA_TEST_DATABASE_URL", "").strip()
+os.environ["HINAA_DATABASE_URL"] = TEST_PG_URL or f"sqlite+pysqlite:///{_TEST_STATE / 'test.db'}"
+if TEST_PG_URL:
+    os.environ.setdefault("HINAA_DB_POOL_SIZE", "2")
+    os.environ.setdefault("HINAA_DB_MAX_OVERFLOW", "3")
 os.environ["HINAA_LOCAL_WORKSPACE_DIR"] = str(_TEST_STATE / "workspace")
 os.environ["HINAA_ASSET_STORE_DIR"] = str(_TEST_STATE / "assets")
 os.environ["HINAA_VMC_PORT"] = "0"
@@ -57,12 +62,64 @@ def settings() -> Settings:
         CX_GATEWAY_API_KEY="",
         CX_GATEWAY_BASE_URL="",
         ELEVENLABS_API_KEY="",
-        HINAA_DATABASE_URL="sqlite+pysqlite:///:memory:",
+        HINAA_DATABASE_URL=TEST_PG_URL or "sqlite+pysqlite:///:memory:",
         HINAA_AUTH_MODE="dev",
         HINAA_PERSISTENCE_ENABLED=True,
         HINAA_VMC_PORT=0,
         _env_file=None,
     )
+
+
+@pytest.fixture(autouse=True)
+def _clean_postgres_state(monkeypatch, request):
+    """With a Postgres test database, give every test empty tables and route
+    file-path raw-SQL stores (tmp-dir .db files) to Postgres too; ``:memory:``
+    stores stay on SQLite."""
+    if not TEST_PG_URL or request.module.__name__.endswith("test_postgres_support"):
+        yield
+        return
+    from sqlalchemy import text
+
+    from hinaa_api.persistence import db as persistence_db
+    from hinaa_api.persistence import sqlcompat
+
+    original = sqlcompat.pg_target
+
+    def _pg_target(db_path, *, is_default):
+        if str(db_path) == ":memory:":
+            return None
+        return original(TEST_PG_URL, is_default=True)
+
+    monkeypatch.setattr(sqlcompat, "pg_target", _pg_target)
+    created_engines: list = []
+    real_make_engine = persistence_db.make_engine
+
+    def _tracking_make_engine(url):
+        created = real_make_engine(url)
+        created_engines.append(created)
+        return created
+
+    monkeypatch.setattr(persistence_db, "make_engine", _tracking_make_engine)
+    engine = persistence_db.make_engine(TEST_PG_URL)
+    with engine.begin() as conn:
+        tables = conn.execute(
+            text(
+                "SELECT quote_ident(schemaname) || '.' || quote_ident(tablename) FROM pg_tables "
+                "WHERE schemaname IN ('public', :rt) "
+                "AND tablename NOT IN ('schema_migrations', 'alembic_version')"
+            ),
+            {"rt": sqlcompat.RUNTIME_SCHEMA},
+        ).scalars().all()
+        if tables:
+            conn.execute(text("TRUNCATE " + ", ".join(tables) + " RESTART IDENTITY CASCADE"))
+    engine.dispose()
+    persistence_db.reset_session_factory()
+    yield
+    # Apps built per test leave engines behind; dispose them so a long run stays
+    # under Postgres' max_connections.
+    persistence_db.reset_session_factory()
+    for created in created_engines:
+        created.dispose()
 
 
 @pytest.fixture(autouse=True)

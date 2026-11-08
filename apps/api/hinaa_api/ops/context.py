@@ -8,6 +8,8 @@ import re
 import uuid
 from datetime import UTC, datetime
 
+from .otel import current_ids
+
 request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("hinaa_request_id", default="-")
 trace_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("hinaa_trace_id", default="-")
 user_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("hinaa_user_id", default="-")
@@ -49,6 +51,9 @@ class RequestContextFilter(logging.Filter):
         record.request_id = request_id_var.get()
         record.trace_id = trace_id_var.get()
         record.user_id = user_id_var.get()
+        ids = current_ids()
+        if ids:
+            record.trace_id, record.span_id = ids
         return True
 
 
@@ -62,6 +67,9 @@ class JsonFormatter(logging.Formatter):
             "request_id": getattr(record, "request_id", request_id_var.get()),
             "trace_id": getattr(record, "trace_id", trace_id_var.get()),
         }
+        span_id = getattr(record, "span_id", None)
+        if span_id:
+            payload["span_id"] = span_id
         user = getattr(record, "user_id", user_id_var.get())
         if user != "-":
             payload["user_id"] = user

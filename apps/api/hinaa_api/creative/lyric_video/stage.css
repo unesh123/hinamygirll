@@ -1,0 +1,23 @@
+*{margin:0;padding:0;box-sizing:border-box;animation:none!important;transition:none!important}
+html,body{background:#000;overflow:hidden}
+#stage{position:relative;overflow:hidden;background:#222;
+  font-family:"Baloo 2","Fredoka","Nunito","Arial Rounded MT Bold","Noto Sans Devanagari","DejaVu Sans","FreeSans",sans-serif}
+#world{position:absolute;inset:0;will-change:transform}
+.scene,.layer{position:absolute;inset:0}
+.scene svg{position:absolute;left:0;top:0;display:block}
+.p{position:absolute;left:0;top:0;will-change:transform}
+#char{position:absolute;left:0;top:0;transform-origin:50% 100%;
+  filter:drop-shadow(0 0 5px #fff) drop-shadow(0 0 2px #fff) drop-shadow(0 16px 20px rgba(70,20,110,.35))}
+#char svg,#char img{display:block;width:100%;height:100%}
+#char img{object-fit:contain}
+.row{position:absolute;left:0;width:100%;display:flex;justify-content:center;align-items:center;gap:.22em}
+.word{display:inline-block;font-weight:800;line-height:1;white-space:nowrap;letter-spacing:.01em;
+  -webkit-text-stroke-linejoin:round;paint-order:stroke fill;will-change:transform,opacity}
+.sticker{position:absolute;left:0;top:0;white-space:nowrap;font-weight:800;color:#7a2d9b;
+  background:#fff;border-radius:999px;border:4px dashed #ff8fcf;
+  box-shadow:0 0 0 8px #fff,0 14px 24px rgba(80,20,110,.35);will-change:transform}
+#fx{position:absolute;inset:0;pointer-events:none}
+#vig{background:radial-gradient(ellipse at 50% 45%,rgba(255,255,255,0) 55%,rgba(60,10,90,.28) 100%)}
+#flash{background:#fff;opacity:0}
+#title{position:absolute;left:50%;white-space:nowrap;font-weight:800;color:#fff;
+  background:rgba(120,40,170,.55);border-radius:999px;padding:.25em .9em;border:3px solid rgba(255,255,255,.8)}

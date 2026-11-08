@@ -1,0 +1,56 @@
+# Reviewer stack: `docker compose up --build` then open http://localhost:8080
+#   web  -> static Vite build served by nginx, proxying /api, /v1, /health to api
+#   api  -> Hinaa API (dev auth, mock providers; no keys needed)
+#   db   -> Postgres 16 (the API migrates the schema on startup)
+# Not for production: see render.yaml / compose.production.yaml.
+name: hinaa
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: hinaa
+      POSTGRES_PASSWORD: hinaa-dev-only
+      POSTGRES_DB: hinaa
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hinaa -d hinaa"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      HINAA_DATABASE_URL: postgresql+psycopg://hinaa:hinaa-dev-only@db:5432/hinaa
+      ENVIRONMENT: development
+      HINAA_AUTH_MODE: dev
+      HINAA_PROVIDER_MODE: mock
+      HINAA_PERSISTENCE_ENABLED: "true"
+      HINAA_ALLOWED_ORIGINS: http://localhost:8080
+      HINAA_DATA_DIR: /home/hina/data
+    # The image entrypoint enforces production-only settings; run uvicorn directly here.
+    command: ["uvicorn", "hinaa_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    volumes:
+      - apihome:/home/hina
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/compose/web.Dockerfile
+    depends_on:
+      - api
+    ports:
+      - "127.0.0.1:8080:80"
+
+volumes:
+  pgdata:
+  apihome:

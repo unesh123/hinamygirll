@@ -50,6 +50,9 @@ LOCAL_EFFECT_TOOLS: frozenset[str] = frozenset(
         "computer_operator",
         "terminal_hands",
         "system_info",
+        "build_with_ide",
+        "whatsapp_send",
+        "whatsapp_status",
     }
 )
 
@@ -63,6 +66,8 @@ IRREVERSIBLE_EXTERNAL_TOOLS: frozenset[str] = frozenset(
         "github_create_issue",
         "user_preference_update",
         "phone_call_user",
+        "whatsapp_send",
+        "social_publish",
     }
 )
 
@@ -187,6 +192,30 @@ def decide(tool_name: str, settings: "Settings", host_header: str | None) -> Ver
             "authorize external sending or publishing.",
         )
     return Verdict(True)
+
+
+def check_arguments(tool_name: str, parameters: dict[str, Any] | None) -> None:
+    """Argument-level rules that no confirmation or Host check can waive.
+
+    WhatsApp layer 2: whatever the caller, whichever dispatch path, a send to
+    anything but an allow-listed chat is refused here before the handler runs.
+    """
+    if tool_name != "whatsapp_send":
+        return
+    from ..integrations.whatsapp_guard import validate_message, validate_recipient
+
+    params = parameters or {}
+    validate_recipient(params.get("recipient"))
+    validate_message(params.get("message"))
+
+
+def confirmation_waived(tool_name: str) -> bool:
+    """Opt-in: HINAA_WHATSAPP_AUTOSEND_TO_ALLOWED skips confirmation for allow-listed sends only."""
+    if tool_name != "whatsapp_send":
+        return False
+    from ..integrations.whatsapp_guard import autosend_enabled
+
+    return autosend_enabled()
 
 
 _request_host: ContextVar[str | None] = ContextVar("hinaa_request_host", default=None)

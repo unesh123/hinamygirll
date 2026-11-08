@@ -1312,7 +1312,9 @@ class ProviderRouter:
         # (https://api.experientiallabs.ai/v1) using EXPLABS_API_KEY via OpenAI Chat Completions
         if mode == "experiential" or (
             mode not in {"mock", "local", "oxion", "cavoti", "tokentable"}
-            and brain_model and brain_model.strip() in {"claude-opus-5.5", "claude-opus-5-5"}
+            and brain_model
+            # "claude-opus-5-5" is Anthropic's own ID; only mode "claude" must not divert it.
+            and brain_model.strip() in ({"claude-opus-5.5"} if mode == "claude" else {"claude-opus-5.5", "claude-opus-5-5"})
         ):
             self._require_experiential_brain()
             active_explabs_key = self.settings.active_explabs_key
@@ -1406,7 +1408,7 @@ class ProviderRouter:
                     retryable=False,
                     user_action_required=True,
                 ) from error
-            if model in {"claude-opus-5.5", "claude-opus-5-5"}:
+            if model == "claude-opus-5.5":
                 self._require_experiential_brain()
                 active_explabs_key = self.settings.active_explabs_key
                 assert active_explabs_key
@@ -1427,6 +1429,8 @@ class ProviderRouter:
                 api_key=active_claude_key.get_secret_value(),
                 model=model,
                 base_url=active_claude_base_url,
+                auto_route=not (brain_model or "").strip(),
+                settings=self.settings,
             )
         if mode == "qwen":
             self._require_qwen_brain()

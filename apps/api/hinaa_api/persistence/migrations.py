@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -74,7 +76,7 @@ def _migration_0002_explicit_memories_expires_at(engine: Engine) -> None:
         cols = [c["name"] for c in inspector.get_columns("explicit_memories")]
         if "expires_at" not in cols:
             with engine.begin() as conn:
-                conn.execute(text("ALTER TABLE explicit_memories ADD COLUMN expires_at DATETIME;"))
+                conn.execute(text("ALTER TABLE explicit_memories ADD COLUMN expires_at TIMESTAMP;"))
             logger.info("Applied migration: added expires_at to explicit_memories")
 
 
@@ -226,9 +228,9 @@ def _migration_0011_task_runtime_hardening(engine: Engine) -> None:
         if "fencing_token" not in cols:
             statements.append("ALTER TABLE durable_tasks ADD COLUMN fencing_token INTEGER DEFAULT 0;")
         if "lease_acquired_at" not in cols:
-            statements.append("ALTER TABLE durable_tasks ADD COLUMN lease_acquired_at DATETIME;")
+            statements.append("ALTER TABLE durable_tasks ADD COLUMN lease_acquired_at TIMESTAMP;")
         if "lease_expires_at" not in cols:
-            statements.append("ALTER TABLE durable_tasks ADD COLUMN lease_expires_at DATETIME;")
+            statements.append("ALTER TABLE durable_tasks ADD COLUMN lease_expires_at TIMESTAMP;")
         with engine.begin() as conn:
             for statement in statements:
                 conn.execute(text(statement))
@@ -241,9 +243,9 @@ def _migration_0011_task_runtime_hardening(engine: Engine) -> None:
         if "max_attempts" not in cols:
             statements.append("ALTER TABLE durable_task_steps ADD COLUMN max_attempts INTEGER DEFAULT 3;")
         if "retry_after" not in cols:
-            statements.append("ALTER TABLE durable_task_steps ADD COLUMN retry_after DATETIME;")
+            statements.append("ALTER TABLE durable_task_steps ADD COLUMN retry_after TIMESTAMP;")
         if "deadline_at" not in cols:
-            statements.append("ALTER TABLE durable_task_steps ADD COLUMN deadline_at DATETIME;")
+            statements.append("ALTER TABLE durable_task_steps ADD COLUMN deadline_at TIMESTAMP;")
         with engine.begin() as conn:
             for statement in statements:
                 conn.execute(text(statement))
@@ -314,6 +316,39 @@ def _migration_0016_productivity_tables(engine: Engine) -> None:
             logger.info("Applied migration: created table %s", table.name)
 
 
+def _migration_0017_news_and_social(engine: Engine) -> None:
+    """News watchlists/digests, encrypted social tokens, publish log, content-post media columns."""
+    from .orm import NewsDigest, NewsWatchlist, SocialPublishLog, SocialToken
+
+    existing = set(inspect(engine).get_table_names())
+    for table in (NewsWatchlist.__table__, NewsDigest.__table__, SocialToken.__table__, SocialPublishLog.__table__):
+        if table.name not in existing:
+            table.create(engine, checkfirst=True)
+            logger.info("Applied migration: created table %s", table.name)
+    inspector = inspect(engine)
+    if "content_posts" in set(inspector.get_table_names()):
+        cols = {c["name"] for c in inspector.get_columns("content_posts")}
+        for name, ddl in (
+            ("media_path", "VARCHAR(500)"),
+            ("publish_privacy", "VARCHAR(20)"),
+            ("external_id", "VARCHAR(100)"),
+            ("external_url", "VARCHAR(300)"),
+        ):
+            if name not in cols:
+                with engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE content_posts ADD COLUMN {name} {ddl}"))
+
+
+def _migration_0018_identity(engine: Engine) -> None:
+    """Organisations, memberships, scoped API keys and the hash-chained audit log."""
+    from ..orgs.models import IDENTITY_TABLES
+
+    existing = set(inspect(engine).get_table_names())
+    for table in IDENTITY_TABLES:
+        if table.name not in existing:
+            table.create(engine, checkfirst=True)
+
+
 MIGRATIONS: list[tuple[str, str, Callable[[Engine], None]]] = [
     ("0001", "initial_schema", _migration_0001_initial_schema),
     ("0002", "explicit_memories_expires_at", _migration_0002_explicit_memories_expires_at),
@@ -331,11 +366,37 @@ MIGRATIONS: list[tuple[str, str, Callable[[Engine], None]]] = [
     ("0014", "reminders", _migration_0014_reminders),
     ("0015", "reminder_place_call", _migration_0015_reminder_place_call),
     ("0016", "productivity_tables", _migration_0016_productivity_tables),
+    ("0017", "news_and_social", _migration_0017_news_and_social),
+    ("0018", "identity", _migration_0018_identity),
 ]
+
+
+_PG_MIGRATION_LOCK_ID = 7_304_118_001
+
+
+@contextmanager
+def _migration_lock(engine: Engine) -> Iterator[None]:
+    """Serialise concurrent startups on Postgres; no-op elsewhere."""
+    if engine.dialect.name != "postgresql":
+        yield
+        return
+    with engine.connect() as lock_conn:
+        lock_conn.execute(text("SELECT pg_advisory_lock(:id)"), {"id": _PG_MIGRATION_LOCK_ID})
+        lock_conn.commit()
+        try:
+            yield
+        finally:
+            lock_conn.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": _PG_MIGRATION_LOCK_ID})
+            lock_conn.commit()
 
 
 def run_migrations(engine: Engine) -> list[str]:
     """Execute any unapplied migrations in ascending version order."""
+    with _migration_lock(engine):
+        return _run_migrations_locked(engine)
+
+
+def _run_migrations_locked(engine: Engine) -> list[str]:
     ensure_migrations_table(engine)
 
     table = get_schema_migrations_table()

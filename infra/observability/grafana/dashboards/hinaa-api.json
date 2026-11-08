@@ -1,0 +1,99 @@
+{
+  "uid": "hinaa-api-overview",
+  "title": "HINAA API — Requests, LLM & Tools",
+  "tags": ["hinaa", "observability"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "row", "title": "HTTP", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }, "panels": []
+    },
+    {
+      "id": 2, "type": "timeseries", "title": "Request rate by route (req/s)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "{{route}}", "expr": "sum by (route) (rate(hinaa_http_requests_total[5m]))" }
+      ]
+    },
+    {
+      "id": 3, "type": "timeseries", "title": "Request latency (p50 / p95 / p99)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "p50", "expr": "histogram_quantile(0.50, sum by (le) (rate(hinaa_http_request_duration_seconds_bucket[5m])))" },
+        { "refId": "B", "legendFormat": "p95", "expr": "histogram_quantile(0.95, sum by (le) (rate(hinaa_http_request_duration_seconds_bucket[5m])))" },
+        { "refId": "C", "legendFormat": "p99", "expr": "histogram_quantile(0.99, sum by (le) (rate(hinaa_http_request_duration_seconds_bucket[5m])))" }
+      ]
+    },
+    {
+      "id": 4, "type": "timeseries", "title": "5xx error ratio",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0 }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "5xx / total", "expr": "sum(rate(hinaa_http_requests_total{status=~\"5..\"}[5m])) / clamp_min(sum(rate(hinaa_http_requests_total[5m])), 1e-9)" }
+      ]
+    },
+    {
+      "id": 5, "type": "row", "title": "LLM", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 }, "panels": []
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "LLM latency p95 by model",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "{{model}} p95", "expr": "histogram_quantile(0.95, sum by (le, model) (rate(hinaa_llm_request_duration_seconds_bucket[5m])))" },
+        { "refId": "B", "legendFormat": "{{model}} p50", "expr": "histogram_quantile(0.50, sum by (le, model) (rate(hinaa_llm_request_duration_seconds_bucket[5m])))" }
+      ]
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Tokens/s by model and type",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "{{model}} {{type}}", "expr": "sum by (model, type) (rate(hinaa_llm_tokens_total[5m]))" }
+      ]
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "LLM requests by outcome",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "{{model}} {{outcome}}", "expr": "sum by (model, outcome) (rate(hinaa_llm_requests_total[5m]))" }
+      ]
+    },
+    {
+      "id": 9, "type": "row", "title": "Tools", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 }, "panels": []
+    },
+    {
+      "id": 10, "type": "timeseries", "title": "Tool calls/s by tool and outcome",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 19 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "{{tool}} {{outcome}}", "expr": "sum by (tool, outcome) (rate(hinaa_tool_calls_total[5m]))" }
+      ]
+    },
+    {
+      "id": 11, "type": "timeseries", "title": "Tool latency p95 by tool",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 19 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "{{tool}}", "expr": "histogram_quantile(0.95, sum by (le, tool) (rate(hinaa_tool_duration_seconds_bucket[5m])))" }
+      ]
+    }
+  ]
+}

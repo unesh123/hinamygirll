@@ -70,6 +70,10 @@ def post_public(row: ContentPost) -> dict[str, Any]:
         "status": row.status,
         "tags": _split_tags(row.tags),
         "notes": row.notes,
+        "mediaPath": row.media_path,
+        "publishPrivacy": row.publish_privacy,
+        "externalId": row.external_id,
+        "externalUrl": row.external_url,
         "createdAt": row.created_at.isoformat() if row.created_at else None,
         "updatedAt": row.updated_at.isoformat() if row.updated_at else None,
     }
@@ -92,6 +96,8 @@ def create_post(settings: Settings | None, user_id: str, data: ContentPostCreate
         status=data.status,
         tags=_tag_string(data.tags),
         notes=data.notes,
+        media_path=data.mediaPath,
+        publish_privacy=data.publishPrivacy,
     )
     with session_factory(settings)() as session:
         session.add(row)
@@ -116,6 +122,10 @@ def update_post(
                 row.scheduled_for = value
             elif field == "tags":
                 row.tags = _tag_string(value)
+            elif field == "mediaPath":
+                row.media_path = value
+            elif field == "publishPrivacy":
+                row.publish_privacy = value
             else:
                 setattr(row, field, value)
         session.commit()

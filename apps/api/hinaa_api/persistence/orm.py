@@ -769,6 +769,11 @@ class ContentPost(Base):
     status: Mapped[str] = mapped_column(String(20), default="idea")
     tags: Mapped[str] = mapped_column(Text(), default="")  # comma separated
     notes: Mapped[str] = mapped_column(Text(), default="")
+    # Social publishing link (migration 0017); nullable so older rows stay valid.
+    media_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    publish_privacy: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    external_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    external_url: Mapped[str | None] = mapped_column(String(300), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -806,3 +811,70 @@ class Project(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class NewsWatchlist(Base):
+    """A user's standing news interest; topics/keywords/sources are JSON lists."""
+
+    __tablename__ = "news_watchlists"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    topics: Mapped[str] = mapped_column(Text(), default="[]")
+    keywords: Mapped[str] = mapped_column(Text(), default="[]")
+    sources: Mapped[str] = mapped_column(Text(), default="[]")  # feed URLs
+    cadence: Mapped[str] = mapped_column(String(10), default="daily")  # manual|hourly|daily
+    daily_hour: Mapped[int] = mapped_column(Integer, default=8)  # Nepal time
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class NewsDigest(Base):
+    __tablename__ = "news_digests"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    watchlist_id: Mapped[str] = mapped_column(String(36), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    items: Mapped[str] = mapped_column(Text(), default="[]")  # [{text, urls:[...]}]
+    sources: Mapped[str] = mapped_column(Text(), default="[]")  # every fetched URL cited
+    generated_by: Mapped[str] = mapped_column(String(20), default="extractive")
+    article_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class SocialToken(Base):
+    """Encrypted OAuth credentials per user and provider (see social/crypto.py)."""
+
+    __tablename__ = "social_tokens"
+    __table_args__ = (UniqueConstraint("user_id", "provider", name="uq_social_tokens_user_provider"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    provider: Mapped[str] = mapped_column(String(20))
+    ciphertext: Mapped[str] = mapped_column(Text())
+    scopes: Mapped[str] = mapped_column(Text(), default="")
+    account_label: Mapped[str] = mapped_column(String(200), default="")
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SocialPublishLog(Base):
+    """Audit trail of every publish attempt, successful or not."""
+
+    __tablename__ = "social_publish_log"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    platform: Mapped[str] = mapped_column(String(20))
+    post_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    title: Mapped[str] = mapped_column(String(200), default="")
+    privacy: Mapped[str] = mapped_column(String(20), default="private")
+    publish_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    status: Mapped[str] = mapped_column(String(20))  # published|failed
+    external_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error: Mapped[str] = mapped_column(Text(), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -18,6 +18,8 @@ from . import github_tools
 from . import github_mcp_tool
 from . import reminder
 from . import productivity
+from . import news
+from . import social
 from . import phone_call
 from . import terminal_hands
 from . import browser_cloud
@@ -26,11 +28,14 @@ from . import prodcamp
 from . import social_reach
 from . import computer_operator
 from . import ui_control
+from . import ide_workflow
+from . import whatsapp
 from . import exa_tool
 from . import coding_agent_tool
 from . import treg_gateway
 from . import ugc_trend_extractor
 from . import html_anime
+from . import lyric_video_tool
 from . import mobile_artemis
 from . import clean_room_loop
 from . import subagent_fork

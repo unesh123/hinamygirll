@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+
+from ..persistence import sqlcompat
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -36,6 +38,7 @@ class GoalStore:
 
     def __init__(self, db_path: str = "hinaa_autopilot.db"):
         self.db_path = db_path
+        self._pg = sqlcompat.pg_target(db_path, is_default=db_path == "hinaa_autopilot.db")
         self._mem_conn: Optional[sqlite3.Connection] = None
         if self.db_path == ":memory:":
             self._mem_conn = sqlite3.connect(":memory:", check_same_thread=False)
@@ -45,6 +48,8 @@ class GoalStore:
     def _get_connection(self) -> sqlite3.Connection:
         if self._mem_conn is not None:
             return self._mem_conn
+        if self._pg:
+            return sqlcompat.connect_pg(self._pg)
         conn = sqlite3.connect(self.db_path, timeout=15.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
@@ -144,6 +149,9 @@ class GoalStore:
                     FOREIGN KEY (goal_id) REFERENCES goals(goal_id) ON DELETE CASCADE
                 )
                 """)
+                if self._pg:
+                    # Milestone order is insertion order; SQLite gets it from rowid.
+                    conn.execute("ALTER TABLE goal_milestones ADD COLUMN IF NOT EXISTS row_seq BIGSERIAL")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_milestones_goal_ver ON goal_milestones(goal_id, plan_version_id)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_milestones_status ON goal_milestones(status)")
 
@@ -444,7 +452,10 @@ class GoalStore:
                 return None
             plan_version_id = p_row["plan_version_id"]
 
-            cur.execute("SELECT * FROM goal_milestones WHERE plan_version_id = ?", (plan_version_id,))
+            cur.execute(
+                f"SELECT * FROM goal_milestones WHERE plan_version_id = ? ORDER BY {'row_seq' if self._pg else 'rowid'}",
+                (plan_version_id,),
+            )
             ms_rows = cur.fetchall()
             milestones = [self._row_to_milestone(conn, r) for r in ms_rows]
 

@@ -1,0 +1,12 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: hinaa-api
+    metrics_path: /metrics
+    # /metrics is loopback-only unless HINAA_METRICS_TOKEN is set on the API.
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/metrics_token
+    static_configs:
+      - targets: ["host.docker.internal:8000"]

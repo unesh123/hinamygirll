@@ -111,9 +111,14 @@ class WorkspaceScanner:
         results = []
         regex = re.compile(rf"\b(def|class|function|interface|type)\s+([a-zA-Z0-9_]*{re.escape(query)}[a-zA-Z0-9_]*)", re.IGNORECASE)
 
+        def ranked(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            # Exact-name definitions first, so "divide" beats "test_divide".
+            return sorted(items, key=lambda r: r["symbol"].lower() != query.lower())
+
+        # Sorted walk: os.walk order is filesystem-dependent.
         for root, dirs, files in os.walk(self.root_path):
-            dirs[:] = [d for d in dirs if d not in _IGNORED_DIRS]
-            for file in files:
+            dirs[:] = sorted(d for d in dirs if d not in _IGNORED_DIRS)
+            for file in sorted(files):
                 if not (file.endswith(".py") or file.endswith(".ts") or file.endswith(".js")):
                     continue
                 file_path = Path(root) / file
@@ -131,11 +136,11 @@ class WorkspaceScanner:
                                     "context": line.strip(),
                                 })
                                 if len(results) >= max_results:
-                                    return results
+                                    return ranked(results)
                 except Exception:
                     continue
 
-        return results
+        return ranked(results)
 
     def find_files(self, pattern: str, max_results: int = 30) -> List[str]:
         """Finds relative file paths matching glob/name pattern."""

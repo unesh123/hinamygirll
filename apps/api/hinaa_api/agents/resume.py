@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from ..persistence import sqlcompat
 from .contracts import (
     BudgetLedger,
     TaskNode,
@@ -30,7 +31,10 @@ class TaskStore:
     """Thread-safe SQLite store for TaskSpec, TaskNode, and worker leases."""
 
     def __init__(self, db_path: Optional[str | Path] = None) -> None:
-        if db_path is None:
+        self._pg = sqlcompat.pg_target(db_path, is_default=db_path is None)
+        if self._pg:
+            self.db_path = Path(":memory:")
+        elif db_path is None:
             try:
                 from ..config import DATA_DIR
                 self.db_path = DATA_DIR / "hinaa_agent_tasks.db"
@@ -40,11 +44,14 @@ class TaskStore:
         else:
             self.db_path = Path(db_path)
 
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        if not self._pg:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
+        if self._pg:
+            return sqlcompat.connect_pg(self._pg, autocommit=True)  # type: ignore[return-value]
         if str(self.db_path) == ":memory:":
             if not hasattr(self, "_mem_conn") or self._mem_conn is None:
                 self._mem_conn = sqlite3.connect(":memory:", check_same_thread=False, isolation_level=None)
@@ -127,7 +134,7 @@ class TaskStore:
                         artifacts_json = excluded.artifacts_json,
                         updated_at = excluded.updated_at,
                         completed_at = excluded.completed_at,
-                        version = version + 1
+                        version = tasks.version + 1
                     """,
                     (
                         task.task_id,

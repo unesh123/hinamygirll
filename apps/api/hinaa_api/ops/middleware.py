@@ -17,6 +17,7 @@ from .context import (
     trace_id_var,
     user_id_var,
 )
+from .otel import current_ids
 
 access_logger = logging.getLogger("hinaa.access")
 
@@ -59,6 +60,15 @@ class ObservabilityMiddleware:
                 trace_id = new_request_id()
                 # Inner middleware honours X-Trace-Id, keeping one id end-to-end.
                 scope["headers"] = [*scope["headers"], (b"x-trace-id", trace_id.encode())]
+
+        ids = current_ids()
+        if ids:
+            # The OTel request span is authoritative; inner middleware reads X-Trace-Id.
+            trace_id = ids[0]
+            scope["headers"] = [
+                *(h for h in scope["headers"] if h[0] != b"x-trace-id"),
+                (b"x-trace-id", trace_id.encode()),
+            ]
 
         rid_token = request_id_var.set(request_id)
         tid_token = trace_id_var.set(trace_id)
