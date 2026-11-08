@@ -67,6 +67,7 @@ IRREVERSIBLE_EXTERNAL_TOOLS: frozenset[str] = frozenset(
         "user_preference_update",
         "phone_call_user",
         "whatsapp_send",
+        "social_publish",
     }
 )
 

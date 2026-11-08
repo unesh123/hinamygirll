@@ -55,6 +55,7 @@ from .brain_ledger import (
 )
 from .reachability import is_ephemeral_tunnel, probe_gateway, probe_gateway_models
 from .reminder_scheduler import run_scheduler as run_reminder_scheduler
+from .news.scheduler import run_scheduler as run_news_scheduler
 from .telephony.router import is_webhook_path as is_telephony_webhook
 from .ops import metrics
 from .ops.context import configure_logging, user_id_var
@@ -995,6 +996,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ),
                 name="hinaa-reminder-scheduler",
             )
+        news_task = None
+        if active_settings.news_scheduler_enabled and active_settings.persistence_enabled:
+            news_task = asyncio.create_task(
+                run_news_scheduler(
+                    settings=active_settings,
+                    stop=scheduler_stop,
+                    tick_seconds=active_settings.news_tick_seconds,
+                ),
+                name="hinaa-news-scheduler",
+            )
         # Autonomous Heartbeat Daemon initialization & background loop
         from .intelligence.heartbeat import heartbeat_daemon
         heartbeat_daemon.initialize(
@@ -1025,6 +1036,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scheduler_stop.set()
         if scheduler_task is not None:
             await asyncio.gather(scheduler_task, return_exceptions=True)
+        if news_task is not None:
+            await asyncio.gather(news_task, return_exceptions=True)
         tasks = [*project_tasks.values(), *tool_tasks]
         for task in tasks:
             task.cancel()
@@ -1061,6 +1074,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from .productivity.router import build_productivity_router
     for _prod_prefix in ("/v1/productivity", "/api/v1/productivity"):
         app.include_router(build_productivity_router(active_settings, conversation_auth), prefix=_prod_prefix)
+    from .news.router import build_news_router
+    from .social.router import build_social_router
+    for _news_prefix in ("/v1/news", "/api/v1/news"):
+        app.include_router(build_news_router(active_settings, conversation_auth), prefix=_news_prefix)
+    for _social_prefix in ("/v1/social", "/api/v1/social"):
+        app.include_router(build_social_router(active_settings, conversation_auth), prefix=_social_prefix)
     from .telephony.router import build_telephony_router
     app.include_router(build_telephony_router(active_settings, service, memory_service, conversation_auth))
     app.state.settings = active_settings

@@ -136,3 +136,6 @@ apps/api/persona_check_output.txt
 /*.exe
 apps/web/*.png
 apps/web/scratch/
+
+# Test runs launched from apps/api write here
+apps/api/apps/
