@@ -1,0 +1,25 @@
+title = "Hinaa gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fake keys used by test fixtures, docs and example env files"
+paths = [
+  '''apps/api/tests/.*''',
+  '''apps/api/test_.*\.py''',
+  '''apps/web/(src|e2e|tests?)/.*\.(test|spec)\.[tj]sx?''',
+  '''\.env\.example''',
+  '''\.env\.production\.example''',
+  '''pnpm-lock\.yaml''',
+  '''apps/api/uv\.lock''',
+  '''docs/.*''',
+  # Vendored third-party skill docs; their examples use placeholders like YOUR_SECRET_KEY.
+  '''\.agents/skills/.*''',
+]
+regexes = [
+  # localStorage key names, not credentials
+  '''hinaa\.[a-z0-9.-]+\.v[0-9]+''',
+  # Fake JWT ({"sub":"1234567890"}) used as scrubber benchmark input
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.doNotLeakThisSignature''',
+]

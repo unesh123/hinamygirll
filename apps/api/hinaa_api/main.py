@@ -56,6 +56,13 @@ from .brain_ledger import (
 from .reachability import is_ephemeral_tunnel, probe_gateway, probe_gateway_models
 from .reminder_scheduler import run_scheduler as run_reminder_scheduler
 from .telephony.router import is_webhook_path as is_telephony_webhook
+from .ops import metrics
+from .ops.context import configure_logging, user_id_var
+from .ops.middleware import BodyLimitMiddleware, ObservabilityMiddleware
+from .ops.ratelimit import EXEMPT_PATHS as RATE_EXEMPT_PATHS
+from .ops.ratelimit import TokenBucketLimiter, client_ip
+from .ops.ratelimit import is_expensive as rate_is_expensive
+from .ops.setup import cors_settings, init_otel, init_sentry
 from .realtime import RealtimeGateway
 from .run_ledger import get_run_ledger
 from .services import ConversationService
@@ -441,11 +448,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Exception:` in the realtime turn loop did not log at all. This is why
     # turn failures looked like an unexplained "connection lost" with zero
     # server-side trace to diagnose from.
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    configure_logging("text")
     active_settings = settings or get_settings()
+    configure_logging(active_settings.log_format)
+    init_sentry(active_settings)
+    rate_limiter = TokenBucketLimiter()
+    metrics.PROCESS_START.set_to_current_time()
     reset_session_factory()
     session_factory = init_db(active_settings) if active_settings.persistence_enabled else None
     memory_service = (
@@ -1084,17 +1092,53 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.coding_service = CodingService()
     from .creative import creative_service
     app.state.creative_service = creative_service
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=active_settings.allowed_origins,
-        allow_origin_regex=r"https://.*\.vercel\.app",
-        allow_credentials=False,
-        allow_methods=["GET", "POST", "DELETE", "PATCH", "OPTIONS"],
-        allow_headers=["*"],
-        expose_headers=["X-Correlation-ID", "X-HINAA-Provider", "X-HINAA-Latency-Ms", "X-Trace-Id", "traceparent", "Server-Timing"],
-    )
     app.add_exception_handler(HinaaError, hinaa_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(Exception, unhandled_error_handler)
+
+    def _rate_limit_check(request: Request, user_id: str | None) -> JSONResponse | None:
+        if not active_settings.rate_limit_active:
+            return None
+        path = request.url.path
+        if request.method == "OPTIONS" or path in RATE_EXEMPT_PATHS or is_telephony_webhook(path):
+            return None
+        expensive = rate_is_expensive(request.method, path)
+        limit = (
+            active_settings.rate_limit_expensive_per_minute
+            if expensive
+            else active_settings.rate_limit_per_minute
+        )
+        ip = client_ip(
+            (request.client.host, request.client.port) if request.client else None,
+            request.headers.get("x-forwarded-for"),
+            active_settings.trust_proxy,
+        )
+        subject = f"user:{user_id}" if user_id else f"ip:{ip}"
+        bucket = "expensive" if expensive else "default"
+        decision = rate_limiter.check(f"{bucket}:{subject}", limit)
+        if decision.allowed:
+            return None
+        metrics.RATE_LIMITED.labels(bucket).inc()
+        return JSONResponse(
+            status_code=429,
+            content={"error": {"code": "RATE_LIMITED", "message": "Too many requests. Retry later."}},
+            headers={"Retry-After": str(decision.retry_after)},
+        )
+
+    @app.get("/metrics", include_in_schema=False)
+    async def prometheus_metrics(request: Request) -> Response:
+        token = active_settings.metrics_token.get_secret_value() if active_settings.metrics_token else None
+        verdict = metrics.metrics_access(
+            client_host=request.client.host if request.client else None,
+            authorization=request.headers.get("authorization"),
+            forwarded_for=request.headers.get("x-forwarded-for"),
+            token=token,
+        )
+        if verdict == 401:
+            return Response("unauthorized", status_code=401, headers={"WWW-Authenticate": "Bearer"})
+        if verdict != 200:
+            return Response("not found", status_code=404)
+        body, content_type = metrics.render()
+        return Response(body, media_type=content_type)
 
     @app.middleware("http")
     async def request_context(request: Request, call_next):  # type: ignore[no-untyped-def]
@@ -1141,6 +1185,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # CORS preflight, realtime URL discovery, and speech synthesis remain
             # accessible so audio and voice connection never hit a 401 wall.
             _exempt_paths = {
+                "/metrics",  # handler enforces loopback / bearer-token access itself
                 "/health/live",
                 "/api/health",
                 "/v1/readiness",
@@ -1190,12 +1235,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         x_hinaa_dev_user=request.headers.get("X-HINAA-Dev-User"),
                     )
                     request.state.hinaa_auth = auth
+                    user_id_var.set(auth.user_id)
                     if auth.mode == "clerk":
                         request_pc.set((request.headers.get("X-HINAA-PC-Session", ""), auth.auth_subject))
                 except HinaaError as error:
                     active_span.record_error(error)
                     span_mgr.__exit__(type(error), error, None)
+                    limited = _rate_limit_check(request, None)
+                    if limited is not None:
+                        return limited
                     return await hinaa_error_handler(request, error)
+            auth_state = getattr(request.state, "hinaa_auth", None)
+            limited = _rate_limit_check(request, getattr(auth_state, "user_id", None))
+            if limited is not None:
+                span_mgr.__exit__(None, None, None)
+                return limited
             response = await call_next(request)
             active_span.set_attribute("http.status_code", response.status_code)
             span_mgr.__exit__(None, None, None)
@@ -1215,6 +1269,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response
+
+    # Add order is inside-out: body limit -> CORS (so 413/429/401 carry CORS
+    # headers) -> observability (outermost, sees every response).
+    app.add_middleware(
+        BodyLimitMiddleware,
+        max_bytes=active_settings.max_body_bytes,
+        max_upload_bytes=active_settings.max_upload_bytes,
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        **cors_settings(active_settings),  # type: ignore[arg-type]
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "DELETE", "PATCH", "OPTIONS"],
+        expose_headers=["X-Correlation-ID", "X-Request-Id", "Retry-After", "X-HINAA-Provider", "X-HINAA-Latency-Ms", "X-Trace-Id", "traceparent", "Server-Timing"],
+    )
+    app.add_middleware(ObservabilityMiddleware)
+    init_otel(app, active_settings)
 
     @app.get("/health/live")
     @app.get("/api/health")
