@@ -101,7 +101,10 @@ def render_lyric_video(
         cmd += ["-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"]
     cmd += [
         "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "ultrafast" if spec.draft else "veryfast",
-        "-crf", "23" if spec.draft else "20", "-pix_fmt", "yuv420p", "-r", str(spec.fps),
+        # MJPEG frames decode as full-range yuvj420p; some ffmpeg builds keep that
+        # range despite -pix_fmt, so convert to TV-range yuv420p explicitly.
+        "-crf", "23" if spec.draft else "20", "-vf", "scale=out_range=tv,format=yuv420p",
+        "-pix_fmt", "yuv420p", "-r", str(spec.fps),
         "-c:a", "aac", "-b:a", "192k", "-t", f"{data['total']:.3f}", "-shortest", "-movflags", "+faststart", str(out_path),
     ]
 
