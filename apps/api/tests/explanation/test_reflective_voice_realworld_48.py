@@ -514,10 +514,10 @@ def test_rvl_32_spans_separately_recorded():
 
 
 def test_rvl_33_elevenlabs_model_and_voice_id_verified():
-    """RVL-33: ElevenLabs cute anime voice ID dp4HJlekKt0HZFHL2jQg verified."""
+    """RVL-33: ElevenLabs cute anime voice ID WUgmmuDCpFXQ4z0NUUYX verified."""
     from hinaa_api.config import Settings
 
-    expected = "dp4HJlekKt0HZFHL2jQg"
+    expected = "WUgmmuDCpFXQ4z0NUUYX"
     # Code defaults are the committed source of truth.
     assert Settings.model_fields["elevenlabs_voice_id"].default == expected
     assert Settings.model_fields["elevenlabs_hinaa_voice_id"].default == expected

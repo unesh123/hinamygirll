@@ -121,7 +121,7 @@ def test_g14_06_preserve_reflective_voice_narration_selection(service):
     """G14-06: Preserve Reflective Voice delivery mode selection without reciting reports."""
     self_model = service.self_model.probe_capability("voice_synthesis")
     assert self_model.is_available is True
-    assert self_model.rate_limit_info.get("voice_id") == "dp4HJlekKt0HZFHL2jQg"
+    assert self_model.rate_limit_info.get("voice_id") == "WUgmmuDCpFXQ4z0NUUYX"
 
 
 def test_g14_07_reject_unrecognized_goal_schema_version(service):
