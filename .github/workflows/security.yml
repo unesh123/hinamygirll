@@ -19,9 +19,6 @@ jobs:
     name: dependency audit (pip-audit)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Known advisories exist (see docs/operations.md); report without blocking
-    # until they are triaged, then drop continue-on-error to make it a gate.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

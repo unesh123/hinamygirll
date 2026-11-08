@@ -14,4 +14,12 @@ paths = [
   '''pnpm-lock\.yaml''',
   '''apps/api/uv\.lock''',
   '''docs/.*''',
+  # Vendored third-party skill docs; their examples use placeholders like YOUR_SECRET_KEY.
+  '''\.agents/skills/.*''',
+]
+regexes = [
+  # localStorage key names, not credentials
+  '''hinaa\.[a-z0-9.-]+\.v[0-9]+''',
+  # Fake JWT ({"sub":"1234567890"}) used as scrubber benchmark input
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.doNotLeakThisSignature''',
 ]
