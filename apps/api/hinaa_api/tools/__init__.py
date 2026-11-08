@@ -26,6 +26,8 @@ from . import prodcamp
 from . import social_reach
 from . import computer_operator
 from . import ui_control
+from . import ide_workflow
+from . import whatsapp
 from . import exa_tool
 from . import coding_agent_tool
 from . import treg_gateway

@@ -56,7 +56,7 @@ async def test_eval_03_whatsapp_draft_safety_gate():
     res = await NativeComputerOperator.draft_message(
         app_name="whatsapp",
         text="Hey, checking on the deployment status",
-        recipient="Team Lead",
+        recipient="Unesh",
     )
     assert isinstance(res, ComputerActionResult)
     assert res.success is True
@@ -73,7 +73,7 @@ async def test_eval_04_message_confirmation_send():
     draft_res = await NativeComputerOperator.draft_message(
         app_name="whatsapp",
         text="Confirmed message body",
-        recipient="Priya",
+        recipient="Unesh",
     )
     token = draft_res.confirmation_token
 
@@ -81,7 +81,7 @@ async def test_eval_04_message_confirmation_send():
     send_res = await NativeComputerOperator.send_message(
         app_name="whatsapp",
         text="Confirmed message body",
-        recipient="Priya",
+        recipient="Unesh",
         confirmed=True,
         confirmation_token=token,
     )

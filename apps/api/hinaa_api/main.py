@@ -503,6 +503,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if not handler:
                 raise HinaaError("TOOL_UNAVAILABLE", f"Tool handler for {step.tool_name} not found", 404)
             tool_policy.enforce(step.tool_name, active_settings)
+            tool_policy.check_arguments(step.tool_name, step.tool_parameters)
             import inspect
             from typing import get_type_hints
             from pydantic import BaseModel
@@ -4450,6 +4451,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         verdict = tool_policy.decide(body.toolName, active_settings, request.headers.get("host"))
         if not verdict.permitted:
             raise HinaaError(verdict.code, verdict.message, 403, False, True)
+        tool_policy.check_arguments(body.toolName, body.parameters)
         is_user_approved = body.confirmed and body.approvalSource == "user"
         is_safe_standing_consent = (
             body.confirmed
@@ -4498,7 +4500,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "subagent_fork",
             )
         )
-        if tool_def.requires_confirmation and not (is_user_approved or is_safe_standing_consent):
+        if tool_def.requires_confirmation and not (
+            is_user_approved or is_safe_standing_consent or tool_policy.confirmation_waived(body.toolName)
+        ):
             raise HinaaError(
                 "TOOL_CONFIRMATION_REQUIRED",
                 f"Confirm the {tool_def.display_name} action before HINAA runs it.",

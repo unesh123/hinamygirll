@@ -52,7 +52,7 @@ async def test_whatsapp_app_agent_safety_staging():
         target_app="whatsapp",
         description="Draft status",
         action="draft_message",
-        params={"text": "All services nominal", "recipient": "Lead"},
+        params={"text": "All services nominal", "recipient": "Unesh"},
         priority_level=ActionPriorityLevel.UI_AUTOMATION,
     )
     res = await agent.execute_task(task)
