@@ -6958,6 +6958,40 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return {"ok": True}
 
+    @app.post("/api/v1/brain/claude")
+    async def brain_claude_turn(request: Request) -> dict[str, Any]:
+        """One Claude-routed agentic turn (native tool loop; confirmations stay pending)."""
+        from .providers.claude_brain import run_claude_turn
+
+        body = await request.json()
+        text = str(body.get("text", "")).strip()
+        if not text:
+            raise HinaaError("INVALID_REQUEST", "text is required", 400, False, True)
+        if not active_settings.claude_configured:
+            raise HinaaError("PROVIDER_CONFIGURATION_MISSING", "Claude is not configured.", 503, False, True)
+        result = await run_claude_turn(
+            active_settings,
+            text,
+            system=body.get("system"),
+            is_voice=bool(body.get("isVoice")),
+            use_tools=bool(body.get("useTools", True)),
+            host_header=request.headers.get("host"),
+            user_id=_resolve_user_id(request),
+        )
+        return {
+            "text": result.text,
+            "model": result.route.model,
+            "tier": result.route.tier,
+            "steps": result.steps,
+            "maxStepsReached": result.max_steps_reached,
+            "toolEvents": [
+                {"tool": e.tool, "status": e.status} for e in result.tool_events
+            ],
+            "pendingConfirmations": [
+                {"tool": e.tool, "parameters": e.input} for e in result.pending_confirmations
+            ],
+        }
+
     @app.post("/api/v1/brain/run")
     async def brain_run_stream(request: Request):
         """Stream brain orchestration events as Server-Sent Events."""

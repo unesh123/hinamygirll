@@ -60,3 +60,27 @@ Routing decisions are governed by a deterministic, multi-factor policy rather th
 5. **Cost & Privacy Bounds**:
    - Requests are never silently escalated to a paid third-party provider if the user selected a free/local tier.
    - Fallback metadata (`requestedProvider`, `resolvedProvider`, `fallbackReason`) is always exposed in the turn payload.
+
+---
+
+## 5. Claude Brain (Anthropic Messages API)
+
+When `HINAA_CLAUDE_API_KEY` / `ANTHROPIC_API_KEY` is set and `HINAA_PROVIDER_MODE` is **not** set, `claude` is the default provider (`HINAA_CLAUDE_PREFER_WHEN_KEYED=false` disables this). An explicit `HINAA_PROVIDER_MODE` (including `mock`) always wins. Without a key nothing changes.
+
+**Tiers** (`apps/api/hinaa_api/providers/claude_brain.py`, reusing the `ModelRouter` complexity scorer in `providers/fabric.py`):
+
+| Tier | Env var | Default ID | Used for |
+| :--- | :--- | :--- | :--- |
+| fast | `HINAA_CLAUDE_MODEL_FAST` | `claude-haiku-5-5` | short chit-chat and short voice turns |
+| default | `HINAA_CLAUDE_MODEL_DEFAULT` (`HINAA_CLAUDE_MODEL` overrides) | `claude-sonnet-5-5` | normal turns, any turn with attachments |
+| deep | `HINAA_CLAUDE_MODEL_DEEP` | `claude-opus-5-5` | coding, website building, multi-step planning, hard reasoning; thinking on |
+
+A model chosen explicitly in the UI is never re-routed. IDs follow the Anthropic models overview (platform.claude.com/docs/en/about-claude/models/overview); override them if your gateway serves different names.
+
+**Thinking.** Current models take adaptive thinking only: `thinking: {"type": "adaptive"}` plus `output_config.effort` from `HINAA_CLAUDE_THINKING_EFFORT`. Pre-adaptive IDs (Claude 3.x, Opus/Sonnet 4 to 4.5, Haiku 4.5) get manual `budget_tokens` from `HINAA_CLAUDE_THINKING_BUDGET_TOKENS`. Thinking blocks are replayed unmodified across tool turns and never appear in user-facing text.
+
+**Tool use.** `POST /api/v1/brain/claude` runs a native loop: registered tools are sent as Anthropic tool schemas, `tool_use` blocks run through the tool policy (`tools/policy.py`) and confirmation rules, results return as `tool_result`, for at most `HINAA_CLAUDE_TOOL_MAX_STEPS` model calls. A tool that requires confirmation is not executed; the model receives a `pending_confirmation` result and the response lists it under `pendingConfirmations`.
+
+**Prompt caching.** The system prompt and the last tool definition carry `cache_control: {"type": "ephemeral"}` (`HINAA_CLAUDE_PROMPT_CACHE_TTL=1h` adds `"ttl": "1h"`). Prompts under a model's minimum cacheable length skip caching without error.
+
+`anthropic-version` defaults to `2026-10-21` (`HINAA_CLAUDE_API_VERSION`).
