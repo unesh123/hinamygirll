@@ -43,7 +43,7 @@ class ObservedSelfModel:
                 provider="elevenlabs_flash_stream",
                 is_available=True,
                 last_checked_utc=now,
-                rate_limit_info={"voice_id": "dp4HJlekKt0HZFHL2jQg"},
+                rate_limit_info={"voice_id": "WUgmmuDCpFXQ4z0NUUYX"},
                 is_mock=False,
             ),
             SelfModelCapability(
