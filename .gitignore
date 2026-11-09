@@ -142,3 +142,6 @@ apps/api/apps/
 
 # local observability stack secret
 infra/observability/prometheus/metrics_token
+
+# User prompt downloads
+Complete HINAA Test Prompt*
