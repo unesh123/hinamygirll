@@ -2963,6 +2963,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "protocol": "openai-compatible",
             },
             {
+                "id": "articul8",
+                "name": "Articul8 Bivia (Ben)",
+                "configured": bool(getattr(active_settings, "articul8_configured", False)),
+                "defaultModel": active_settings.active_articul8_model,
+                "allowedModels": list(active_settings.articul8_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
                 "id": "experiential",
                 "name": "Experiential Labs",
                 "configured": active_settings.explabs_configured,
@@ -3274,6 +3282,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 apmix_state = "degraded"
                 apmix_message = f"APMIX.AI configured: {apmix_probe.detail}"
 
+        # Probe Articul8 Bivia (Ben) Gateway if configured
+        articul8_state = "unavailable"
+        articul8_message = "Articul8 Bivia needs APP_AARTICUL8_AI_API_KEY and APP_AARTICUL8_AI_BASE_URL."
+        if active_settings.articul8_configured:
+            articul8_probe = await probe_gateway_models(
+                active_settings.active_articul8_base_url,
+                api_key=active_settings.active_articul8_key.get_secret_value() if active_settings.active_articul8_key else None,
+            )
+            if articul8_probe.serving:
+                articul8_state = "healthy"
+                probe_measured.add("articul8")
+                articul8_message = (
+                    f"Articul8 Bivia (Ben) is connected ({articul8_probe.model_count} models serving; default: {active_settings.articul8_model})."
+                )
+            else:
+                articul8_state = "degraded"
+                articul8_message = f"Articul8 Bivia (Ben) configured with {len(active_settings.articul8_allowed_models)} models ({articul8_probe.detail})."
+
         # Probe Oxion AI Gateway if configured
         oxion_state = "unavailable"
         oxion_message = "Oxion AI needs OXION_AI_API_KEY and OXION_AI_BASE_URL."
@@ -3516,6 +3542,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ],
                 state=apmix_state,
                 userMessage=apmix_message,
+            ),
+            ProviderStatus(
+                id="articul8",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.articul8_model}",
+                    *[f"model:{model}" for model in active_settings.articul8_allowed_models if model != "*"],
+                ],
+                state=articul8_state,
+                userMessage=articul8_message,
             ),
             ProviderStatus(
                 id="oxion",

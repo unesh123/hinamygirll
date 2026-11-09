@@ -1256,6 +1256,15 @@ class ProviderRouter:
                 user_action_required=True,
             )
 
+    def _require_articul8_brain(self) -> None:
+        if self.settings.active_articul8_key is None or self.settings.active_articul8_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "Articul8 Bivia (Ben) is not configured. Add APP_AARTICUL8_AI_API_KEY to apps/api/.env.local.",
+                503,
+                user_action_required=True,
+            )
+
     def _require_experiential_brain(self) -> None:
         if self.settings.active_explabs_key is None:
             raise HinaaError(
@@ -1639,6 +1648,21 @@ class ProviderRouter:
                 model,
                 base_url=active_oxion_base_url,
                 provider_id="oxion",
+            )
+        if mode in {"articul8", "bivia", "ben"}:
+            self._require_articul8_brain()
+            active_articul8_key = self.settings.active_articul8_key
+            active_articul8_base_url = self.settings.active_articul8_base_url
+            assert active_articul8_key and active_articul8_base_url
+            try:
+                model = self.settings.resolve_articul8_model(brain_model)
+            except ValueError:
+                model = self.settings.active_articul8_model
+            return OpenAILLMProvider(
+                active_articul8_key.get_secret_value(),
+                model,
+                base_url=active_articul8_base_url,
+                provider_id="articul8",
             )
         if mode == "real":
             # Text generation depends only on the brain credential. Speech has
@@ -4102,6 +4126,7 @@ class ConversationService:
             "cavoti": self.settings.active_cavoti_model,
             "apmix": self.settings.active_apmix_model,
             "oxion": self.settings.active_oxion_model,
+            "articul8": self.settings.active_articul8_model,
             "ollama": self.settings.active_ollama_model,
         }.get(mode or "")
 
@@ -4182,6 +4207,7 @@ class ConversationService:
             "cavoti": (self.settings.cavoti_configured, self.settings.active_cavoti_model),
             "apmix": (self.settings.apmix_configured, self.settings.active_apmix_model),
             "oxion": (self.settings.oxion_configured, self.settings.active_oxion_model),
+            "articul8": (self.settings.articul8_configured, self.settings.active_articul8_model),
             "claude": (self.settings.claude_configured, self.settings.active_claude_model),
             "custom": (self.settings.custom_configured, self.settings.active_custom_model),
             "cx-gateway": (self.settings.cx_gateway_configured, self.settings.cx_gateway_model),

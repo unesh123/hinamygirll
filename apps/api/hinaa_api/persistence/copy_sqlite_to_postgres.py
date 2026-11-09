@@ -97,6 +97,7 @@ def _ensure_runtime_tables(target_url: str) -> None:
     from ..agents.resume import TaskStore
     from ..autopilot.store import AutopilotStore
     from ..goals.store import GoalStore
+    from ..memory.repository import MemoryRepository
     from ..security.store import SecurityStore
 
     AutopilotStore(db_path=target_url)
@@ -104,6 +105,7 @@ def _ensure_runtime_tables(target_url: str) -> None:
     SecurityStore(db_path=target_url)  # type: ignore[arg-type]
     TaskStore(db_path=target_url)
     EventLogStore(db_path=target_url)
+    MemoryRepository(db_path=target_url)
 
 
 def copy_runtime_db(sqlite_path: Path, target_url: str) -> list[TableResult]:

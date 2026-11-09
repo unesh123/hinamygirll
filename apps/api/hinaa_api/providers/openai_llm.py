@@ -316,6 +316,7 @@ _GATEWAY_PROVIDERS = {
     "cavoti",
     "apmix",
     "oxion",
+    "articul8",
     "experiential",
 }
 
@@ -992,6 +993,8 @@ class OpenAILLMProvider:
             return "Experiential Gateway"
         if self._provider_id == "oxion":
             return "Oxion AI"
+        if self._provider_id == "articul8":
+            return "Articul8 Bivia (Ben)"
         if self._provider_id == "apmix":
             return "APMIX.AI"
         if self._provider_id == "cavoti":

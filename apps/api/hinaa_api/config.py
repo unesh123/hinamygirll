@@ -76,7 +76,7 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
-    provider_mode: Literal["gmi", "mock", "local", "groq", "openai", "custom", "real", "claude", "qwen", "agent-router", "cx-gateway", "gemini-live", "codecraft", "experiential", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "oxion"] = Field(
+    provider_mode: Literal["gmi", "mock", "local", "groq", "openai", "custom", "real", "claude", "qwen", "agent-router", "cx-gateway", "gemini-live", "codecraft", "experiential", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "oxion", "articul8"] = Field(
         "gemini-live", alias="HINAA_PROVIDER_MODE"
     )
     azure_speech_key: SecretStr | None = Field(None, alias="AZURE_SPEECH_KEY")
@@ -437,6 +437,53 @@ class Settings(BaseSettings):
     oxion_allowed_models_raw: str = Field(
         "claude-fable-5,claude-fable-5.1,claude-mythos-preview,claude-opus-4.6,claude-opus-4.7,claude-opus-4.8,claude-opus-5,claude-opus-5.5,claude-sonnet-5,deepseek-v4-flash-0731,deepseek-v4-pro-0813,deepseek-v4-pro-max,gemini-3.1-pro,gemini-3.6-flash,gemini-3.7-flash,gemma-2-2b,glm-5.2,glm-5.3,gpt-5.5,gpt-5.5-pro,gpt-5.6-luna,gpt-5.6-sol,gpt-5.6-terra,grok-4.5,grok-4.6,kimi-k2.6,kimi-k3,muse-spark-1.1,qwen3.7-max,qwen3.8-27b,qwen3.8-max,seed-2.1-pro,seed-2.1-turbo,*",
         validation_alias=AliasChoices("OXION_AI_ALLOWED_MODELS", "OXION_ALLOWED_MODELS"),
+    )
+    # Articul8 / Bivia ("Ben") Multi-Modal Decision Engine
+    articul8_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices(
+            "APP_AARTICUL8_AI_API_KEY",
+            "APP_ARTICUL8_AI_API_KEY",
+            "AARTICUL8_AI_API_KEY",
+            "ARTICUL8_AI_API_KEY",
+            "AARTICUL8_API_KEY",
+            "ARTICUL8_API_KEY",
+            "BIVIA_API_KEY",
+            "BEN_API_KEY",
+            "BEN_MODELS_API_KEY",
+            "NEWAPI_API_KEY",
+        ),
+    )
+    articul8_base_url: str = Field(
+        "https://api.articul8.ai/v1",
+        validation_alias=AliasChoices(
+            "APP_AARTICUL8_AI_BASE_URL",
+            "APP_ARTICUL8_AI_BASE_URL",
+            "AARTICUL8_AI_BASE_URL",
+            "ARTICUL8_AI_BASE_URL",
+            "AARTICUL8_BASE_URL",
+            "ARTICUL8_BASE_URL",
+            "BIVIA_BASE_URL",
+            "BEN_BASE_URL",
+        ),
+    )
+    articul8_model: str = Field(
+        "bivia-1.0",
+        validation_alias=AliasChoices(
+            "APP_AARTICUL8_AI_MODEL",
+            "ARTICUL8_MODEL",
+            "BIVIA_MODEL",
+            "BEN_MODEL",
+        ),
+    )
+    articul8_allowed_models_raw: str = Field(
+        "bivia,bivia-1.0,bivia-decision,bivia-multimodal,articul8-bivia,*",
+        validation_alias=AliasChoices(
+            "APP_AARTICUL8_AI_ALLOWED_MODELS",
+            "ARTICUL8_ALLOWED_MODELS",
+            "BIVIA_ALLOWED_MODELS",
+            "BEN_ALLOWED_MODELS",
+        ),
     )
     # Experiential Labs AI Gateway — claude-opus-5.5 at https://api.experientiallabs.ai/v1
     explabs_api_key: SecretStr | None = Field(
@@ -1735,6 +1782,50 @@ class Settings(BaseSettings):
         if "*" not in self.oxion_allowed_models and model not in self.oxion_allowed_models:
             allowed = ", ".join(self.oxion_allowed_models)
             raise ValueError(f"Oxion model is not in OXION_ALLOWED_MODELS: {allowed}")
+        return model
+
+    @property
+    def articul8_configured(self) -> bool:
+        return bool(
+            self.articul8_api_key
+            and self.articul8_api_key.get_secret_value()
+            and self.active_articul8_base_url
+        )
+
+    @property
+    def active_articul8_key(self) -> SecretStr | None:
+        if self.articul8_api_key and self.articul8_api_key.get_secret_value():
+            return self.articul8_api_key
+        return None
+
+    @property
+    def active_articul8_base_url(self) -> str | None:
+        value = (self.articul8_base_url or "").strip().rstrip("/")
+        if value.endswith("/home"):
+            value = value[:-len("/home")].rstrip("/")
+        if value.endswith("/dashboard"):
+            value = value[:-len("/dashboard")].rstrip("/")
+        if value and not value.endswith("/v1"):
+            value = f"{value}/v1"
+        return value or "https://api.articul8.ai/v1"
+
+    @property
+    def active_articul8_model(self) -> str:
+        return self.articul8_model or "bivia-1.0"
+
+    @property
+    def articul8_allowed_models(self) -> list[str]:
+        configured = [m.strip() for m in self.articul8_allowed_models_raw.split(",") if m.strip()]
+        models = configured or [self.active_articul8_model]
+        if self.active_articul8_model and self.active_articul8_model not in models:
+            models.insert(0, self.active_articul8_model)
+        return list(dict.fromkeys(models))
+
+    def resolve_articul8_model(self, requested: str | None = None) -> str:
+        model = (requested or "").strip() or self.active_articul8_model
+        if "*" not in self.articul8_allowed_models and model not in self.articul8_allowed_models:
+            allowed = ", ".join(self.articul8_allowed_models)
+            raise ValueError(f"Articul8 model is not in ARTICUL8_ALLOWED_MODELS: {allowed}")
         return model
 
     @property

@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import sqlite3
+from ..persistence import sqlcompat
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -47,14 +48,21 @@ class MemoryRepository:
     """ACID SQLite repository with WAL mode, FTS5 indexing, and cascade support."""
 
     def __init__(self, db_path: Optional[str | Path] = None) -> None:
-        if db_path is None:
-            db_path = _get_default_db_path()
-        self.db_path = Path(db_path).resolve()
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        is_default = db_path is None
+        raw_path = _get_default_db_path() if is_default else db_path
+        self._pg = sqlcompat.pg_target(raw_path, is_default=is_default)
+        if self._pg:
+            self.db_path = raw_path
+        else:
+            self.db_path = Path(raw_path).resolve()
+            if str(raw_path) != ":memory:":
+                self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._init_db()
 
-    def _get_connection(self) -> sqlite3.Connection:
+    def _get_connection(self) -> Any:
+        if self._pg:
+            return sqlcompat.connect_pg(self._pg)
         conn = sqlite3.connect(
             str(self.db_path),
             timeout=30.0,
@@ -495,6 +503,20 @@ class MemoryRepository:
 
         results: list[tuple[str, float]] = []
         with self._lock, self._get_connection() as conn:
+            if self._pg:
+                cur = conn.execute(
+                    """
+                    SELECT id FROM memories
+                    WHERE tenant_id = ? AND content ILIKE ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                    (tenant_id, f"%{clean_q}%", limit),
+                )
+                for row in cur.fetchall():
+                    results.append((row["id"], 1.0))
+                return results
+
             try:
                 cur = conn.execute(
                     """
@@ -509,7 +531,7 @@ class MemoryRepository:
                     # rank is negative in BM25 (more negative = better match)
                     score = abs(float(row["rank"])) if row["rank"] is not None else 1.0
                     results.append((row["id"], score))
-            except sqlite3.OperationalError as e:
+            except (sqlite3.OperationalError, Exception) as e:
                 logger.warning("FTS search syntax error '%s': %s", fts_query, e)
                 # Fallback to simple LIKE query
                 cur = conn.execute(

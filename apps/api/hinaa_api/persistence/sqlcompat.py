@@ -59,6 +59,14 @@ def _translate(sql: str) -> str | None:
     stripped = sql.strip().rstrip(";").strip()
     if not stripped or stripped.upper().startswith("PRAGMA"):
         return None
+    upper = stripped.upper()
+    if (
+        upper.startswith("CREATE VIRTUAL TABLE")
+        or upper.startswith("CREATE TRIGGER")
+        or "INTO MEMORY_FTS" in upper
+        or "FROM MEMORY_FTS" in upper
+    ):
+        return None
     create = _CREATE_TABLE_RE.match(stripped)
     if create:
         auto = _AUTOINC_RE.search(stripped)
