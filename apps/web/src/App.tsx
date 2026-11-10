@@ -90,6 +90,7 @@ const MusicMiniPlayer = lazy(() => import("./components/ui/MusicMiniPlayer").the
 const VIPCollegeVault = lazy(() => import("./features/college/VIPCollegeVault").then((module) => ({ default: module.VIPCollegeVault })));
 const VisualDocumentExplainer = lazy(() => import("./features/explainer/VisualDocumentExplainer").then((module) => ({ default: module.VisualDocumentExplainer })));
 import { TerminalHandsDrawer } from "./features/terminal/TerminalHandsDrawer";
+import { AppOverlays } from "./components/overlays/AppOverlays";
 
 function ClerkAuthWrapper() {
   const { isSignedIn } = useAuth();
@@ -1723,11 +1724,12 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        {/* Overlays */}
-        <Suspense fallback={null}><MemoryPanel isOpen={memoryOpen} onClose={() => setMemoryOpen(false)} /></Suspense>
-        <SettingsV6
-          isOpen={settingsOpen}
-          onClose={() => setSettingsOpen(false)}
+        {/* Extracted Modular Overlays */}
+        <AppOverlays
+          memoryOpen={memoryOpen}
+          setMemoryOpen={setMemoryOpen}
+          settingsOpen={settingsOpen}
+          setSettingsOpen={setSettingsOpen}
           settings={settings}
           setAppearance={setAppearance}
           setLanguage={setLanguage}
@@ -1737,86 +1739,48 @@ export default function App() {
           activeMode={routing.activeMode as any}
           isMuted={playback.muted}
           onToggleMute={playback.toggleMute}
-        />
-        <HinaDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} mode={drawerMode} title={drawerTitle} side="bottom">{drawerContent}</HinaDrawer>
-        <VoiceDiagnosticsDrawer
-          isOpen={diagnosticsOpen}
-          onClose={() => setDiagnosticsOpen(false)}
-          data={live.diagnostics}
+          drawerOpen={drawerOpen}
+          setDrawerOpen={setDrawerOpen}
+          drawerMode={drawerMode}
+          drawerTitle={drawerTitle}
+          drawerContent={drawerContent}
+          diagnosticsOpen={diagnosticsOpen}
+          setDiagnosticsOpen={setDiagnosticsOpen}
+          diagnosticsData={live.diagnostics}
           onManualCommit={live.manualCommit}
           isListening={live.active}
+          musicPlayerOpen={musicPlayerOpen}
+          setMusicPlayerOpen={setMusicPlayerOpen}
+          contextMode={contextMode}
+          setContextMode={setContextMode}
+          terminalOpen={terminalOpen}
+          setTerminalOpen={setTerminalOpen}
+          terminalInitialCmd={terminalInitialCmd}
+          showDesktopPet={showDesktopPet}
+          setShowDesktopPet={setShowDesktopPet}
+          isMobile={isMobile}
+          setIsWalking={setIsWalking}
+          isSpeaking={playback.playing || live.diagnostics.currentStage === "playing" || false}
+          isThinking={controller.state === "thinking"}
+          jawEnergy={playback.jawEnergy.current || 0}
+          onStopSpeaking={() => {
+            playback.stop();
+            if (live.active) live.stop();
+          }}
+          isLiveVoiceActive={live.active}
+          onToggleLiveVoice={() => {
+            if (live.active) live.stop();
+            else {
+              unlockAudio({ replay: false });
+              live.start();
+            }
+          }}
+          streamingText={controller.streamingText}
+          lastAssistantText={controller.activePlan?.spokenText || controller.activePlan?.displayText || null}
+          liveVision={liveVision}
+          explainerOpen={explainerOpen}
+          setExplainerOpen={setExplainerOpen}
         />
-        <Suspense fallback={null}>
-          <MusicMiniPlayer
-            isOpen={musicPlayerOpen || contextMode === "music"}
-            onClose={() => {
-              setMusicPlayerOpen(false);
-              if (contextMode === "music") setContextMode("hidden");
-            }}
-          />
-        </Suspense>
-        <TerminalHandsDrawer
-          isOpen={terminalOpen}
-          onClose={() => setTerminalOpen(false)}
-          initialCommand={terminalInitialCmd}
-        />
-        {showDesktopPet && !isMobile && (
-          <DesktopWalkingPet
-            isSpeaking={playback.playing || live.diagnostics.currentStage === "playing" || false}
-            isThinking={controller.state === "thinking"}
-            jawEnergy={playback.jawEnergy.current || 0}
-            onStopSpeaking={() => {
-              playback.stop();
-              if (live.active) live.stop();
-            }}
-            isLiveVoiceActive={live.active}
-            onToggleLiveVoice={() => {
-              if (live.active) live.stop();
-              else {
-                unlockAudio({ replay: false });
-                live.start();
-              }
-            }}
-            streamingText={controller.streamingText}
-            lastAssistantText={controller.activePlan?.spokenText || controller.activePlan?.displayText || null}
-            onObserveScreen={async () => {
-              try {
-                const res = await liveVision.observeScreen("Observe active windows and check my focus status");
-                return res.observation || "Active windows observed! Focus shield holding strong.";
-              } catch {
-                return "Active windows observed! Chrome and VS Code are open.";
-              }
-            }}
-            onOpenTasks={() => {
-              window.dispatchEvent(new CustomEvent("hinaa:open-dev-tasks"));
-            }}
-            onOpenExplainer={() => setExplainerOpen(true)}
-            onClose={() => {
-              setShowDesktopPet(false);
-              setIsWalking(false);
-              try {
-                localStorage.setItem("hinaa-desktop-pet-active", "false");
-              } catch {}
-            }}
-          />
-        )}
-        <Suspense fallback={null}>
-          <VisualDocumentExplainer
-            isOpen={explainerOpen}
-            onClose={() => setExplainerOpen(false)}
-            onSpeakExplanation={(text) => {
-              if (typeof window !== "undefined" && "speechSynthesis" in window) {
-                try {
-                  window.speechSynthesis.cancel();
-                  const utter = new SpeechSynthesisUtterance(text);
-                  utter.rate = 1.05;
-                  window.speechSynthesis.speak(utter);
-                } catch {}
-              }
-            }}
-            isSpeaking={playback.playing}
-          />
-        </Suspense>
       </div>
     </SidebarProvider>
     </SpeechPlaybackContext.Provider>

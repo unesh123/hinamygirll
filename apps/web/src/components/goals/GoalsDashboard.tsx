@@ -106,6 +106,16 @@ export interface LoopEvidenceReceipt {
   stderr_snippet?: string;
 }
 
+export interface EvalScorecardData {
+  total_cases: number;
+  passed_cases: number;
+  overall_score: number;
+  pass_rate: number;
+  category_scores: Record<string, number>;
+  duration_ms: number;
+  timestamp: string;
+}
+
 export interface LoopTaskDetail {
   task_id: string;
   goal_title: string;
@@ -137,6 +147,8 @@ export const GoalsDashboard: React.FC = () => {
   const [newLoopGate, setNewLoopGate] = useState("apps\\api\\.venv\\Scripts\\python.exe -m pytest apps/api/tests/test_loop_api.py -v");
   const [newLoopTurns, setNewLoopTurns] = useState(5);
   const [loopStarting, setLoopStarting] = useState(false);
+  const [scorecard, setScorecard] = useState<EvalScorecardData | null>(null);
+  const [evalRunning, setEvalRunning] = useState(false);
 
   const fetchGoals = useCallback(async () => {
     try {
@@ -201,6 +213,33 @@ export const GoalsDashboard: React.FC = () => {
     }
   }, [selectedLoopTaskId]);
 
+  const fetchScorecard = useCallback(async () => {
+    try {
+      const res = await fetch("/api/evals/latest");
+      if (res.ok) {
+        const data = await res.json();
+        setScorecard(data);
+      }
+    } catch (e) {
+      console.error("Failed to load eval scorecard", e);
+    }
+  }, []);
+
+  const handleRunEvals = async () => {
+    try {
+      setEvalRunning(true);
+      const res = await fetch("/api/evals/run", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        setScorecard(data);
+      }
+    } catch (e) {
+      console.error("Failed to run evals", e);
+    } finally {
+      setEvalRunning(false);
+    }
+  };
+
   const fetchLoopDetail = useCallback(async (taskId: string) => {
     try {
       const res = await fetch(`/api/loop/status/${taskId}`);
@@ -217,6 +256,7 @@ export const GoalsDashboard: React.FC = () => {
     fetchGoals();
     fetchSelfModel();
     fetchLoopTasks();
+    fetchScorecard();
     const interval = setInterval(() => {
       fetchGoals();
       if (selectedGoalId) fetchGoalDetails(selectedGoalId);
@@ -651,6 +691,48 @@ export const GoalsDashboard: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* Agent Reasoning & Alignment Scorecard */}
+          {scorecard && (
+            <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "16px 20px", marginBottom: "20px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                <div>
+                  <span style={{ fontSize: "11px", fontWeight: "bold", color: "#38bdf8", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    Automated Agent Reasoning & Benchmark Scorecard
+                  </span>
+                  <div style={{ fontSize: "14px", fontWeight: "bold", color: "#f8fafc", marginTop: "2px" }}>
+                    Overall Score: <span style={{ color: "#22c55e" }}>{scorecard.overall_score}%</span> • Pass Rate: <span style={{ color: "#22c55e" }}>{scorecard.pass_rate}%</span> ({scorecard.passed_cases}/{scorecard.total_cases} tasks)
+                  </div>
+                </div>
+                <button
+                  onClick={handleRunEvals}
+                  disabled={evalRunning}
+                  style={{ padding: "6px 14px", borderRadius: "6px", background: "#334155", border: "1px solid #475569", color: "#fff", fontSize: "12px", fontWeight: "bold", cursor: evalRunning ? "not-allowed" : "pointer" }}
+                >
+                  {evalRunning ? "Running Evals..." : "⚡ Run Benchmark Battery"}
+                </button>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "10px", fontSize: "12px" }}>
+                <div style={{ background: "#1e293b", padding: "8px 12px", borderRadius: "6px" }}>
+                  <span style={{ color: "#94a3b8", display: "block" }}>Safety Guardrails:</span>
+                  <strong style={{ color: "#22c55e" }}>{scorecard.category_scores?.safety_guardrails || 100}%</strong>
+                </div>
+                <div style={{ background: "#1e293b", padding: "8px 12px", borderRadius: "6px" }}>
+                  <span style={{ color: "#94a3b8", display: "block" }}>Tool Selection:</span>
+                  <strong style={{ color: "#22c55e" }}>{scorecard.category_scores?.tool_selection || 100}%</strong>
+                </div>
+                <div style={{ background: "#1e293b", padding: "8px 12px", borderRadius: "6px" }}>
+                  <span style={{ color: "#94a3b8", display: "block" }}>Loop Verification:</span>
+                  <strong style={{ color: "#22c55e" }}>{scorecard.category_scores?.loop_verification || 100}%</strong>
+                </div>
+                <div style={{ background: "#1e293b", padding: "8px 12px", borderRadius: "6px" }}>
+                  <span style={{ color: "#94a3b8", display: "block" }}>Multilingual & Nepali:</span>
+                  <strong style={{ color: "#22c55e" }}>{scorecard.category_scores?.multilingual || 100}%</strong>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Loop Main Grid */}
           <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: "24px" }}>

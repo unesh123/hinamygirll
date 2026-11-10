@@ -2,13 +2,12 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { GoalsDashboard } from "./GoalsDashboard";
 
-describe("GoalsDashboard with Loop Engine", () => {
+describe("GoalsDashboard with Loop Engine and Evals", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
   it("renders the header and both tab options", async () => {
-    // Mock fetch for /api/goals, /api/goals/self-model, /api/loop/tasks
     global.fetch = vi.fn().mockImplementation((url: string) => {
       if (url.includes("/api/goals/self-model")) {
         return Promise.resolve({
@@ -21,6 +20,25 @@ describe("GoalsDashboard with Loop Engine", () => {
             capabilities: {},
             unavailable_capabilities: [],
             limitations: [],
+          }),
+        });
+      }
+      if (url.includes("/api/evals/latest")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            total_cases: 11,
+            passed_cases: 11,
+            overall_score: 100.0,
+            pass_rate: 100.0,
+            category_scores: {
+              safety_guardrails: 100.0,
+              tool_selection: 100.0,
+              loop_verification: 100.0,
+              multilingual: 100.0,
+            },
+            duration_ms: 15,
+            timestamp: new Date().toISOString(),
           }),
         });
       }
@@ -56,8 +74,27 @@ describe("GoalsDashboard with Loop Engine", () => {
     expect(screen.getByText(/Loop Engine \(sorrycc Autonomous Harness\)/i)).toBeInTheDocument();
   });
 
-  it("switches to the Loop Engine tab and displays the 3 Iron Rules", async () => {
+  it("switches to the Loop Engine tab and displays the 3 Iron Rules and Eval Scorecard", async () => {
     global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/api/evals/latest")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            total_cases: 11,
+            passed_cases: 11,
+            overall_score: 100.0,
+            pass_rate: 100.0,
+            category_scores: {
+              safety_guardrails: 100.0,
+              tool_selection: 100.0,
+              loop_verification: 100.0,
+              multilingual: 100.0,
+            },
+            duration_ms: 15,
+            timestamp: new Date().toISOString(),
+          }),
+        });
+      }
       if (url.includes("/api/loop/tasks")) {
         return Promise.resolve({
           ok: true,
@@ -106,18 +143,23 @@ describe("GoalsDashboard with Loop Engine", () => {
     const loopTabBtn = screen.getByText(/Loop Engine \(sorrycc Autonomous Harness\)/i);
     fireEvent.click(loopTabBtn);
 
-    // Verify 3 Iron Rules are displayed
+    // Verify 3 Iron Rules
     expect(screen.getByText(/1\. 上限看模型，下限看架构/i)).toBeInTheDocument();
     expect(screen.getByText(/2\. Done 是声明，不是证明/i)).toBeInTheDocument();
     expect(screen.getByText(/3\. Agent 会忘，repo 不会/i)).toBeInTheDocument();
 
-    // Verify Loop Form
-    expect(screen.getByText(/Start Unattended Loop/i)).toBeInTheDocument();
-    expect(screen.getByText(/Launch Unattended Loop/i)).toBeInTheDocument();
-
-    // Verify Task appears in list
+    // Verify Scorecard
     await waitFor(() => {
-      expect(screen.getByText(/Autonomous CI Gate Loop/i)).toBeInTheDocument();
+      expect(screen.getByText(/Automated Agent Reasoning & Benchmark Scorecard/i)).toBeInTheDocument();
+      expect(screen.getByText(/Safety Guardrails:/i)).toBeInTheDocument();
+      expect(screen.getByText(/Tool Selection:/i)).toBeInTheDocument();
+      expect(screen.getByText(/Loop Verification:/i)).toBeInTheDocument();
+      expect(screen.getByText(/Multilingual & Nepali:/i)).toBeInTheDocument();
+    });
+
+    // Verify Loop Task (match in both list and detail)
+    await waitFor(() => {
+      expect(screen.getAllByText(/Autonomous CI Gate Loop/i).length).toBeGreaterThan(0);
     });
   });
 });

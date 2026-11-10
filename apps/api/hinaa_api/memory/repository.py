@@ -53,10 +53,11 @@ class MemoryRepository:
         self._pg = sqlcompat.pg_target(raw_path, is_default=is_default)
         if self._pg:
             self.db_path = raw_path
+        elif str(raw_path) == ":memory:":
+            self.db_path = ":memory:"
         else:
             self.db_path = Path(raw_path).resolve()
-            if str(raw_path) != ":memory:":
-                self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._init_db()
 
@@ -132,46 +133,54 @@ class MemoryRepository:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_tenant_proj ON memories(tenant_id, project_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_expires ON memories(expires_at)")
 
-        # 2. FTS5 virtual table for full-text search
-        conn.execute(
-            """
-            CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
-                id UNINDEXED,
-                tenant_id UNINDEXED,
-                content,
-                tokenize='unicode61'
+        # 2. FTS5 virtual table for full-text search (SQLite) or GIN tsvector index (Postgres)
+        if self._pg:
+            try:
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_memories_content_tsv ON memories USING gin(to_tsvector('simple', content))"
+                )
+            except Exception as e:
+                logger.debug("Could not create postgres gin index: %s", e)
+        else:
+            conn.execute(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+                    id UNINDEXED,
+                    tenant_id UNINDEXED,
+                    content,
+                    tokenize='unicode61'
+                )
+                """
             )
-            """
-        )
 
-        # Triggers to keep FTS5 synchronized with memories table
-        conn.execute(
-            """
-            CREATE TRIGGER IF NOT EXISTS trg_memories_insert AFTER INSERT ON memories
-            BEGIN
-                INSERT INTO memory_fts(id, tenant_id, content)
-                VALUES (new.id, new.tenant_id, new.content);
-            END;
-            """
-        )
-        conn.execute(
-            """
-            CREATE TRIGGER IF NOT EXISTS trg_memories_delete AFTER DELETE ON memories
-            BEGIN
-                DELETE FROM memory_fts WHERE id = old.id;
-            END;
-            """
-        )
-        conn.execute(
-            """
-            CREATE TRIGGER IF NOT EXISTS trg_memories_update AFTER UPDATE OF content ON memories
-            BEGIN
-                DELETE FROM memory_fts WHERE id = old.id;
-                INSERT INTO memory_fts(id, tenant_id, content)
-                VALUES (new.id, new.tenant_id, new.content);
-            END;
-            """
-        )
+            # Triggers to keep FTS5 synchronized with memories table
+            conn.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS trg_memories_insert AFTER INSERT ON memories
+                BEGIN
+                    INSERT INTO memory_fts(id, tenant_id, content)
+                    VALUES (new.id, new.tenant_id, new.content);
+                END;
+                """
+            )
+            conn.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS trg_memories_delete AFTER DELETE ON memories
+                BEGIN
+                    DELETE FROM memory_fts WHERE id = old.id;
+                END;
+                """
+            )
+            conn.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS trg_memories_update AFTER UPDATE OF content ON memories
+                BEGIN
+                    DELETE FROM memory_fts WHERE id = old.id;
+                    INSERT INTO memory_fts(id, tenant_id, content)
+                    VALUES (new.id, new.tenant_id, new.content);
+                END;
+                """
+            )
 
         # 3. knowledge_nodes table
         conn.execute(
@@ -504,19 +513,64 @@ class MemoryRepository:
         results: list[tuple[str, float]] = []
         with self._lock, self._get_connection() as conn:
             if self._pg:
-                cur = conn.execute(
-                    """
-                    SELECT id FROM memories
-                    WHERE tenant_id = ? AND content ILIKE ?
-                    ORDER BY created_at DESC
-                    LIMIT ?
-                    """,
-                    (tenant_id, f"%{clean_q}%", limit),
-                )
-                for row in cur.fetchall():
-                    results.append((row["id"], 1.0))
-                return results
+                # 1. Native Postgres Full Text Search using websearch_to_tsquery or plainto_tsquery
+                try:
+                    cur = conn.execute(
+                        """
+                        SELECT id, ts_rank_cd(to_tsvector('simple', content), plainto_tsquery('simple', ?)) AS rank
+                        FROM memories
+                        WHERE tenant_id = ?
+                          AND to_tsvector('simple', content) @@ plainto_tsquery('simple', ?)
+                        ORDER BY rank DESC, created_at DESC
+                        LIMIT ?
+                        """,
+                        (clean_q, tenant_id, clean_q, limit),
+                    )
+                    rows = cur.fetchall()
+                    if rows:
+                        for row in rows:
+                            score = float(row["rank"]) if row["rank"] is not None else 1.0
+                            results.append((row["id"], score))
+                        return results
+                except Exception as pg_fts_err:
+                    logger.debug("Postgres tsvector search fallback: %s", pg_fts_err)
 
+                # 2. Multi-term ILIKE ranking fallback on Postgres
+                like_clauses = " OR ".join(["content ILIKE ?" for _ in sanitized_terms])
+                score_terms = " + ".join(["(CASE WHEN content ILIKE ? THEN 1.0 ELSE 0.0 END)" for _ in sanitized_terms])
+                params: list[Any] = [f"%{t}%" for t in sanitized_terms]
+                params.append(tenant_id)
+                params.extend([f"%{t}%" for t in sanitized_terms])
+                params.append(limit)
+
+                sql = f"""
+                    SELECT id, ({score_terms}) AS rank
+                    FROM memories
+                    WHERE tenant_id = ? AND ({like_clauses})
+                    ORDER BY rank DESC, created_at DESC
+                    LIMIT ?
+                """
+                try:
+                    cur = conn.execute(sql, tuple(params))
+                    for row in cur.fetchall():
+                        score = float(row["rank"]) if row["rank"] is not None else 1.0
+                        results.append((row["id"], score))
+                    return results
+                except Exception as e:
+                    logger.warning("Postgres multi-term ILIKE fallback error: %s", e)
+                    cur = conn.execute(
+                        """
+                        SELECT id FROM memories
+                        WHERE tenant_id = ? AND content ILIKE ?
+                        LIMIT ?
+                        """,
+                        (tenant_id, f"%{clean_q}%", limit),
+                    )
+                    for row in cur.fetchall():
+                        results.append((row["id"], 1.0))
+                    return results
+
+            fts_query = " OR ".join(f'"{t}"*' for t in sanitized_terms)
             try:
                 cur = conn.execute(
                     """
