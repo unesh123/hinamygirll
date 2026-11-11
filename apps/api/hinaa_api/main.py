@@ -341,6 +341,7 @@ _BRAIN_PROVIDER_IDS = frozenset(
         "cavoti",
         "apmix",
         "oxion",
+        "respan",
         "experiential",
     }
 )
@@ -2052,6 +2053,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "configured": bool(getattr(active_settings, "oxion_configured", False)),
                 "defaultModel": active_settings.active_oxion_model,
                 "allowedModels": list(active_settings.oxion_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "respan",
+                "name": "Respan AI Gateway",
+                "configured": bool(getattr(active_settings, "respan_configured", False)),
+                "defaultModel": active_settings.active_respan_model,
+                "allowedModels": list(active_settings.respan_allowed_models),
                 "protocol": "openai-compatible",
             },
             {

@@ -22,6 +22,7 @@ export type ProviderMode =
   | "cavoti"
   | "apmix"
   | "oxion"
+  | "respan"
   | "experiential";
 
 

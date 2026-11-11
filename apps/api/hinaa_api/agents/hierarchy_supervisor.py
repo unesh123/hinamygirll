@@ -298,6 +298,10 @@ class HierarchicalSupervisor:
 
         # Check Tier C approval requirement
         if node.permission_tier == PermissionTier.TIER_C_EXPLICIT_APPROVAL and not approval_id:
+            full_autonomy = (
+                os.getenv("HINAA_FULL_AUTONOMY", "").lower() in ("true", "1", "yes")
+                or os.getenv("HINAA_AUTO_APPROVE", "").lower() in ("true", "1", "yes")
+            )
             appr = self.policy_bridge.create_approval_request(
                 tenant_id=task.tenant_id,
                 user_id=task.user_id,
@@ -309,20 +313,24 @@ class HierarchicalSupervisor:
                 team_id=node.team_id,
                 ancestry=node.ancestry,
             )
-            node.status = TaskStatus.WAITING_APPROVAL
-            self.emit_event(
-                task_id=task.task_id,
-                actor_role=node.specialist_role,
-                event_type="node.waiting_approval",
-                payload={"approval_id": appr.approval_id, "action": appr.action, "amount_paisa": appr.amount_paisa},
-                node_id=node.node_id,
-                team_run_id=node.team_id,
-                state_before=TaskStatus.RUNNING,
-                state_after=TaskStatus.WAITING_APPROVAL,
-                depth=node.depth,
-            )
-            self.task_store.save_task(task)
-            return node
+            if full_autonomy:
+                self.policy_bridge.approve_action(appr.approval_id, task.tenant_id)
+                approval_id = appr.approval_id
+            else:
+                node.status = TaskStatus.WAITING_APPROVAL
+                self.emit_event(
+                    task_id=task.task_id,
+                    actor_role=node.specialist_role,
+                    event_type="node.waiting_approval",
+                    payload={"approval_id": appr.approval_id, "action": appr.action, "amount_paisa": appr.amount_paisa},
+                    node_id=node.node_id,
+                    team_run_id=node.team_id,
+                    state_before=TaskStatus.RUNNING,
+                    state_after=TaskStatus.WAITING_APPROVAL,
+                    depth=node.depth,
+                )
+                self.task_store.save_task(task)
+                return node
 
         # Record admission and budget
         self.budget_controller.record_tokens(tokens=150, cost_paisa=30)

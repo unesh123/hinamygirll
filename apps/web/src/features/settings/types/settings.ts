@@ -69,6 +69,7 @@ export type ProviderPreferenceMode =
   | "cavoti"
   | "apmix"
   | "oxion"
+  | "respan"
   | "experiential";
 
 /** Saved model selection per provider. Null = automatic. */

@@ -76,7 +76,7 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
-    provider_mode: Literal["gmi", "mock", "local", "groq", "openai", "custom", "real", "claude", "qwen", "agent-router", "cx-gateway", "gemini-live", "codecraft", "experiential", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "oxion", "articul8"] = Field(
+    provider_mode: Literal["gmi", "mock", "local", "groq", "openai", "custom", "real", "claude", "qwen", "agent-router", "cx-gateway", "gemini-live", "codecraft", "experiential", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "oxion", "articul8", "respan"] = Field(
         "gemini-live", alias="HINAA_PROVIDER_MODE"
     )
     azure_speech_key: SecretStr | None = Field(None, alias="AZURE_SPEECH_KEY")
@@ -437,6 +437,23 @@ class Settings(BaseSettings):
     oxion_allowed_models_raw: str = Field(
         "claude-fable-5,claude-fable-5.1,claude-mythos-preview,claude-opus-4.6,claude-opus-4.7,claude-opus-4.8,claude-opus-5,claude-opus-5.5,claude-sonnet-5,deepseek-v4-flash-0731,deepseek-v4-pro-0813,deepseek-v4-pro-max,gemini-3.1-pro,gemini-3.6-flash,gemini-3.7-flash,gemma-2-2b,glm-5.2,glm-5.3,gpt-5.5,gpt-5.5-pro,gpt-5.6-luna,gpt-5.6-sol,gpt-5.6-terra,grok-4.5,grok-4.6,kimi-k2.6,kimi-k3,muse-spark-1.1,qwen3.7-max,qwen3.8-27b,qwen3.8-max,seed-2.1-pro,seed-2.1-turbo,*",
         validation_alias=AliasChoices("OXION_AI_ALLOWED_MODELS", "OXION_ALLOWED_MODELS"),
+    )
+    # Respan AI Gateway (formerly Keywords AI) at https://api.respan.ai/api
+    respan_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("PLATFORM_RESPAN_AI_API_KEY", "RESPAN_AI_API_KEY", "RESPAN_API_KEY"),
+    )
+    respan_base_url: str = Field(
+        "https://api.respan.ai/api",
+        validation_alias=AliasChoices("PLATFORM_RESPAN_AI_BASE_URL", "RESPAN_AI_BASE_URL", "RESPAN_BASE_URL"),
+    )
+    respan_model: str = Field(
+        "gpt-4o-mini",
+        validation_alias=AliasChoices("RESPAN_AI_MODEL", "RESPAN_MODEL"),
+    )
+    respan_allowed_models_raw: str = Field(
+        "gpt-4o-mini,gpt-4o,claude-3-5-sonnet,gemini-1.5-flash,*",
+        validation_alias=AliasChoices("RESPAN_AI_ALLOWED_MODELS", "RESPAN_ALLOWED_MODELS"),
     )
     # Articul8 / Bivia ("Ben") Multi-Modal Decision Engine
     articul8_api_key: SecretStr | None = Field(
@@ -1781,6 +1798,48 @@ class Settings(BaseSettings):
         if "*" not in self.oxion_allowed_models and model not in self.oxion_allowed_models:
             allowed = ", ".join(self.oxion_allowed_models)
             raise ValueError(f"Oxion model is not in OXION_ALLOWED_MODELS: {allowed}")
+        return model
+
+    @property
+    def respan_configured(self) -> bool:
+        return bool(
+            self.respan_api_key
+            and self.respan_api_key.get_secret_value()
+            and self.active_respan_base_url
+        )
+
+    @property
+    def active_respan_key(self) -> SecretStr | None:
+        if self.respan_api_key and self.respan_api_key.get_secret_value():
+            return self.respan_api_key
+        return None
+
+    @property
+    def active_respan_base_url(self) -> str | None:
+        value = (self.respan_base_url or "").strip().rstrip("/")
+        if value.endswith("/dashboard"):
+            value = value[:-len("/dashboard")].rstrip("/")
+        if value and not value.endswith("/api") and not value.endswith("/v1"):
+            value = f"{value}/api"
+        return value or None
+
+    @property
+    def active_respan_model(self) -> str:
+        return self.respan_model or "gpt-4o-mini"
+
+    @property
+    def respan_allowed_models(self) -> list[str]:
+        configured = [m.strip() for m in self.respan_allowed_models_raw.split(",") if m.strip()]
+        models = configured or [self.active_respan_model]
+        if self.active_respan_model and self.active_respan_model not in models:
+            models.insert(0, self.active_respan_model)
+        return list(dict.fromkeys(models))
+
+    def resolve_respan_model(self, requested: str | None = None) -> str:
+        model = (requested or "").strip() or self.active_respan_model
+        if "*" not in self.respan_allowed_models and model not in self.respan_allowed_models:
+            allowed = ", ".join(self.respan_allowed_models)
+            raise ValueError(f"Respan model is not in RESPAN_ALLOWED_MODELS: {allowed}")
         return model
 
     @property

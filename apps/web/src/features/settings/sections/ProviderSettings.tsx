@@ -54,6 +54,7 @@ const MODE_LABELS: Record<ProviderPreferenceMode, string> = {
   cavoti:         "Cavoti AI (cavoti.com)",
   apmix:          "APMIX.AI (api.apmix.ai)",
   oxion:          "Oxion AI (oxionai.com)",
+  respan:         "Respan AI (api.respan.ai)",
   experiential:   "Experiential Labs (api.experientiallabs.ai)",
 };
 
@@ -80,6 +81,7 @@ const MODE_DESCRIPTIONS: Record<ProviderPreferenceMode, string> = {
   cavoti:         "cavoti.com — frontier models (Claude Fable 5, Claude Opus 5, Claude Haiku 4.5).",
   apmix:          "api.apmix.ai — fast free DeepSeek V4 Flash & upcoming GPT-6 Luna.",
   oxion:          "oxionai.com — 33+ frontier models (Claude Fable 5.1, Grok 4.6, Opus 5.5).",
+  respan:         "api.respan.ai — unified gateway & multi-model router.",
   experiential:   "api.experientiallabs.ai — frontier Claude Opus 5.5 gateway.",
 };
 

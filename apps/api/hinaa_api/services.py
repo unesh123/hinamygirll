@@ -1256,6 +1256,15 @@ class ProviderRouter:
                 user_action_required=True,
             )
 
+    def _require_respan_brain(self) -> None:
+        if self.settings.active_respan_key is None or self.settings.active_respan_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "Respan AI is not configured. Add PLATFORM_RESPAN_AI_API_KEY to apps/api/.env.local.",
+                503,
+                user_action_required=True,
+            )
+
     def _require_articul8_brain(self) -> None:
         if self.settings.active_articul8_key is None or self.settings.active_articul8_base_url is None:
             raise HinaaError(
@@ -1648,6 +1657,21 @@ class ProviderRouter:
                 model,
                 base_url=active_oxion_base_url,
                 provider_id="oxion",
+            )
+        if mode == "respan":
+            self._require_respan_brain()
+            active_respan_key = self.settings.active_respan_key
+            active_respan_base_url = self.settings.active_respan_base_url
+            assert active_respan_key and active_respan_base_url
+            try:
+                model = self.settings.resolve_respan_model(brain_model)
+            except ValueError:
+                model = self.settings.active_respan_model
+            return OpenAILLMProvider(
+                active_respan_key.get_secret_value(),
+                model,
+                base_url=active_respan_base_url,
+                provider_id="respan",
             )
         if mode in {"articul8", "bivia", "ben"}:
             raise HinaaError(

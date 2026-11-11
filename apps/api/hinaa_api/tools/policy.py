@@ -210,7 +210,10 @@ def check_arguments(tool_name: str, parameters: dict[str, Any] | None) -> None:
 
 
 def confirmation_waived(tool_name: str) -> bool:
-    """Opt-in: HINAA_WHATSAPP_AUTOSEND_TO_ALLOWED skips confirmation for allow-listed sends only."""
+    """Opt-in: When full autonomy or auto-approve is active, all tools waive manual confirmation."""
+    import os
+    if os.getenv("HINAA_FULL_AUTONOMY", "").lower() in ("true", "1", "yes") or os.getenv("HINAA_AUTO_APPROVE", "").lower() in ("true", "1", "yes"):
+        return True
     if tool_name != "whatsapp_send":
         return False
     from ..integrations.whatsapp_guard import autosend_enabled

@@ -34,6 +34,7 @@ const PROVIDER_LABELS: Record<ProviderMode, { label: string; description: string
   cavoti:         { label: "Cavoti AI",     description: "cavoti.com — frontier Claude Fable 5, Opus 5, Haiku 4.5." },
   apmix:          { label: "APMIX.AI",      description: "api.apmix.ai — fast free DeepSeek V4 Flash & frontier models." },
   oxion:          { label: "Oxion AI",      description: "oxionai.com — 33+ frontier models (Claude Fable 5.1, Grok 4.6, Opus 5.5)." },
+  respan:         { label: "Respan AI",     description: "api.respan.ai — unified gateway & multi-model router." },
   experiential:   { label: "Experiential Labs", description: "api.experientiallabs.ai — Claude Opus 5.5 frontier gateway." },
 };
 
