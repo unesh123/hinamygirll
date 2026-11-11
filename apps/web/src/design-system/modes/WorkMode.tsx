@@ -1666,7 +1666,7 @@ export function WorkMode({
                 {providerHealth === "unavailable"
                   ? "Offline"
                   : providerHealth === "degraded"
-                    ? "Throttled"
+                    ? "Standby"
                     : providerHealth === "healthy"
                       ? `Ready${providerLatencyMs ? ` · ${providerLatencyMs}ms` : ""}`
                       : providerHealth === "checking"

@@ -133,14 +133,16 @@ class ProviderCircuitBreaker:
 
         if error_code == "PROVIDER_RATE_LIMIT":
             self.state = CircuitBreakerState.RATE_LIMITED
-            cooldown = retry_after if retry_after and retry_after > 0 else 15.0
+            raw_cooldown = retry_after if retry_after and retry_after > 0 else 15.0
+            cooldown = min(self.max_cooldown_seconds, raw_cooldown)
             jitter = random.uniform(0.5, 2.0)
             self.retry_after_seconds = cooldown
             self.cooloff_until = now + cooldown + jitter
             logger.warning(
-                "Circuit breaker [%s]: RATE_LIMITED (cooldown: %.1fs)",
+                "Circuit breaker [%s]: RATE_LIMITED (cooldown: %.1fs capped from %.1fs)",
                 self.provider_id,
                 cooldown + jitter,
+                raw_cooldown,
             )
             return
 

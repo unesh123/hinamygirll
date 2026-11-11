@@ -350,7 +350,7 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
               : health === "healthy"
                 ? { label: "Live", background: "rgba(16, 185, 129, 0.1)", color: "#059669" }
                 : health === "degraded"
-                  ? { label: "Throttled", background: "rgba(245, 158, 11, 0.12)", color: "#b45309" }
+                  ? { label: "Standby", background: "rgba(245, 158, 11, 0.12)", color: "#b45309" }
                   : health === "unavailable"
                     ? { label: "Failing", background: "rgba(239, 68, 68, 0.1)", color: "#dc2626" }
                     : { label: "Untested", background: "rgba(100, 116, 139, 0.1)", color: "#64748b" };

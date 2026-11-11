@@ -282,6 +282,7 @@ _SETTINGS_PREFIX: dict[str, str] = {
     "bivia": "articul8",
     "ben": "articul8",
     "experiential": "explabs",
+    "respan": "respan",
 }
 
 

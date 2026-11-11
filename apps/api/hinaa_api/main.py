@@ -53,7 +53,7 @@ from .brain_ledger import (
     newest_verdict,
     row_for_brain,
 )
-from .reachability import is_ephemeral_tunnel, probe_gateway, probe_gateway_models
+from .reachability import GatewayModelsOutcome, is_ephemeral_tunnel, probe_gateway, probe_gateway_models
 from .reminder_scheduler import run_scheduler as run_reminder_scheduler
 from .news.scheduler import run_scheduler as run_news_scheduler
 from .telephony.router import is_webhook_path as is_telephony_webhook
@@ -2114,8 +2114,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if verdict:
                 provider["health"] = verdict.state
                 provider["healthMessage"] = verdict.message
-                if row_id in ("oxion", "xkiro", "codecraft", "apmix") and provider.get("configured") and provider["health"] == "unavailable":
-                    provider["health"] = "degraded"
             elif provider.get("configured"):
                 provider["health"] = "untested"
                 provider["healthMessage"] = (
@@ -2350,38 +2348,81 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "owner's prompts never leave the machine through it."
             )
 
-        # Probe XKiro AI Gateway if configured
-        xkiro_state = "unavailable"
-        xkiro_message = "XKiro AI needs XKIRO_API_KEY and XKIRO_BASE_URL."
-        if active_settings.xkiro_configured:
-            xkiro_probe = await probe_gateway_models(
+        # Probe AI Gateways concurrently to avoid blocking /v1/providers
+        async def _probe_xkiro_gw():
+            if not active_settings.xkiro_configured:
+                return GatewayModelsOutcome(False, 0, "no_url", "XKiro AI needs XKIRO_API_KEY and XKIRO_BASE_URL.")
+            return await probe_gateway_models(
                 active_settings.active_xkiro_base_url,
                 api_key=active_settings.active_xkiro_key.get_secret_value() if active_settings.active_xkiro_key else None,
             )
+
+        async def _probe_apmix_gw():
+            if not active_settings.apmix_configured:
+                return GatewayModelsOutcome(False, 0, "no_url", "APMIX.AI needs APMIX_AI_API_KEY and APMIX_AI_BASE_URL.")
+            return await probe_gateway_models(
+                active_settings.active_apmix_base_url,
+                api_key=active_settings.active_apmix_key.get_secret_value() if active_settings.active_apmix_key else None,
+            )
+
+        async def _probe_oxion_gw():
+            if not active_settings.oxion_configured:
+                return GatewayModelsOutcome(False, 0, "no_url", "Oxion AI needs OXION_AI_API_KEY and OXION_AI_BASE_URL.")
+            return await probe_gateway_models(
+                active_settings.active_oxion_base_url,
+                api_key=active_settings.active_oxion_key.get_secret_value() if active_settings.active_oxion_key else None,
+            )
+
+        async def _probe_explabs_gw():
+            if not active_settings.explabs_configured:
+                return GatewayModelsOutcome(False, 0, "no_url", "Experiential Labs needs EXPLABS_API_KEY.")
+            return await probe_gateway_models(
+                active_settings.active_explabs_base_url,
+                api_key=active_settings.active_explabs_key.get_secret_value() if active_settings.active_explabs_key else None,
+            )
+
+        async def _probe_respan_gw():
+            if not active_settings.respan_configured:
+                return GatewayModelsOutcome(False, 0, "no_url", "Respan AI needs RESPAN_AI_API_KEY.")
+            return await probe_gateway_models(
+                active_settings.active_respan_base_url,
+                api_key=active_settings.active_respan_key.get_secret_value() if active_settings.active_respan_key else None,
+            )
+
+        gw_results = await asyncio.gather(
+            _probe_xkiro_gw(), _probe_apmix_gw(), _probe_oxion_gw(), _probe_explabs_gw(), _probe_respan_gw(),
+            return_exceptions=True,
+        )
+        xkiro_probe = gw_results[0] if isinstance(gw_results[0], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[0]))
+        apmix_probe = gw_results[1] if isinstance(gw_results[1], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[1]))
+        oxion_probe = gw_results[2] if isinstance(gw_results[2], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[2]))
+        explabs_probe = gw_results[3] if isinstance(gw_results[3], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[3]))
+        respan_probe = gw_results[4] if isinstance(gw_results[4], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[4]))
+
+        xkiro_state = "unavailable"
+        xkiro_message = "XKiro AI needs XKIRO_API_KEY and XKIRO_BASE_URL."
+        if active_settings.xkiro_configured:
             if xkiro_probe.serving:
                 xkiro_state = "healthy"
                 probe_measured.add("xkiro")
-                xkiro_message = (
-                    f"XKiro AI is connected (1M daily free tokens, {xkiro_probe.model_count} models serving; default: {active_settings.xkiro_model})."
-                )
+                xkiro_message = f"XKiro AI is connected (1M daily free tokens, {xkiro_probe.model_count} models serving; default: {active_settings.xkiro_model})."
+            elif xkiro_probe.reason in ("http_401", "http_403", "refused", "no_url"):
+                xkiro_state = "unavailable"
+                xkiro_message = f"XKiro AI authentication failed: {xkiro_probe.detail}"
             else:
                 xkiro_state = "degraded"
                 xkiro_message = f"XKiro AI configured: {xkiro_probe.detail}"
 
-        # Probe APMIX.AI Gateway if configured
         apmix_state = "unavailable"
         apmix_message = "APMIX.AI needs APMIX_AI_API_KEY and APMIX_AI_BASE_URL."
         if active_settings.apmix_configured:
-            apmix_probe = await probe_gateway_models(
-                active_settings.active_apmix_base_url,
-                api_key=active_settings.active_apmix_key.get_secret_value() if active_settings.active_apmix_key else None,
-            )
             if apmix_probe.serving:
                 apmix_state = "healthy"
                 probe_measured.add("apmix")
-                apmix_message = (
-                    f"APMIX.AI is connected ({apmix_probe.model_count} models serving; default: {active_settings.apmix_model})."
-                )
+                apmix_message = f"APMIX.AI is connected ({apmix_probe.model_count} models serving; default: {active_settings.apmix_model})."
+            elif apmix_probe.reason in ("http_401", "http_403", "refused", "no_url"):
+                apmix_state = "unavailable"
+                apmix_message = f"APMIX.AI authentication failed: {apmix_probe.detail}"
             else:
                 apmix_state = "degraded"
                 apmix_message = f"APMIX.AI configured: {apmix_probe.detail}"
@@ -2391,23 +2432,48 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         articul8_state = "untested" if active_settings.articul8_configured else "unavailable"
         articul8_message = "Bivia decision tool configured; not a chat model. Live decision verification is required." if active_settings.articul8_configured else "Bivia needs an Articul8 API key."
 
-        # Probe Oxion AI Gateway if configured
         oxion_state = "unavailable"
         oxion_message = "Oxion AI needs OXION_AI_API_KEY and OXION_AI_BASE_URL."
         if active_settings.oxion_configured:
-            oxion_probe = await probe_gateway_models(
-                active_settings.active_oxion_base_url,
-                api_key=active_settings.active_oxion_key.get_secret_value() if active_settings.active_oxion_key else None,
-            )
             if oxion_probe.serving:
                 oxion_state = "healthy"
                 probe_measured.add("oxion")
-                oxion_message = (
-                    f"Oxion AI is connected ({oxion_probe.model_count} models serving; default: {active_settings.oxion_model})."
-                )
+                oxion_message = f"Oxion AI is connected ({oxion_probe.model_count} models serving; default: {active_settings.oxion_model})."
+            elif oxion_probe.reason in ("http_401", "http_403", "refused", "no_url"):
+                oxion_state = "unavailable"
+                oxion_message = f"Oxion AI authentication failed: {oxion_probe.detail}"
             else:
                 oxion_state = "degraded"
                 oxion_message = f"Oxion AI configured with {len(active_settings.oxion_allowed_models)} models ({oxion_probe.detail})."
+
+        explabs_state = "unavailable"
+        explabs_message = "Experiential Labs needs EXPLABS_API_KEY."
+        if active_settings.explabs_configured:
+            if explabs_probe.serving:
+                explabs_state = "healthy"
+                probe_measured.add("experiential")
+                probe_measured.add("explabs")
+                explabs_message = f"Experiential Labs is connected ({explabs_probe.model_count} models serving; default: {active_settings.active_explabs_model})."
+            elif explabs_probe.reason in ("http_401", "http_403", "refused", "no_url"):
+                explabs_state = "unavailable"
+                explabs_message = f"Experiential Labs authentication failed: {explabs_probe.detail}"
+            else:
+                explabs_state = "degraded"
+                explabs_message = f"Experiential Labs configured: {explabs_probe.detail}"
+
+        respan_state = "unavailable"
+        respan_message = "Respan AI needs RESPAN_AI_API_KEY."
+        if active_settings.respan_configured:
+            if respan_probe.serving:
+                respan_state = "healthy"
+                probe_measured.add("respan")
+                respan_message = f"Respan AI is connected ({respan_probe.model_count} models serving; default: {active_settings.respan_model})."
+            elif respan_probe.reason in ("http_401", "http_403", "refused", "no_url"):
+                respan_state = "unavailable"
+                respan_message = f"Respan AI authentication failed: {respan_probe.detail}"
+            else:
+                respan_state = "degraded"
+                respan_message = f"Respan AI configured: {respan_probe.detail}"
 
         # Gemini / real is measured healthy when credentials are configured
         if active_settings.gemini_configured:
@@ -2828,12 +2894,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     f"default-model:{active_settings.active_explabs_model}",
                     *[f"model:{model}" for model in active_settings.explabs_allowed_models],
                 ],
-                state="healthy" if active_settings.explabs_configured else "unavailable",
-                userMessage=(
-                    "Experiential Labs is configured in the backend."
-                    if active_settings.explabs_configured
-                    else "Experiential Labs needs EXPLABS_API_KEY in apps/api/.env.local."
-                ),
+                state=explabs_state,
+                userMessage=explabs_message,
+            ),
+            ProviderStatus(
+                id="respan",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.respan_model}",
+                    *[f"model:{model}" for model in active_settings.respan_allowed_models],
+                ],
+                state=respan_state,
+                userMessage=respan_message,
             ),
             ProviderStatus(
                 id="tinyfish",
@@ -2866,8 +2941,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if measured is not None:
                 status.state = measured.state
                 status.userMessage = measured.message
-                if status.id in ("oxion", "xkiro", "codecraft", "apmix") and status.state == "unavailable":
-                    status.state = "degraded"
             elif breaker is not None and breaker.cooldown_remaining() > 0:
                 status.state = "unavailable" if breaker.state == CircuitBreakerState.AUTH_ERROR else "degraded"
                 status.userMessage = (
