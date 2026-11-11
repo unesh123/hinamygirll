@@ -7,6 +7,28 @@ describe("GoalsDashboard with Loop Engine and Evals", () => {
     vi.restoreAllMocks();
   });
 
+  it.each([401, 403, 502])("shows HTTP %s failures with a retry action", async (status) => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status });
+    render(<GoalsDashboard />);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(status === 502 ? "HTTP 502" : "Sign in with an authorized account");
+    expect(screen.getByRole("button", { name: "Retry connection" })).toBeInTheDocument();
+  });
+
+  it("recovers from a network error when connection is retried", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchMock = vi.fn().mockRejectedValue(new Error("Network unavailable"));
+    global.fetch = fetchMock;
+    render(<GoalsDashboard />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Network unavailable");
+    fetchMock.mockImplementation((url: string) => Promise.resolve({ ok: true, json: async () =>
+      url === "/api/goals" ? [] : url === "/api/loop/tasks" ? { tasks: [] } : null,
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "Retry connection" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  });
+
   it("renders the header and both tab options", async () => {
     global.fetch = vi.fn().mockImplementation((url: string) => {
       if (url.includes("/api/goals/self-model")) {

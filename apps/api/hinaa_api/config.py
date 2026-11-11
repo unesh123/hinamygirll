@@ -451,11 +451,10 @@ class Settings(BaseSettings):
             "BIVIA_API_KEY",
             "BEN_API_KEY",
             "BEN_MODELS_API_KEY",
-            "NEWAPI_API_KEY",
         ),
     )
     articul8_base_url: str = Field(
-        "https://api.articul8.ai/v1",
+        "https://api.articul8.ai/bivia",
         validation_alias=AliasChoices(
             "APP_AARTICUL8_AI_BASE_URL",
             "APP_ARTICUL8_AI_BASE_URL",
@@ -468,7 +467,7 @@ class Settings(BaseSettings):
         ),
     )
     articul8_model: str = Field(
-        "bivia-1.0",
+        "bivia",
         validation_alias=AliasChoices(
             "APP_AARTICUL8_AI_MODEL",
             "ARTICUL8_MODEL",
@@ -477,7 +476,7 @@ class Settings(BaseSettings):
         ),
     )
     articul8_allowed_models_raw: str = Field(
-        "bivia,bivia-1.0,bivia-decision,bivia-multimodal,articul8-bivia,*",
+        "bivia",
         validation_alias=AliasChoices(
             "APP_AARTICUL8_AI_ALLOWED_MODELS",
             "ARTICUL8_ALLOWED_MODELS",
@@ -1801,13 +1800,10 @@ class Settings(BaseSettings):
     @property
     def active_articul8_base_url(self) -> str | None:
         value = (self.articul8_base_url or "").strip().rstrip("/")
-        if value.endswith("/home"):
-            value = value[:-len("/home")].rstrip("/")
-        if value.endswith("/dashboard"):
-            value = value[:-len("/dashboard")].rstrip("/")
-        if value and not value.endswith("/v1"):
-            value = f"{value}/v1"
-        return value or "https://api.articul8.ai/v1"
+        # The account dashboard is not an OpenAI-compatible inference API.
+        if not value or urlparse(value).hostname in {"app.articul8.ai", "api.articul8.ai", "articul8.ai", "www.articul8.ai"}:
+            return "https://api.articul8.ai/bivia"
+        return value
 
     @property
     def active_articul8_model(self) -> str:

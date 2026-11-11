@@ -119,6 +119,7 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
   const providerGroups: { [key: string]: DiscoveredModel[] } = {};
   for (const m of models) {
     if (m.id === "*") continue;
+    if (m.provider === "articul8" || providers.find(p => p.id === m.provider)?.role === "decision") continue;
     if (!providerGroups[m.provider]) {
       providerGroups[m.provider] = [];
     }

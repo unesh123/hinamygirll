@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 import uuid
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+SUPPORTED_TASKS = {"research", "pdf", "pptx", "creative"}
 
 
 class WorkerHive:
@@ -27,128 +30,154 @@ class WorkerHive:
         """Decompose mission and execute research, PDF, PPTX, and creative subagents in parallel."""
         mission_clean = mission.strip()
         cid = conversation_id or str(uuid.uuid4())
-        
-        # Default task spectrum if not specified
-        requested = tasks or ["research", "pdf", "pptx", "creative"]
-        results: Dict[str, Any] = {}
+
+        if tasks is not None and len(tasks) == 0:
+            return {
+                "status": "error",
+                "mission": mission_clean,
+                "conversationId": cid,
+                "deliverables": {},
+                "errors": ["empty_tasks"],
+            }
+
+        requested_list = tasks if tasks is not None else ["research", "pdf", "pptx", "creative"]
+        requested = [t for t in requested_list if t in SUPPORTED_TASKS]
+        if not requested:
+            return {
+                "status": "error",
+                "mission": mission_clean,
+                "conversationId": cid,
+                "deliverables": {},
+                "errors": ["unsupported_tasks"],
+            }
+
         deliverables: Dict[str, Any] = {}
+        pending: Dict[str, Any] = {}
+        errors: List[str] = []
 
-        # 1. Parallel Task Definitions
-        async def _run_research() -> Dict[str, Any]:
+        # Check if research is required
+        needs_research = any(t in requested for t in ("research", "pdf", "pptx"))
+        sections = None
+
+        if needs_research:
+            from ..tools.pdf_generate import _research_body
             try:
-                from ..tools.pdf_generate import _research_body, _synthesize_academic_dossier
                 sections = await _research_body(mission_clean)
-                if not sections:
-                    sections = _synthesize_academic_dossier(mission_clean)
-                return {"ok": True, "sections": sections, "section_count": len(sections)}
             except Exception as e:
-                logger.warning("Research worker failed: %s", e)
-                return {"ok": False, "error": str(e)}
+                logger.warning("Research worker exception: %s", e)
+                sections = []
 
-        async def _run_pdf(sections_future: asyncio.Task) -> Dict[str, Any]:
+            if not sections:
+                if "research" in requested:
+                    errors.append("research")
+                if "pdf" in requested:
+                    errors.append("pdf")
+                if "pptx" in requested:
+                    errors.append("pptx")
+            else:
+                if "research" in requested:
+                    deliverables["research"] = {
+                        "sectionCount": len(sections),
+                        "status": "completed",
+                        "sections": sections,
+                    }
+
+        # Format markdown content from researched sections if available
+        content_str = None
+        if sections:
+            lines = [f"# {mission_clean}\n"]
+            for heading, body in sections:
+                lines.append(f"## {heading}\n")
+                if isinstance(body, list):
+                    for item in body:
+                        lines.append(f"- {item}")
+                else:
+                    lines.append(f"{body}\n")
+            content_str = "\n".join(lines)
+
+        async def _run_doc(fmt: str) -> None:
+            if not sections:
+                return
+            from ..tools.document_generate import document_generate_handler, GenerateDocumentParams
             try:
-                research_res = await sections_future
-                sections = research_res.get("sections") or []
-                from ..tools.pdf_generate import _generate_reportlab_pdf, _store_generated_pdf, safe_filename
-                pdf_bytes, page_count = _generate_reportlab_pdf(
-                    title=f"{mission_clean}: Technical Dossier",
-                    sections=sections,
+                doc_title = f"{mission_clean}: Technical Dossier" if fmt == "pdf" else f"{mission_clean} Presentation"
+                res = await document_generate_handler(GenerateDocumentParams(
+                    title=doc_title,
                     topic=mission_clean,
-                )
-                fname = f"{safe_filename(mission_clean)}_dossier.pdf"
-                rec = _store_generated_pdf(fname, pdf_bytes, page_count, mission_clean)
-                return {
-                    "ok": True,
-                    "title": f"{mission_clean}: Technical Dossier",
-                    "filename": fname,
-                    "downloadUrl": rec["downloadUrl"],
-                    "pageCount": page_count,
-                    "fileSizeBytes": len(pdf_bytes),
-                }
+                    content=content_str,
+                    format=fmt,
+                ))
+                if (
+                    isinstance(res, dict)
+                    and res.get("status") == "success"
+                    and res.get("validationStatus") == "validated"
+                    and res.get("canonicalPath")
+                    and Path(res["canonicalPath"]).is_file()
+                ):
+                    deliverables[fmt] = res
+                else:
+                    errors.append(fmt)
             except Exception as e:
-                logger.warning("PDF worker failed: %s", e)
-                return {"ok": False, "error": str(e)}
+                logger.warning("%s worker failed: %s", fmt.upper(), e)
+                errors.append(fmt)
 
-        async def _run_pptx() -> Dict[str, Any]:
+        async def _run_creative() -> None:
+            from ..tools.image_generate import image_generate_handler, ImageGenerateParams
             try:
-                from ..tools.document_generate import document_generate_handler
-                res = await document_generate_handler(
-                    topic=mission_clean,
-                    format="pptx",
-                    document_title=f"{mission_clean} Presentation",
-                )
-                return res
-            except Exception as e:
-                logger.warning("PPTX worker failed: %s", e)
-                return {"ok": False, "error": str(e)}
-
-        async def _run_creative() -> Dict[str, Any]:
-            try:
-                from ..tools.image_generate import image_generate_handler
                 prompt = (
                     f"Masterpiece architectural and conceptual illustration representing {mission_clean}, "
                     f"highly detailed, cinematic volumetric lighting, 8k resolution, elegant aesthetic"
                 )
-                res = await image_generate_handler(prompt=prompt)
-                return res
+                res = await image_generate_handler(ImageGenerateParams(prompt=prompt))
+                if isinstance(res, dict) and res.get("status") == "processing":
+                    pending["creative"] = res
+                elif isinstance(res, dict) and res.get("status") == "success" and (res.get("imageUrl") or res.get("url")):
+                    deliverables["creative"] = res
+                else:
+                    errors.append("creative")
             except Exception as e:
                 logger.warning("Creative worker failed: %s", e)
-                return {"ok": False, "error": str(e)}
+                errors.append("creative")
 
-        # Launch concurrent background execution
-        research_task = asyncio.create_task(_run_research())
-        pdf_task = asyncio.create_task(_run_pdf(research_task)) if "pdf" in requested else None
-        pptx_task = asyncio.create_task(_run_pptx()) if "pptx" in requested else None
-        creative_task = asyncio.create_task(_run_creative()) if "creative" in requested else None
+        doc_tasks = []
+        if "pdf" in requested and sections:
+            doc_tasks.append(_run_doc("pdf"))
+        if "pptx" in requested and sections:
+            doc_tasks.append(_run_doc("pptx"))
+        if "creative" in requested:
+            doc_tasks.append(_run_creative())
 
-        # Await completion
-        res_done = await research_task
-        results["research"] = res_done
-        deliverables["research"] = {
-            "sectionCount": res_done.get("section_count", 0),
-            "status": "completed" if res_done.get("ok") else "fallback",
-        }
+        if doc_tasks:
+            await asyncio.gather(*doc_tasks)
 
-        if pdf_task:
-            pdf_res = await pdf_task
-            results["pdf"] = pdf_res
-            if pdf_res.get("ok"):
-                deliverables["pdf"] = {
-                    "title": pdf_res.get("title"),
-                    "downloadUrl": pdf_res.get("downloadUrl"),
-                    "pageCount": pdf_res.get("pageCount"),
-                    "filename": pdf_res.get("filename"),
-                }
+        # Determine overall status
+        if pending and not deliverables and not errors:
+            status = "processing"
+        elif deliverables and not errors:
+            status = "success"
+        elif deliverables and errors:
+            status = "partial"
+        elif pending and not deliverables:
+            status = "processing"
+        else:
+            status = "error"
 
-        if pptx_task:
-            pptx_res = await pptx_task
-            results["pptx"] = pptx_res
-            if pptx_res.get("status") == "success":
-                deliverables["pptx"] = {
-                    "title": pptx_res.get("title"),
-                    "downloadUrl": pptx_res.get("downloadUrl"),
-                    "filename": pptx_res.get("filename"),
-                }
-
-        if creative_task:
-            creative_res = await creative_task
-            results["creative"] = creative_res
-            if creative_res.get("status") == "success":
-                deliverables["creative"] = {
-                    "imageUrl": creative_res.get("imageUrl") or creative_res.get("url"),
-                    "prompt": creative_res.get("prompt"),
-                }
-
-        return {
-            "status": "success",
+        result_payload: Dict[str, Any] = {
+            "status": status,
             "mission": mission_clean,
             "conversationId": cid,
             "deliverables": deliverables,
-            "summary": (
-                f"Autonomous swarm completed mission for '{mission_clean}'. "
-                f"Generated {len(deliverables)} integrated deliverables."
-            ),
         }
+        if pending:
+            result_payload["pending"] = pending
+        if errors:
+            result_payload["errors"] = errors
+
+        result_payload["summary"] = (
+            f"Autonomous swarm completed mission for '{mission_clean}'. "
+            f"Generated {len(deliverables)} integrated deliverables."
+        )
+        return result_payload
 
 
 worker_hive = WorkerHive()

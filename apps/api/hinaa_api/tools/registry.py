@@ -40,6 +40,9 @@ class ToolRegistry:
 
     def get_tool(self, name: str) -> ToolDefinition | None:
         return self._tools.get(name)
+
+    def get(self, name: str) -> ToolDefinition | None:
+        return self._tools.get(name)
         
     def get_all_tools(self) -> list[ToolDefinition]:
         return list(self._tools.values())

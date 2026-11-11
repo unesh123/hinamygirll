@@ -52,8 +52,15 @@ class GenerateDocumentParams(BaseModel):
     prompt: str | None = Field(None, max_length=500, description="Alias for topic")
 
 
-async def document_generate_handler(params: GenerateDocumentParams) -> dict[str, Any]:
+async def document_generate_handler(
+    params: GenerateDocumentParams | dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> dict[str, Any]:
     """Compile content into DOCX, PDF, PPTX, or Markdown document with downloadable artifact URL."""
+    if params is None:
+        params = GenerateDocumentParams(**kwargs)
+    elif isinstance(params, dict):
+        params = GenerateDocumentParams(**params)
     fmt = (params.format or "docx").lower().strip()
     if fmt == "word" or fmt == "doc":
         fmt = "docx"

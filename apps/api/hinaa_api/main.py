@@ -1057,6 +1057,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     from .omega_router import omega_router
     app.include_router(omega_router)
+    from .routers.bivia_router import create_bivia_router
+    app.include_router(create_bivia_router(active_settings))
     from .skills.endpoints import router as skills_router
     app.include_router(skills_router)
     from .integrations_hub.endpoints import router as hub_router
@@ -2054,11 +2056,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
             {
                 "id": "articul8",
-                "name": "Articul8 Bivia (Ben)",
-                "configured": bool(getattr(active_settings, "articul8_configured", False)),
-                "defaultModel": active_settings.active_articul8_model,
-                "allowedModels": list(active_settings.articul8_allowed_models),
-                "protocol": "openai-compatible",
+                "name": "Articul8 Bivia decisions",
+                "configured": active_settings.articul8_configured,
+                "defaultModel": "",
+                "allowedModels": [],
+                "protocol": "bivia-decisions",
+                "role": "decision",
+                "health": "untested" if active_settings.articul8_configured else "unavailable",
+                "healthMessage": "Decision tool, not a text-generating chat model.",
             },
             {
                 "id": "experiential",
@@ -2141,7 +2146,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         for provider in providers:
             provider_id = provider["id"]
-            if provider_id in {"you", "omniroute"}:
+            if provider_id in {"you", "omniroute", "articul8"}:
                 continue  # research lane and last-resort gateway, not pickable brains
             if not provider.get("configured"):
                 # An unconfigured brain cannot answer; listing it would be the
@@ -2372,23 +2377,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 apmix_state = "degraded"
                 apmix_message = f"APMIX.AI configured: {apmix_probe.detail}"
 
-        # Probe Articul8 Bivia (Ben) Gateway if configured
-        articul8_state = "unavailable"
-        articul8_message = "Articul8 Bivia needs APP_AARTICUL8_AI_API_KEY and APP_AARTICUL8_AI_BASE_URL."
-        if active_settings.articul8_configured:
-            articul8_probe = await probe_gateway_models(
-                active_settings.active_articul8_base_url,
-                api_key=active_settings.active_articul8_key.get_secret_value() if active_settings.active_articul8_key else None,
-            )
-            if articul8_probe.serving:
-                articul8_state = "healthy"
-                probe_measured.add("articul8")
-                articul8_message = (
-                    f"Articul8 Bivia (Ben) is connected ({articul8_probe.model_count} models serving; default: {active_settings.articul8_model})."
-                )
-            else:
-                articul8_state = "degraded"
-                articul8_message = f"Articul8 Bivia (Ben) configured with {len(active_settings.articul8_allowed_models)} models ({articul8_probe.detail})."
+        # Bivia has a decision API, not /models or chat/completions.
+        # Listing providers must not incur a paid decision call.
+        articul8_state = "untested" if active_settings.articul8_configured else "unavailable"
+        articul8_message = "Bivia decision tool configured; not a chat model. Live decision verification is required." if active_settings.articul8_configured else "Bivia needs an Articul8 API key."
 
         # Probe Oxion AI Gateway if configured
         oxion_state = "unavailable"
@@ -2635,14 +2627,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
             ProviderStatus(
                 id="articul8",
-                capabilities=[
-                    "llm",
-                    "structured-turn-plan",
-                    "text-stream",
-                    "openai-compatible",
-                    f"default-model:{active_settings.articul8_model}",
-                    *[f"model:{model}" for model in active_settings.articul8_allowed_models if model != "*"],
-                ],
+                capabilities=["decision", "bounded-outcomes", "abstention", "tool:bivia_decide"],
                 state=articul8_state,
                 userMessage=articul8_message,
             ),

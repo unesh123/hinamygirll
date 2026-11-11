@@ -1650,19 +1650,10 @@ class ProviderRouter:
                 provider_id="oxion",
             )
         if mode in {"articul8", "bivia", "ben"}:
-            self._require_articul8_brain()
-            active_articul8_key = self.settings.active_articul8_key
-            active_articul8_base_url = self.settings.active_articul8_base_url
-            assert active_articul8_key and active_articul8_base_url
-            try:
-                model = self.settings.resolve_articul8_model(brain_model)
-            except ValueError:
-                model = self.settings.active_articul8_model
-            return OpenAILLMProvider(
-                active_articul8_key.get_secret_value(),
-                model,
-                base_url=active_articul8_base_url,
-                provider_id="articul8",
+            raise HinaaError(
+                "PROVIDER_CAPABILITY_MISMATCH",
+                "Bivia returns bounded decisions, not chat text. Select a chat model; use bivia_decide for decisions.",
+                422, user_action_required=True,
             )
         if mode == "real":
             # Text generation depends only on the brain credential. Speech has
@@ -4207,7 +4198,6 @@ class ConversationService:
             "cavoti": (self.settings.cavoti_configured, self.settings.active_cavoti_model),
             "apmix": (self.settings.apmix_configured, self.settings.active_apmix_model),
             "oxion": (self.settings.oxion_configured, self.settings.active_oxion_model),
-            "articul8": (self.settings.articul8_configured, self.settings.active_articul8_model),
             "claude": (self.settings.claude_configured, self.settings.active_claude_model),
             "custom": (self.settings.custom_configured, self.settings.active_custom_model),
             "cx-gateway": (self.settings.cx_gateway_configured, self.settings.cx_gateway_model),

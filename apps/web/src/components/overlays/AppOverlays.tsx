@@ -1,9 +1,20 @@
-import React, { Suspense } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import { HinaDrawer } from "../lightswind/Drawer";
-import { SettingsV6 } from "../../features/settings";
-import { VoiceDiagnosticsDrawer } from "../../features/voice/VoiceDiagnosticsDrawer";
-import { TerminalHandsDrawer } from "../../features/terminal/TerminalHandsDrawer";
-import { DesktopWalkingPet } from "../../features/desktop/DesktopWalkingPet";
+import type { useLiveVision } from "../../features/vision/useLiveVision";
+
+const SettingsV6 = React.lazy(() => import("../../features/settings/SettingsV6").then(m => ({ default: m.SettingsV6 })));
+const VoiceDiagnosticsDrawer = React.lazy(() => import("../../features/voice/VoiceDiagnosticsDrawer").then(m => ({ default: m.VoiceDiagnosticsDrawer })));
+const TerminalHandsDrawer = React.lazy(() => import("../../features/terminal/TerminalHandsDrawer").then(m => ({ default: m.TerminalHandsDrawer })));
+const DesktopWalkingPet = React.lazy(() => import("../../features/desktop/DesktopWalkingPet").then(m => ({ default: m.DesktopWalkingPet })));
+
+// Do not import or mount panels until needed. Keep visited panels mounted so
+// closing a drawer preserves drafts, terminal history and exit animations.
+function DeferredPanel({ open, children }: { open: boolean; children: React.ReactNode }) {
+  const [visited, setVisited] = useState(open);
+  useEffect(() => { if (open) setVisited(true); }, [open]);
+  if (!open && !visited) return null;
+  return <Suspense fallback={open ? <div role="status" className="overlay-loading">Loading panel…</div> : null}>{children}</Suspense>;
+}
 
 // Lazy-loaded heavy modal overlays
 const MemoryPanel = React.lazy(() =>
@@ -67,7 +78,7 @@ export interface AppOverlaysProps {
   onToggleLiveVoice: () => void;
   streamingText: string | null;
   lastAssistantText: string | null;
-  liveVision: any;
+  liveVision: Pick<ReturnType<typeof useLiveVision>, "observeScreen">;
 
   explainerOpen: boolean;
   setExplainerOpen: (open: boolean) => void;
@@ -122,10 +133,11 @@ export function AppOverlays({
 }: AppOverlaysProps) {
   return (
     <>
-      <Suspense fallback={null}>
+      <DeferredPanel open={memoryOpen}>
         <MemoryPanel isOpen={memoryOpen} onClose={() => setMemoryOpen(false)} />
-      </Suspense>
+      </DeferredPanel>
 
+      <DeferredPanel open={settingsOpen}>
       <SettingsV6
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
@@ -139,6 +151,7 @@ export function AppOverlays({
         isMuted={isMuted}
         onToggleMute={onToggleMute}
       />
+      </DeferredPanel>
 
       <HinaDrawer
         open={drawerOpen}
@@ -150,6 +163,7 @@ export function AppOverlays({
         {drawerContent}
       </HinaDrawer>
 
+      <DeferredPanel open={diagnosticsOpen}>
       <VoiceDiagnosticsDrawer
         isOpen={diagnosticsOpen}
         onClose={() => setDiagnosticsOpen(false)}
@@ -157,8 +171,9 @@ export function AppOverlays({
         onManualCommit={onManualCommit}
         isListening={isListening}
       />
+      </DeferredPanel>
 
-      <Suspense fallback={null}>
+      <DeferredPanel open={musicPlayerOpen || contextMode === "music"}>
         <MusicMiniPlayer
           isOpen={musicPlayerOpen || contextMode === "music"}
           onClose={() => {
@@ -166,15 +181,18 @@ export function AppOverlays({
             if (contextMode === "music") setContextMode("hidden");
           }}
         />
-      </Suspense>
+      </DeferredPanel>
 
+      <DeferredPanel open={terminalOpen}>
       <TerminalHandsDrawer
         isOpen={terminalOpen}
         onClose={() => setTerminalOpen(false)}
         initialCommand={terminalInitialCmd}
       />
+      </DeferredPanel>
 
       {showDesktopPet && !isMobile && (
+        <Suspense fallback={null}>
         <DesktopWalkingPet
           isSpeaking={isSpeaking}
           isThinking={isThinking}
@@ -189,12 +207,11 @@ export function AppOverlays({
               const res = await liveVision.observeScreen(
                 "Observe active windows and check my focus status"
               );
-              return (
-                res.observation ||
-                "Active windows observed! Focus shield holding strong."
-              );
+              return res.ok && res.observation?.trim()
+                ? res.observation
+                : "I couldn't observe your screen. Check screen sharing and try again.";
             } catch {
-              return "Active windows observed! Chrome and VS Code are open.";
+              return "Screen observation failed. Please try again.";
             }
           }}
           onOpenTasks={() => {
@@ -209,9 +226,10 @@ export function AppOverlays({
             } catch {}
           }}
         />
+        </Suspense>
       )}
 
-      <Suspense fallback={null}>
+      <DeferredPanel open={explainerOpen}>
         <VisualDocumentExplainer
           isOpen={explainerOpen}
           onClose={() => setExplainerOpen(false)}
@@ -227,7 +245,7 @@ export function AppOverlays({
           }}
           isSpeaking={isSpeaking}
         />
-      </Suspense>
+      </DeferredPanel>
     </>
   );
 }

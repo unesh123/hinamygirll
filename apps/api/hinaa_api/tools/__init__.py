@@ -1,4 +1,5 @@
 from .registry import registry
+from . import bivia_decide
 from . import browser
 from . import youtube
 from . import browser_control

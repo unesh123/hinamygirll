@@ -647,7 +647,14 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
             session.commit()
 
 
-async def image_generate_handler(params: ImageGenerateParams) -> Dict[str, Any]:
+async def image_generate_handler(
+    params: ImageGenerateParams | Dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> Dict[str, Any]:
+    if params is None:
+        params = ImageGenerateParams(**kwargs)
+    elif isinstance(params, dict):
+        params = ImageGenerateParams(**params)
     if params.imageUrl and not params.reference_images:
         params.reference_images = [params.imageUrl]
     if params.reference_images and len(params.reference_images) > 1:

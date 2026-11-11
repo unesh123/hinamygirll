@@ -26,7 +26,6 @@ import type { AttachmentRole } from "./design-system/chat/ComposerV6";
 import { OperateMode, type OperateTab } from "./design-system/modes/OperateMode";
 import { ShowroomMode } from "./design-system/modes/ShowroomMode";
 import { CompanionStage } from "./design-system/modes/CompanionStage";
-import { VoiceDiagnosticsDrawer } from "./features/voice/VoiceDiagnosticsDrawer";
 import { VoiceLab } from "./features/voice/VoiceLab";
 import { extractCodeBlock, isOtakuXWearTopic } from "./features/avatar/stageModes";
 import {
@@ -38,7 +37,6 @@ import { FullScreenAura } from "./components/ui/FullScreenAura";
 import { AuroraVeil } from "./components/ui/AuroraVeil";
 import { SearchingLoader } from "./components/ui/SearchingLoader";
 import type { PresenceMode } from "./components/ui/AvatarPresence";
-import { HinaDrawer } from "./components/lightswind/Drawer";
 import { SidebarProvider } from "./components/lightswind/Sidebar";
 import { synthesizeSpeech, synthesizeSpeechTimed } from "./features/audio/api";
 import type { SpeechAudio } from "./features/audio/progressiveSpeech";
@@ -52,7 +50,6 @@ import { useVSeeFace } from "./features/audio/useVSeeFace";
 import { companionProfiles, type CompanionId, type CompanionState, type TranscriptMessage } from "./features/companion/types";
 import { useCompanionController } from "./features/companion/useCompanionController";
 import { useLiveVision } from "./features/vision/useLiveVision";
-import { DesktopWalkingPet } from "./features/desktop/DesktopWalkingPet";
 import {
   getOrCreateActiveConversationId,
   createNextConversationId,
@@ -63,7 +60,9 @@ import { useEntranceStagger } from "./features/motion/useEntranceStagger";
 import { useProviderRouting } from "./features/providers/hooks/useProviderRouting";
 import { pickRecoveryBrain } from "./features/providers/utils/resolveProviderSelection";
 import { providerModeFromId } from "./features/providers/utils/providerLabels";
-import { SettingsV6, SettingsTrigger, useSettings, useSettingsPersistence } from "./features/settings";
+import { SettingsTrigger } from "./features/settings/components/SettingsTrigger";
+import { useSettings } from "./features/settings/hooks/useSettings";
+import { useSettingsPersistence } from "./features/settings/hooks/useSettingsPersistence";
 import type { NavSection } from "./design-system/layout/NavigationRail";
 import { orbStateFrom, useShellBridge } from "./shell/useShellBridge";
 
@@ -81,15 +80,11 @@ import { FloatingCompanionIsland } from "./features/desktop/FloatingCompanionIsl
 
 const AvatarPresence = lazy(() => import("./components/ui/AvatarPresence").then((module) => ({ default: module.AvatarPresence })));
 const ContextWorkspace = lazy(() => import("./components/ui/ContextWorkspace").then((module) => ({ default: module.ContextWorkspace })));
-const MemoryPanel = lazy(() => import("./components/ui/MemoryPanel").then((module) => ({ default: module.MemoryPanel })));
 const LocalProjectWorkspace = lazy(() => import("./components/ui/LocalProjectWorkspace").then((module) => ({ default: module.LocalProjectWorkspace })));
 const MagnificImageStudio = lazy(() => import("./components/ui/MagnificImageStudio").then((module) => ({ default: module.MagnificImageStudio })));
 const AvatarLab = lazy(() => import("./components/ui/AvatarLab").then((module) => ({ default: module.AvatarLab })));
 const HumanizerStudio = lazy(() => import("./features/tools/HumanizerStudio").then((module) => ({ default: module.HumanizerStudio })));
-const MusicMiniPlayer = lazy(() => import("./components/ui/MusicMiniPlayer").then((module) => ({ default: module.MusicMiniPlayer })));
 const VIPCollegeVault = lazy(() => import("./features/college/VIPCollegeVault").then((module) => ({ default: module.VIPCollegeVault })));
-const VisualDocumentExplainer = lazy(() => import("./features/explainer/VisualDocumentExplainer").then((module) => ({ default: module.VisualDocumentExplainer })));
-import { TerminalHandsDrawer } from "./features/terminal/TerminalHandsDrawer";
 import { AppOverlays } from "./components/overlays/AppOverlays";
 
 function ClerkAuthWrapper() {

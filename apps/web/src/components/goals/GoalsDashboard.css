@@ -1,0 +1,80 @@
+.goals-dashboard {
+  --goals-background: #0b0f19;
+  --goals-surface: #0f172a;
+  --goals-raised: #1e293b;
+  --goals-border: #475569;
+  --goals-text: #f1f5f9;
+  --goals-muted: #a8b6ca;
+  container-type: inline-size;
+  padding: clamp(12px, 2vw, 24px);
+  min-width: 0;
+  max-width: 100%;
+  min-height: 100%;
+  background: var(--goals-background);
+  color: var(--goals-text);
+  font-family: inherit;
+  overflow-wrap: anywhere;
+}
+
+:root[data-theme="light"] .goals-dashboard {
+  --goals-background: #f8fafc;
+  --goals-surface: #fff;
+  --goals-raised: #e8eef6;
+  --goals-border: #94a3b8;
+  --goals-text: #172033;
+  --goals-muted: #475569;
+}
+
+.goals-dashboard *, .goals-dashboard *::before, .goals-dashboard *::after {
+  box-sizing: border-box;
+}
+
+.goals-dashboard__columns {
+  display: grid;
+  grid-template-columns: minmax(0, 340px) minmax(0, 1fr);
+  gap: 24px;
+}
+
+.goals-dashboard__columns > *, .goals-dashboard form, .goals-dashboard pre {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.goals-dashboard button, .goals-dashboard input, .goals-dashboard textarea {
+  font: inherit;
+  max-width: 100%;
+}
+
+.goals-dashboard button { min-height: 44px; }
+.goals-dashboard button:focus-visible,
+.goals-dashboard input:focus-visible,
+.goals-dashboard textarea:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 3px;
+}
+
+.goals-dashboard__error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  border: 1px solid #ef4444;
+  border-radius: 8px;
+  background: var(--goals-surface);
+}
+
+.goals-dashboard__error button {
+  padding: 8px 12px;
+  color: var(--goals-text);
+  background: var(--goals-raised);
+  border: 1px solid var(--goals-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+@container (max-width: 760px) {
+  .goals-dashboard__columns { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+}

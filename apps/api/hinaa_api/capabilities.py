@@ -349,11 +349,6 @@ def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
     for model_id in getattr(settings, "oxion_allowed_models", []):
         if model_id != "*":
             add_brain(model_id, "oxion", has_oxion, vision=True)
-    has_articul8 = bool(settings.active_articul8_key and settings.active_articul8_key.get_secret_value())
-    for model_id in getattr(settings, "articul8_allowed_models", []):
-        if model_id != "*":
-            add_brain(model_id, "articul8", has_articul8, vision=True)
-
     default_brain = "mock"
     if settings.provider_mode == "cx-gateway":
             default_brain = settings.cx_gateway_model
@@ -371,8 +366,6 @@ def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
         default_brain = settings.active_apmix_model
     elif settings.provider_mode == "oxion":
         default_brain = settings.active_oxion_model
-    elif settings.provider_mode in {"articul8", "bivia", "ben"}:
-        default_brain = settings.active_articul8_model
     elif settings.provider_mode in {"real", "gemini-live"}:
         # Historical ``real`` mode is Gemini brain + a voice provider.
         default_brain = settings.gemini_model
