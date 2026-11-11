@@ -134,13 +134,6 @@ export function NavigationRail({
       active: isChatActive,
     },
     {
-      id: "studio" as NavSection,
-      title: "Runway 3D",
-      subtitle: "3D Voice AI & Couture",
-      icon: Sparkles,
-      active: active === "studio" || (active as string) === "showroom",
-    },
-    {
       id: "dashboard" as NavSection,
       title: "Dashboard",
       subtitle: "System overview",
@@ -153,20 +146,6 @@ export function NavigationRail({
       subtitle: "AI model selection",
       icon: Cpu,
       active: active === "models" || active === "creations",
-    },
-    {
-      id: "reports" as NavSection,
-      title: "Reports",
-      subtitle: "Generated documents",
-      icon: FileText,
-      active: active === "reports" || active === "files" || active === "library",
-    },
-    {
-      id: "vault" as NavSection,
-      title: "VIP Deep Vault",
-      subtitle: "DIP World & College",
-      icon: GraduationCap,
-      active: active === "vault",
     },
     {
       id: "settings" as NavSection,

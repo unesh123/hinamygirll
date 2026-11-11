@@ -3369,9 +3369,10 @@ body {
    These moved out of inline styles because an inline declaration cannot be
    media-queried, which is exactly how the top bar ended up 774px wide on a
    393px phone. Values match the previous inline ones so desktop is unchanged. */
-.topbar-v6 { min-height: 54px; padding: 0 20px; box-sizing: border-box; }
+.topbar-v6 { min-height: 52px; padding: 0 16px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; width: 100%; }
 .topbar-v6__breadcrumb { display: flex; align-items: center; gap: 6px; }
-.topbar-v6__actions { display: flex; align-items: center; gap: 10px; }
+.topbar-v6__actions { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-shrink: 0; }
+.topbar-v6__left { display: flex; align-items: center; gap: 10px; min-width: 0; flex-shrink: 1; }
 .topbar-v6__mode-btn { padding: 5px 12px; font-size: 12px; }
 .composer-v6__shortcuts { display: flex; align-items: center; gap: 8px; }
 .talk-status-header { min-height: 40px; padding: 0 var(--space-4); box-sizing: border-box; }
@@ -4010,15 +4011,18 @@ body {
 }
 
 .topbar-v6__left { min-width:0; flex-shrink:1; }
-@media(max-width:1200px) { .topbar-v6__breadcrumb { display:none !important; } .topbar-v6__island-container { display:none !important; } }
+@media(max-width:1300px) {
+  .topbar-v6__breadcrumb { display:none !important; }
+  .topbar-v6__island-container { display:none !important; }
+  .topbar-v6__modes { display:none !important; }
+}
 @media(max-width:768px) {
   .topbar-v6__left { flex:1; overflow:hidden; }
-  .topbar-v6__modes { max-width:100%; }
-  .topbar-v6__actions [data-testid="topbar-new-chat-btn"], .topbar-v6__actions [data-testid="topbar-showroom-btn"] { display:none !important; }
-  .topbar-v6__modes button { padding:4px 6px !important; }
+  .topbar-v6__actions [data-testid="topbar-new-chat-btn"] { display:none !important; }
 }
 
 @media (max-width:1700px) { .topbar-v6__island-container { display:none !important; } }
+@media (max-width:1250px) { .adobe-motion-timeline__track { display:none !important; } }
 
 .topbar-v6__mobile-brand { display:none; }
 @media(max-width:768px) { .topbar-v6__mobile-brand { display:block; font-size:13px; font-weight:750; letter-spacing:1px; flex-shrink:0; } }

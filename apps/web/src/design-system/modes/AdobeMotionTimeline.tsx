@@ -144,13 +144,14 @@ export const AdobeMotionTimeline: React.FC<AdobeMotionTimelineProps> = React.mem
 
       {/* ── Center: Adobe Keyframe Sequence Track ── */}
       <div
+        className="adobe-motion-timeline__track"
         style={{
           display: "flex",
           alignItems: "center",
           gap: 6,
           flex: 1,
           justifyContent: "center",
-          minWidth: 260,
+          minWidth: 0,
         }}
       >
         <span style={{ fontSize: 10, color: isDark ? "#64748b" : "#94a3b8", fontWeight: 600 }}>TRACK:</span>

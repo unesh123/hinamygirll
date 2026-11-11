@@ -14,9 +14,9 @@ const TAB_ITEMS: Array<{
   icon: React.ReactNode;
 }> = [
   { id: "chat", label: "Chat", icon: <MessageCircle size={20} /> },
-  { id: "studio", label: "Runway 3D", icon: <Sparkles size={20} /> },
-  { id: "projects", label: "Projects", icon: <FolderKanban size={20} /> },
-  { id: "vault", label: "VIP Vault", icon: <ShieldCheck size={20} /> },
+  { id: "dashboard", label: "Dashboard", icon: <FolderKanban size={20} /> },
+  { id: "models", label: "Models", icon: <Sparkles size={20} /> },
+  { id: "settings", label: "Settings", icon: <ShieldCheck size={20} /> },
 ];
 
 export function MobileNavigation({
