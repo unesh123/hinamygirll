@@ -1879,7 +1879,7 @@ class ConversationService:
         # One canonical compiler instance; manifests are per-request artifacts.
         from .agent.compiler import ContextCompiler
         self.context_compiler = ContextCompiler(
-            max_tokens=getattr(settings, "session_history_char_limit", 32_000) // 4,
+            max_tokens=None,  # Dynamic provider-aware token budgeting (Phase 05 Singularity)
             model_context_limit=getattr(settings, "llm_context_limit", 131_072),
         )
         from .harness.compaction_worker import CompactionWorker
@@ -4468,6 +4468,8 @@ class ConversationService:
             dialogue_state=dialogue_state_block or "",
             live_search_evidence=[live_search_block] if live_search_block else None,
             approved_memories=approved,
+            model_name=getattr(request, "brainModel", None),
+            provider=getattr(request, "provider", None),
         )
         manifest = compiled.manifest
         assert manifest is not None

@@ -33,11 +33,13 @@ from .context_items import (
 from .context_profiles import (
     ContextProfile,
     MemoryQueryRouter,
+    ModelContextBudget,
     ProfileBudgets,
     QueryRoute,
     RouteDecision,
     compute_input_budget,
     effective_budgets,
+    resolve_model_context_budget,
 )
 from .intent import IntentInterpreter
 from .validation import PlanValidator, PlanValidationError
@@ -77,7 +79,7 @@ __all__ = [
     "ContextBuilder", "ContextCompiler", "CompiledContextBlock", "CompiledPromptContext", "CompiledContextPackage", "ContextIntegrityVerifier", "IntentInterpreter", "PlanValidator", "PlanValidationError", "StepScheduler", "AgentRuntime",
     # Phase B2 — hierarchical context
     "CompactionReason", "ContextCompaction", "ContextItem", "ContextManifest", "ManifestStatus", "PriorityTier", "TrustLevel",
-    "ContextProfile", "MemoryQueryRouter", "ProfileBudgets", "QueryRoute", "RouteDecision", "compute_input_budget", "effective_budgets",
+    "ContextProfile", "MemoryQueryRouter", "ModelContextBudget", "ProfileBudgets", "QueryRoute", "RouteDecision", "compute_input_budget", "effective_budgets", "resolve_model_context_budget",
     "DurableTaskBridge", "StepVerificationCondition", "VerificationType",
     # Phase 13
     "VerifierRegistry", "FailureClassifier", "FailureCategory", "VerificationOutcome", "VerificationStatus", "ClassifiedFailure", "get_registry", "get_classifier",

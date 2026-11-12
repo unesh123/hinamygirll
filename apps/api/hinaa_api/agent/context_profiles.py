@@ -278,3 +278,64 @@ def compute_input_budget(
 ) -> int:
     """Directive §33: input_budget = limit − output_reserve − safety_margin."""
     return max(0, model_context_limit - expected_output_tokens - safety_margin)
+
+
+@dataclass(frozen=True)
+class ModelContextBudget:
+    """Model-aware dynamic token budget specification for HINAA OS Phase 05."""
+    model_name: str
+    provider: str
+    context_limit: int
+    max_input_budget: int
+    output_reserve: int
+    safety_margin: int = DEFAULT_SAFETY_MARGIN_TOKENS
+
+
+def resolve_model_context_budget(
+    model_name: str | None = None,
+    provider: str | None = None,
+    *,
+    configured_limit: int | None = None,
+) -> ModelContextBudget:
+    """Resolves provider and model-aware token ceiling for Phase 05 Singularity Core.
+
+    Prevents arbitrary context truncations on 200k-1M context models (Gemini, Claude Opus)
+    while guarding local/small models with safe output reserves.
+    """
+    raw_model = (model_name or "").lower().strip()
+    raw_provider = (provider or "").lower().strip()
+    combined = f"{raw_provider}/{raw_model}"
+
+    # 0. Local / Ollama / Mock / Test runners (always takes precedence when provider is local/ollama/mock)
+    if any(k in raw_provider for k in ["local", "ollama", "mock", "test"]) or any(k in raw_model for k in ["ollama", "local", "mock"]):
+        limit, max_in, out_res = (16_384, 12_000, 2_048)
+    # 1. Gemini Frontier (up to 1,000,000 tokens)
+    elif any(k in combined for k in ["gemini"]):
+        limit, max_in, out_res = (1_000_000, 500_000, 8_192)
+    # 2. Claude Opus 5.5 / Sonnet 4-6 / Fable 5.2 / Experiential (200,000 tokens)
+    elif any(k in combined for k in ["claude", "opus", "sonnet", "fable", "experiential"]):
+        limit, max_in, out_res = (200_000, 150_000, 4_096)
+    # 3. Mistral / Codestral 2508 / XKiro (128,000 tokens)
+    elif any(k in combined for k in ["codestral", "mistral", "xkiro"]):
+        limit, max_in, out_res = (128_000, 100_000, 4_096)
+    # 4. DeepSeek / GPT-4o / GPT-5.6 / Qwen / Respan (128,000 tokens)
+    elif any(k in combined for k in ["deepseek", "gpt-4", "gpt-5", "qwen", "groq", "respan", "gmi", "oxion"]):
+        limit, max_in, out_res = (128_000, 96_000, 4_096)
+    # 5. Default standard fallback
+    else:
+        limit, max_in, out_res = (64_000, 32_000, 4_096)
+
+    # Honor explicit user or deployment configuration ceiling if provided
+    if configured_limit and configured_limit > 0:
+        limit = configured_limit
+        max_in = min(max_in, max(512, limit - out_res - DEFAULT_SAFETY_MARGIN_TOKENS))
+
+    return ModelContextBudget(
+        model_name=model_name or "default",
+        provider=provider or "default",
+        context_limit=limit,
+        max_input_budget=max_in,
+        output_reserve=out_res,
+        safety_margin=DEFAULT_SAFETY_MARGIN_TOKENS,
+    )
+

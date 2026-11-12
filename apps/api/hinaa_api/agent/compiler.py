@@ -40,8 +40,10 @@ from .context_profiles import (
     ContextProfile,
     DEFAULT_OUTPUT_RESERVE_TOKENS,
     MemoryQueryRouter,
+    ModelContextBudget,
     compute_input_budget,
     effective_budgets,
+    resolve_model_context_budget,
 )
 
 
@@ -210,8 +212,9 @@ class ContextCompiler:
     conflict resolution, and a full ContextManifest decision trace.
     """
 
-    def __init__(self, max_tokens: int = 8192, *, model_context_limit: int | None = None) -> None:
-        self.max_tokens = max(64, max_tokens)
+    def __init__(self, max_tokens: int | None = None, *, model_context_limit: int | None = None) -> None:
+        self._explicit_max_tokens = max_tokens is not None
+        self.max_tokens = max(64, max_tokens) if max_tokens is not None else 8192
         # Directive §33: input budget = model limit − output reserve − margin.
         self.model_context_limit = model_context_limit
         self.output_reserve = DEFAULT_OUTPUT_RESERVE_TOKENS
@@ -286,6 +289,8 @@ class ContextCompiler:
         profile: ContextProfile | str | None = None,
         domain: str | None = None,
         model_context_limit: int | None = None,
+        model_name: str | None = None,
+        provider: str | None = None,
     ) -> CompiledPromptContext:
         started = time.perf_counter()
         query_text = user_query or ""
@@ -301,9 +306,21 @@ class ContextCompiler:
         profile = decision.profile
         is_fast = profile is ContextProfile.FAST
 
-        # 2. Budget (§33): reserve output space before allocating input.
-        limit = model_context_limit or self.model_context_limit or self.max_tokens * 4
-        input_budget = min(self.max_tokens, compute_input_budget(limit, expected_output_tokens=self.output_reserve))
+        # 2. Budget (§33): dynamic model-aware context allocation
+        model_budget = resolve_model_context_budget(
+            model_name=model_name,
+            provider=provider,
+            configured_limit=model_context_limit or self.model_context_limit,
+        )
+        limit = model_budget.context_limit
+        output_res = model_budget.output_reserve
+        computed_input = compute_input_budget(limit, expected_output_tokens=output_res)
+
+        if self._explicit_max_tokens:
+            input_budget = min(self.max_tokens, computed_input)
+        else:
+            input_budget = min(model_budget.max_input_budget, computed_input)
+
         if input_budget <= 0:
             input_budget = self.max_tokens
 
@@ -827,6 +844,7 @@ class ContextCompiler:
             token_estimate=0,
             cacheable_prefix_tokens=prefix_tokens,
             output_reserve_tokens=self.output_reserve,
+            input_budget_tokens=input_budget,
             model_context_limit=input_budget + self.output_reserve,
             compile_ms=(time.perf_counter() - compile_start) * 1000,
             retrieval_queries=[decision.reason],

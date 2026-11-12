@@ -117,9 +117,17 @@ class ContextCompiler:
         project_specs: Optional[Dict[str, str]] = None,
         recent_turns: Optional[Sequence[Dict[str, str]]] = None,
         max_budget: Optional[int] = None,
+        model_name: Optional[str] = None,
+        provider: Optional[str] = None,
     ) -> CompiledContext:
         """Compiles layered context according to adaptive budgets."""
-        budget = max_budget or self.default_token_budget
+        if max_budget is not None:
+            budget = max_budget
+        elif model_name or provider:
+            from ..agent.context_profiles import resolve_model_context_budget
+            budget = resolve_model_context_budget(model_name, provider).max_input_budget
+        else:
+            budget = self.default_token_budget
         items: List[ContextItem] = []
 
         # 1. Project Memory (L4) from .hina/ specs and project store

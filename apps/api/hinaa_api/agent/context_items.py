@@ -214,6 +214,7 @@ class ContextManifest:
     dedup_dropped: int = 0
     conflicts_resolved: list[dict[str, Any]] = field(default_factory=list)
     token_estimate: int = 0
+    input_budget_tokens: int = 0
     cacheable_prefix_tokens: int = 0
     output_reserve_tokens: int = 0
     model_context_limit: int = 0
@@ -230,6 +231,7 @@ class ContextManifest:
             "status": self.status.value,
             "allocations": self.allocations,
             "token_estimate": self.token_estimate,
+            "input_budget_tokens": self.input_budget_tokens,
             "cacheable_prefix_tokens": self.cacheable_prefix_tokens,
             "output_reserve_tokens": self.output_reserve_tokens,
             "model_context_limit": self.model_context_limit,

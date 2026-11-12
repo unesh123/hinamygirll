@@ -24,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # ---------------------------------------------------------------------------
 
 class UserState(BaseModel):
-    user_id: str
+    user_id: str = "default_user"
     tenant_id: str = "default"
     role: str = "owner"
     preferred_language: str = "en"
@@ -81,7 +81,7 @@ class WorldState(BaseModel):
     """Canonical operational world state across physical machine, browser, and runtime."""
     model_config = ConfigDict(extra="ignore")
 
-    user: UserState
+    user: UserState = Field(default_factory=UserState)
     device: DeviceState = Field(default_factory=DeviceState)
     app: ApplicationState = Field(default_factory=ApplicationState)
     browser: BrowserState = Field(default_factory=BrowserState)
