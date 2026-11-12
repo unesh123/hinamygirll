@@ -32,17 +32,19 @@ from hinaa_api.tools.registry import registry
 ALICE = {"X-HINAA-Dev-User": "alice"}
 BOB = {"X-HINAA-Dev-User": "bob"}
 NOW = datetime(2026, 11, 8, 6, 0, tzinfo=UTC)
+_NOW_RSS = datetime.now(UTC).strftime("%a, %d %b %Y %H:%M:%S +0000")
+_NOW_ATOM = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-RSS = """<?xml version="1.0"?><rss version="2.0"><channel><title>Kathmandu Wire</title>
+RSS = f"""<?xml version="1.0"?><rss version="2.0"><channel><title>Kathmandu Wire</title>
 <item><title>Nepal central bank cuts policy rate</title><link>https://www.example.com/a?utm_source=x&amp;id=1#top</link>
 <description>&lt;p&gt;The central bank lowered the rate on Sunday. More detail follows.&lt;/p&gt;</description>
-<pubDate>Sun, 08 Nov 2026 04:00:00 +0000</pubDate></item>
-<item><title>Cricket: Nepal beats UAE</title><link>https://example.com/cricket</link><pubDate>Sun, 08 Nov 2026 03:00:00 +0000</pubDate></item>
+<pubDate>{_NOW_RSS}</pubDate></item>
+<item><title>Cricket: Nepal beats UAE</title><link>https://example.com/cricket</link><pubDate>{_NOW_RSS}</pubDate></item>
 </channel></rss>"""
 
-ATOM = """<feed xmlns="http://www.w3.org/2005/Atom"><title>Atom Feed</title>
+ATOM = f"""<feed xmlns="http://www.w3.org/2005/Atom"><title>Atom Feed</title>
 <entry><title>Hydropower export deal signed</title><link rel="alternate" href="https://atom.example.org/hydro/"/>
-<updated>2026-11-08T02:00:00Z</updated><summary>Nepal signs a power export deal.</summary></entry></feed>"""
+<updated>{_NOW_ATOM}</updated><summary>Nepal signs a power export deal.</summary></entry></feed>"""
 
 
 def art(title, url, hours_old=1.0, summary="", origin="feed"):

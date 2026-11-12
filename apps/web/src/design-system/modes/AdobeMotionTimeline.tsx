@@ -152,6 +152,7 @@ export const AdobeMotionTimeline: React.FC<AdobeMotionTimelineProps> = React.mem
           flex: 1,
           justifyContent: "center",
           minWidth: 0,
+          overflow: "hidden",
         }}
       >
         <span style={{ fontSize: 10, color: isDark ? "#64748b" : "#94a3b8", fontWeight: 600 }}>TRACK:</span>

@@ -126,6 +126,9 @@ def test_validation_rejects_bad_configs(client, hub):
 
 def test_stdio_server_endpoints_require_local_host(client, hub, monkeypatch):
     monkeypatch.setenv("FAKE_MCP_SECRET", "sek")
+    monkeypatch.setenv("HINAA_ALLOW_REMOTE_LOCAL_TOOLS", "false")
+    from hinaa_api.config import get_settings
+    get_settings().allow_remote_local_tools = False
     payload = {"name": "loc", "transport": "stdio", "command": sys.executable, "args": [FAKE_STDIO],
                "envNames": ["FAKE_MCP_SECRET"]}
     assert client.post("/v1/mcp/servers", json=payload, headers=REMOTE).status_code == 403

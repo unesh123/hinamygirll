@@ -38,10 +38,22 @@ def _spec(**kw) -> LyricVideoSpec:
 
 
 def _sine(path: Path, seconds: float = 3.0) -> str:
-    subprocess.run(
-        ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}", str(path)],
-        check=True,
-    )
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}", str(path)],
+            check=True,
+        )
+    except (FileNotFoundError, subprocess.SubprocessError):
+        import struct
+        sample_rate = 8000
+        num_samples = int(sample_rate * seconds)
+        header = struct.pack(
+            "<4sI4s4sIHHIIHH4sI",
+            b"RIFF", 36 + num_samples, b"WAVE",
+            b"fmt ", 16, 1, 1, sample_rate, sample_rate, 1, 8,
+            b"data", num_samples,
+        )
+        path.write_bytes(header + b"\x80" * num_samples)
     return str(path)
 
 

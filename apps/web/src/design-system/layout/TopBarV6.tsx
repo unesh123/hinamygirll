@@ -14,11 +14,13 @@ import {
   Sparkles,
   Plus,
   Mic,
+  Zap,
 } from "lucide-react";
 import { ModelSelectorV7 } from "../chat/ModelSelectorV7";
 import { useCapabilities } from "../../features/providers/hooks/useCapabilities";
 import { DynamicIslandCompanion, type DynamicIslandCompanionProps } from "./DynamicIslandCompanion";
 import { VOICE_ENGINES } from "./ModelControlBar";
+import { PersonaControlDrawer } from "../../features/persona/PersonaControlDrawer";
 
 export type WorkspaceMode = "talk" | "work" | "operate" | "showroom" | "vault" | "models" | "companion";
 export type ExecutiveMode = "chat" | "deep-reasoning" | "report" | "research";
@@ -69,6 +71,7 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
 }) => {
   const { models, providers, runtime, loading, refetch } = useCapabilities();
   const isAuto = isAutoRouter ?? !selectedModelId;
+  const [personaDrawerOpen, setPersonaDrawerOpen] = useState(false);
   const [voiceDropdownOpen, setVoiceDropdownOpen] = useState(false);
   const voiceRef = useRef<HTMLDivElement>(null);
   const voiceMenuRef = useRef<HTMLDivElement>(null);
@@ -204,6 +207,9 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
             padding: "2px 3px",
             borderRadius: 8,
             border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
+            overflow: "hidden",
+            flexShrink: 1,
+            minWidth: 0,
           }}
         >
           <button
@@ -315,6 +321,36 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           backendConnected={runtime.backendConnected}
           isDark={isDark}
         />
+
+        {/* ⚡ Persona Prime Trigger */}
+        <button
+          type="button"
+          data-testid="topbar-persona-prime-btn"
+          onClick={() => setPersonaDrawerOpen(true)}
+          title="HINA PERSONA PRIME: Calibrate Directness, Sarcasm, Technical Depth & Formality"
+          style={{
+            height: 32,
+            padding: "0 10px",
+            borderRadius: 8,
+            border: isDark ? "1px solid rgba(0, 212, 255, 0.4)" : "1px solid rgba(0, 212, 255, 0.45)",
+            background: isDark
+              ? "linear-gradient(135deg, rgba(0, 212, 255, 0.15) 0%, rgba(37, 99, 235, 0.08) 100%)"
+              : "linear-gradient(135deg, rgba(0, 212, 255, 0.08) 0%, rgba(37, 99, 235, 0.05) 100%)",
+            color: isDark ? "#00d4ff" : "#0284c7",
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+            fontSize: 12,
+            fontWeight: 700,
+            cursor: "pointer",
+            transition: "all 0.15s ease",
+            boxShadow: isDark ? "0 0 10px rgba(0, 212, 255, 0.15)" : "none",
+            flexShrink: 0,
+          }}
+        >
+          <Zap size={13} strokeWidth={2.5} style={{ color: "#00d4ff" }} />
+          <span className="topbar-persona-btn-text">Prime</span>
+        </button>
 
         {/* 💖 TopBar Voice Engine Selector */}
         <div ref={voiceRef} style={{ position: "relative" }}>
@@ -558,6 +594,12 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           UB
         </div>}
       </div>
+
+      <PersonaControlDrawer
+        isOpen={personaDrawerOpen}
+        onClose={() => setPersonaDrawerOpen(false)}
+        isDark={isDark}
+      />
     </header>
   );
 };

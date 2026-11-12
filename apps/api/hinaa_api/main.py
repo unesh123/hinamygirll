@@ -106,16 +106,16 @@ class ReminderBody(BaseModel):
 
 class ProjectCreateBody(BaseModel):
     title: Annotated[str, Field(min_length=1, max_length=180)]
-    description: Annotated[str, Field(max_length=4000)] = ""
+    description: Annotated[str, Field(max_length=50_000)] = ""
 
 
 class ProjectPlanBody(BaseModel):
-    goal: Annotated[str, Field(min_length=3, max_length=1000)]
+    goal: Annotated[str, Field(min_length=3, max_length=50_000)]
 
 
 class ProjectTaskBody(BaseModel):
     title: Annotated[str, Field(min_length=1, max_length=240)]
-    detail: Annotated[str, Field(max_length=8000)] = ""
+    detail: Annotated[str, Field(max_length=200_000)] = ""
     parentTaskId: str | None = None
     requiresApproval: bool = False
 
@@ -125,7 +125,7 @@ class ProjectTaskStatusBody(BaseModel):
 
 
 class ProjectAgentRunBody(BaseModel):
-    goal: Annotated[str, Field(min_length=3, max_length=4000)]
+    goal: Annotated[str, Field(min_length=3, max_length=200_000)]
     rootTaskId: str | None = None
 
 
@@ -242,12 +242,12 @@ class PackageArtifactsBody(BaseModel):
 
 
 class ConversationResolveBody(BaseModel):
-    text: Annotated[str, Field(min_length=1, max_length=4000)]
+    text: Annotated[str, Field(min_length=1, max_length=200_000)]
     projectState: dict[str, Any] | None = None
 
 
 class CreateTaskBody(BaseModel):
-    goal: Annotated[str, Field(min_length=3, max_length=4000)]
+    goal: Annotated[str, Field(min_length=3, max_length=200_000)]
     conversationId: str | None = None
     projectId: str | None = None
     taskType: str = "general"
@@ -258,7 +258,7 @@ class CreateTaskBody(BaseModel):
 
 
 class ResolveTaskBody(BaseModel):
-    text: Annotated[str, Field(min_length=1, max_length=4000)]
+    text: Annotated[str, Field(min_length=1, max_length=200_000)]
     conversationId: str | None = None
     projectId: str | None = None
 
@@ -281,12 +281,12 @@ class CompleteStepWithLeaseBody(BaseModel):
 
 
 class FailStepBody(BaseModel):
-    reason: Annotated[str, Field(min_length=1, max_length=1000)]
+    reason: Annotated[str, Field(min_length=1, max_length=50_000)]
     retryLimit: int = 2
 
 
 class SteerTaskBody(BaseModel):
-    instruction: Annotated[str, Field(min_length=1, max_length=4000)]
+    instruction: Annotated[str, Field(min_length=1, max_length=200_000)]
 
 
 class CancelTaskBody(BaseModel):
@@ -1096,8 +1096,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from .routers.evals_router import router as evals_router
     app.include_router(loop_router)
     app.include_router(evals_router)
-    from .routers.artifacts_router import build_artifacts_router
-    app.include_router(build_artifacts_router(artifact_service, active_settings))
     from .routers.creative_router import build_creative_router
     app.include_router(build_creative_router(creative_jobs))
     from .memory import MemoryService as Phase10MemoryService
@@ -2958,7 +2956,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status.userMessage = (
                     f"{status.id} is temporarily cooling down after a recent error ({breaker.cooldown_remaining():.0f}s remaining)."
                 )
-            elif status.state == "healthy":
+            elif status.state == "healthy" and status.id not in probe_measured:
                 status.state = "untested"
                 if "no live call" not in status.userMessage.lower():
                     status.userMessage = (
@@ -4759,6 +4757,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
 
     # Phase 14 Artifact OS Surface extracted to routers/artifacts_router.py
+    from .routers.artifacts_router import build_artifacts_router
+    app.include_router(build_artifacts_router(artifact_service, active_settings))
 
     @app.get("/v1/conversations")
     @app.get("/api/v1/conversations")
@@ -5675,6 +5675,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         @app.delete("/v1/privacy/account")
         async def delete_all(auth: AuthContext = Depends(require_auth)) -> dict[str, object]:
             return memory_service.delete_all(auth.user_id)
+
+        @app.get("/v1/privacy/archives")
+        @app.get("/api/memory/archives")
+        async def list_exact_archives(
+            query: str = "",
+            conversation_id: str | None = None,
+            limit: int = 50,
+            offset: int = 0,
+            auth: AuthContext = Depends(require_auth),
+        ) -> dict[str, object]:
+            """Retrieve preserved exact message archives (byte count, tokens, raw text)."""
+            records = memory_service.search_exact_archives(
+                user_id=auth.user_id,
+                query=query,
+                conversation_id=conversation_id,
+                limit=limit,
+                offset=offset,
+            )
+            return {"archives": records, "total": len(records)}
+
+        @app.get("/v1/privacy/archives/{message_id}")
+        @app.get("/api/memory/archives/{message_id}")
+        async def get_exact_archive(
+            message_id: str,
+            auth: AuthContext = Depends(require_auth),
+        ) -> dict[str, object]:
+            """Retrieve single preserved exact message archive by message ID."""
+            record = memory_service.get_exact_archive(auth.user_id, message_id)
+            if not record:
+                raise HTTPException(status_code=404, detail=f"Archive for message '{message_id}' not found.")
+            return {"archive": record}
 
     @app.get("/v1/generated-docs")
     @app.get("/api/v1/generated-docs")

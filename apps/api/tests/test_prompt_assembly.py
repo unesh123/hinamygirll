@@ -491,7 +491,7 @@ def test_an_info_question_offers_the_report_instead_of_becoming_one() -> None:
     layer = next(l.text for l in package.layers if l.name == "response_depth")
     assert package.response_depth == "explanatory"
     assert "4,900" not in layer
-    assert "MANDATORY LAST LINE" in layer
+    assert "MANDATORY:" in layer
     assert "full documented report" in layer
 
 

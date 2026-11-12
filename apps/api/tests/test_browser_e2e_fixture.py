@@ -32,7 +32,18 @@ EVIDENCE_DIR = Path(__file__).resolve().parents[3] / "docs" / "evidence"
 
 
 @pytest.mark.asyncio
-async def test_browser_end_to_end_fixture_execution():
+async def test_browser_end_to_end_fixture_execution(monkeypatch):
+    import hinaa_api.tools.browser_automation as ba
+    ba._page = None
+    ba._browser = None
+    monkeypatch.setenv("BROWSERBASE_API_KEY", "")
+    monkeypatch.setenv("HINAA_BROWSERBASE_API_KEY", "")
+    monkeypatch.setenv("HINAA_BROWSER_HEADLESS", "true")
+    from hinaa_api.config import get_settings
+    settings = get_settings()
+    if hasattr(settings, "browserbase_api_key"):
+        settings.browserbase_api_key = None
+
     assert FIXTURE_PATH.is_file(), f"Fixture file missing at {FIXTURE_PATH}"
     fixture_url = FIXTURE_PATH.as_uri()
 

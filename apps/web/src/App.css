@@ -4010,19 +4010,46 @@ body {
   [data-testid="terminal-hands-drawer"] pre { white-space:pre-wrap; overflow-wrap:anywhere; }
 }
 
-.topbar-v6__left { min-width:0; flex-shrink:1; }
-@media(max-width:1300px) {
+.topbar-v6 { min-width: 0; box-sizing: border-box; container-type: inline-size; overflow: hidden; }
+.topbar-v6__left { min-width: 0; flex-shrink: 1; overflow: hidden; }
+.topbar-v6__modes { min-width: 0; flex-shrink: 1; overflow: hidden; }
+.topbar-v6__actions { flex-shrink: 0; min-width: 0; }
+[data-testid="adobe-motion-timeline"] { container-type: inline-size; }
+
+/* Desktop with 260px sidebar requires calibrated thresholds */
+@media(max-width:1700px) {
   .topbar-v6__breadcrumb { display:none !important; }
-  .topbar-v6__island-container { display:none !important; }
+}
+@media(max-width:1550px) {
+  .adobe-motion-timeline__track { display:none !important; }
+  .topbar-v6__modes button span { display:none; }
+  .topbar-persona-btn-text { display:none; }
+}
+@media(max-width:1380px) {
   .topbar-v6__modes { display:none !important; }
+}
+@media(max-width:1200px) {
+  .topbar-v6__actions [data-testid="topbar-voice-engine-btn"] span { display:none; }
+  .topbar-v6__actions [data-testid="topbar-new-chat-btn"] span { display:none; }
 }
 @media(max-width:768px) {
   .topbar-v6__left { flex:1; overflow:hidden; }
   .topbar-v6__actions [data-testid="topbar-new-chat-btn"] { display:none !important; }
+  .topbar-v6__actions [data-testid="topbar-persona-prime-btn"] { display:none !important; }
+}
+
+@container (max-width: 1100px) {
+  .adobe-motion-timeline__track { display:none !important; }
+  .topbar-v6__modes button span { display:none; }
+  .topbar-persona-btn-text { display:none; }
+}
+@container (max-width: 900px) {
+  .topbar-v6__modes { display:none !important; }
+  .topbar-v6__actions [data-testid="topbar-voice-engine-btn"] span { display:none; }
+  .topbar-v6__actions [data-testid="topbar-new-chat-btn"] span { display:none; }
 }
 
 @media (max-width:1700px) { .topbar-v6__island-container { display:none !important; } }
-@media (max-width:1250px) { .adobe-motion-timeline__track { display:none !important; } }
 
 .topbar-v6__mobile-brand { display:none; }
 @media(max-width:768px) { .topbar-v6__mobile-brand { display:block; font-size:13px; font-weight:750; letter-spacing:1px; flex-shrink:0; } }
