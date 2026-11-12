@@ -71,6 +71,14 @@ def _extract_media_text(raw_bytes: bytes, mime_type: str, filename: str | None) 
         return extract_docx_text(raw_bytes)
     if mt == "application/zip" or fn.endswith(".zip"):
         return inspect_zip_archive(raw_bytes)
+    if mt.startswith("video/") or fn.endswith((".mp4", ".mov", ".mkv", ".webm", ".avi")):
+        from .extractors import extract_video_metadata_and_keyframes
+        res = extract_video_metadata_and_keyframes(raw_bytes)
+        return res.get("timeline_summary")
+    if mt.startswith("audio/") or fn.endswith((".mp3", ".wav", ".m4a", ".ogg", ".aac", ".flac")):
+        from .extractors import extract_audio_metadata
+        res = extract_audio_metadata(raw_bytes)
+        return res.get("summary")
     _code_exts = (
         ".txt", ".md", ".json", ".py", ".html", ".js", ".ts", ".tsx", ".jsx",
         ".css", ".scss", ".yaml", ".yml", ".xml", ".sh", ".ps1", ".bat", ".cmd",
