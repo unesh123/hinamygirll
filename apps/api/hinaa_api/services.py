@@ -4222,6 +4222,8 @@ class ConversationService:
             "cavoti": (self.settings.cavoti_configured, self.settings.active_cavoti_model),
             "apmix": (self.settings.apmix_configured, self.settings.active_apmix_model),
             "oxion": (self.settings.oxion_configured, self.settings.active_oxion_model),
+            "respan": (self.settings.respan_configured, self.settings.active_respan_model),
+            "gmi": (self.settings.gmi_configured, self.settings.active_gmi_model),
             "claude": (self.settings.claude_configured, self.settings.active_claude_model),
             "custom": (self.settings.custom_configured, self.settings.active_custom_model),
             "cx-gateway": (self.settings.cx_gateway_configured, self.settings.cx_gateway_model),

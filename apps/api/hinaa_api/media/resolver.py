@@ -11,6 +11,7 @@ from ..config import DATA_DIR
 from .extractors import (
     extract_csv_summary,
     extract_docx_text,
+    extract_pdf_text,
     extract_text_document,
     extract_xlsx_summary,
     inspect_zip_archive,
@@ -60,6 +61,8 @@ def _extract_media_text(raw_bytes: bytes, mime_type: str, filename: str | None) 
     fn = (filename or "").lower()
     mt = (mime_type or "").lower()
 
+    if mt == "application/pdf" or fn.endswith(".pdf"):
+        return extract_pdf_text(raw_bytes)
     if mt == "text/csv" or fn.endswith(".csv"):
         return extract_csv_summary(raw_bytes)
     if "spreadsheetml" in mt or "excel" in mt or fn.endswith(".xlsx"):
@@ -68,7 +71,13 @@ def _extract_media_text(raw_bytes: bytes, mime_type: str, filename: str | None) 
         return extract_docx_text(raw_bytes)
     if mt == "application/zip" or fn.endswith(".zip"):
         return inspect_zip_archive(raw_bytes)
-    if mt.startswith("text/") or mt in ("application/json", "application/javascript") or fn.endswith((".txt", ".md", ".json", ".py", ".html", ".js")):
+    _code_exts = (
+        ".txt", ".md", ".json", ".py", ".html", ".js", ".ts", ".tsx", ".jsx",
+        ".css", ".scss", ".yaml", ".yml", ".xml", ".sh", ".ps1", ".bat", ".cmd",
+        ".sql", ".rs", ".go", ".c", ".cpp", ".h", ".java", ".kt", ".swift",
+        ".rb", ".php", ".toml", ".ini", ".env",
+    )
+    if mt.startswith("text/") or mt in ("application/json", "application/javascript", "application/xml", "application/x-yaml") or fn.endswith(_code_exts):
         return extract_text_document(raw_bytes)
     return None
 

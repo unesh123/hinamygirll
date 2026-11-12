@@ -61,7 +61,7 @@ def build_history_block(
 
 
 def build_user_block(user_text: str) -> str:
-    cleaned = user_text.strip()[:8000]
+    cleaned = user_text.strip()[:200000]
     return f'<user_message trusted="false">\n{cleaned}\n</user_message>'
 
 

@@ -61,7 +61,7 @@ class MoodSnapshot(StrictModel):
 class PromptInput(StrictModel):
     companion_id: CompanionId
     interaction_mode: InteractionMode
-    user_text: Annotated[str, Field(min_length=1, max_length=8000)]
+    user_text: Annotated[str, Field(min_length=1, max_length=200000)]
     response_mode: str | None = None
     recent_turns: tuple[tuple[str, str], ...] = ()
     personality: PersonalitySettings = Field(default_factory=PersonalitySettings)

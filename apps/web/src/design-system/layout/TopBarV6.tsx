@@ -181,13 +181,13 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
               chat: "Chat",
               work: "Chat",
               talk: "Talk",
-              showroom: "Runway 3D",
+              showroom: "Studio",
               companion: "Companion",
               operate: "Dashboard",
               dashboard: "Dashboard",
               models: "Models",
-              reports: "Reports",
-              vault: "VIP Vault",
+              reports: "Workspace",
+              vault: "Storage",
               settings: "Settings",
             }[currentMode] || "Chat"}
           </span>

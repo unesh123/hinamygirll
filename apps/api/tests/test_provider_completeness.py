@@ -28,7 +28,7 @@ def configured_settings(settings, **updates):
 
 
 @pytest.mark.parametrize("mode", [
-    "experiential", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "oxion",
+    "experiential", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "oxion", "respan", "gmi",
 ])
 def test_newer_providers_are_valid_defaults_and_request_modes(mode):
     config = Settings(_env_file=None, HINAA_PROVIDER_MODE=mode)
@@ -50,7 +50,7 @@ def test_gemini_text_brain_does_not_require_a_cloud_voice(settings):
 @pytest.mark.parametrize("mode,prefix", [
     ("custom", "openai_codex"), ("qwen", "qwen"), ("agent-router", "agent_router"),
     ("codecraft", "codecraft"), ("pgsgrove", "pgsgrove"), ("seekai", "seekai"),
-    ("tokentable", "tokentable"), ("xkiro", "xkiro"), ("cavoti", "cavoti"), ("apmix", "apmix"), ("oxion", "oxion"),
+    ("tokentable", "tokentable"), ("xkiro", "xkiro"), ("cavoti", "cavoti"), ("apmix", "apmix"), ("oxion", "oxion"), ("respan", "respan"),
 ])
 def test_each_openai_compatible_gateway_uses_its_own_key_model_and_endpoint(settings, mode, prefix):
     config = configured_settings(settings, **{
@@ -131,6 +131,8 @@ def test_discovery_agrees_with_configured_models_and_measured_health(settings, m
     response = MagicMock(status_code=200)
     response.json.return_value = {"models": [{"name": "local-test"}]}
     monkeypatch.setattr("httpx.AsyncClient.get", AsyncMock(return_value=response))
+    from hinaa_api.reachability import GatewayModelsOutcome
+    monkeypatch.setattr("hinaa_api.main.probe_gateway_models", AsyncMock(return_value=GatewayModelsOutcome(True, 1, "ok", "Test catalog answered")))
     config = configured_settings(settings, gemini_api_key=SecretStr("test-gemini-key"),
                                  gemini_model="gemini-test-custom",
                                  gemini_allowed_models_raw="gemini-test-custom,gemini-test-other")
@@ -149,3 +151,31 @@ def test_discovery_agrees_with_configured_models_and_measured_health(settings, m
         record_call("experiential", ok=True, model=config.active_explabs_model,
                     fingerprint=fingerprint_for(config, "experiential"))
         assert next(p for p in client.get("/v1/providers").json() if p["id"] == "experiential")["state"] == "healthy"
+
+
+@pytest.mark.parametrize("mode", ["gmi", "respan"])
+async def test_new_lanes_are_available_to_backend_fallbacks(settings, mode):
+    config = configured_settings(settings, **{f"{mode}_api_key": SecretStr("test-key")})
+    service = ConversationService.__new__(ConversationService)
+    service.settings = config
+    assert (mode, getattr(config, f"active_{mode}_model")) in await service._fallback_candidate_modes("groq")
+    assert all(candidate != mode for candidate, _ in await service._fallback_candidate_modes(mode))
+
+
+def test_successful_catalog_is_not_evidence_of_chat_inference(settings, monkeypatch):
+    from hinaa_api.reachability import GatewayModelsOutcome
+    monkeypatch.setattr("hinaa_api.main.probe_gateway_models", AsyncMock(return_value=GatewayModelsOutcome(True, 3, "ok", "Model catalog answered")))
+    monkeypatch.setattr("httpx.AsyncClient.get", AsyncMock(return_value=MagicMock(status_code=200, json=lambda: {"models": []})))
+    config = configured_settings(settings, respan_api_key=SecretStr("test-respan"), gmi_api_key=SecretStr("test-gmi"))
+    with TestClient(create_app(config)) as client:
+        rows = client.get("/v1/providers").json()
+        assert len({p["id"] for p in rows}) == len(rows)
+        statuses = {p["id"]: p for p in rows}
+        for mode in ("experiential", "respan", "gmi"):
+            assert statuses[mode]["state"] == "untested"
+        catalog = client.get("/v1/capabilities").json()
+        assert any(m["provider"] == "gmi" and m["id"] == config.gmi_model for m in catalog["models"])
+        record_call("respan", ok=True, model=config.respan_model, fingerprint=fingerprint_for(config, "respan"))
+        statuses = {p["id"]: p for p in client.get("/v1/providers").json()}
+        assert statuses["respan"]["state"] == "healthy"
+        assert statuses["gmi"]["state"] == "untested"

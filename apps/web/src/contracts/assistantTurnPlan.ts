@@ -112,7 +112,7 @@ const toolRequestSchema = z
 export const assistantTurnPlanSchema = z
   .object({
     schemaVersion: z.number().optional(),
-    spokenText: z.string().min(1).max(8000),
+    spokenText: z.string().min(1).max(50000),
     displayText: z.string().min(1).max(150000),
     language: z.enum(["en-US", "hi-IN", "mixed"]),
     emotion: emotionSchema,
@@ -183,7 +183,7 @@ export function parseAssistantTurnPlan(input: unknown): AssistantTurnPlan {
     // metadata field never turns an otherwise useful answer into a formatting error.
     const salvaged = {
       schemaVersion: typeof raw.schemaVersion === "number" ? raw.schemaVersion : 1,
-      spokenText: spokenText.slice(0, 8000) || "I completed your request.",
+      spokenText: spokenText.slice(0, 50000) || "I completed your request.",
       displayText: displayText.slice(0, 150000) || "I completed your request.",
       language: validLang as "en-US" | "hi-IN" | "mixed",
       emotion: {

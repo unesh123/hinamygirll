@@ -321,6 +321,7 @@ def _correlation_id(value: str | None) -> str:
 # providers are not brains, so neither gets a live-call verdict.
 _BRAIN_PROVIDER_IDS = frozenset(
     {
+        "gmi",
         "agent-router",
         "cavoti",
         "claude",
@@ -2056,6 +2057,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "protocol": "openai-compatible",
             },
             {
+                "id": "gmi",
+                "name": "GMI Cloud",
+                "configured": active_settings.gmi_configured,
+                "defaultModel": active_settings.gmi_model,
+                "allowedModels": [active_settings.gmi_model],
+                "protocol": "openai-compatible",
+            },
+            {
                 "id": "respan",
                 "name": "Respan AI Gateway",
                 "configured": bool(getattr(active_settings, "respan_configured", False)),
@@ -2481,10 +2490,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             probe_measured.add("real")
 
         statuses = [
-            ProviderStatus(id='gmi', capabilities=['llm', 'text-stream', 'openai-compatible',
-                           f'default-model:{active_settings.gmi_model}', f'model:{active_settings.gmi_model}'],
-                           state='degraded' if active_settings.gmi_api_key else 'unavailable',
-                           userMessage='GMI Cloud configured; generation has not been verified.' if active_settings.gmi_api_key else 'GMI Cloud needs GMI_API_KEY.'),
             ProviderStatus(
                 id="mock",
                 capabilities=["stt", "llm", "tts", "hi-IN", "offline"],
@@ -2898,6 +2903,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 userMessage=explabs_message,
             ),
             ProviderStatus(
+                id="gmi",
+                capabilities=["llm", "text-stream", "openai-compatible",
+                              f"default-model:{active_settings.gmi_model}", f"model:{active_settings.gmi_model}"],
+                state="untested" if active_settings.gmi_configured else "unavailable",
+                userMessage="GMI Cloud needs a verified chat response." if active_settings.gmi_configured else "GMI Cloud needs GMI_API_KEY.",
+            ),
+            ProviderStatus(
                 id="respan",
                 capabilities=[
                     "llm",
@@ -2946,11 +2958,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status.userMessage = (
                     f"{status.id} is temporarily cooling down after a recent error ({breaker.cooldown_remaining():.0f}s remaining)."
                 )
-            elif status.state == "healthy" and status.id not in probe_measured:
+            elif status.state == "healthy":
                 status.state = "untested"
                 if "no live call" not in status.userMessage.lower():
                     status.userMessage = (
-                        f"{status.userMessage} No live call has been made yet."
+                        f"{status.userMessage} No live chat response has been verified for the current configuration."
                     )
 
         return statuses

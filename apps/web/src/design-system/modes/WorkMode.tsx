@@ -625,9 +625,10 @@ export function WorkMode({
       intelligence?: IntelligenceLevel;
       attachmentRole?: AttachmentRole;
       isGoalMode?: boolean;
+      text?: string;
     }) => {
       // Flow B: Enter ALWAYS sends normal chat text! Never block or hijack user input!
-      let text = input.trim();
+      let text = (options?.text ?? input).trim();
       if (!text && !attachedImage) return;
 
       if (text === "/walk" || text === "/roam") {

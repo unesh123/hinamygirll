@@ -35,7 +35,7 @@ describe("resolveProviderSelection", () => {
     );
     expect(selection.activeMode).toBe("openai");
   });
-  it.each(["groq", "experiential"] as const)("automatically selects a working %s instead of offline fallback", (mode) => {
+  it.each(["groq", "experiential", "respan", "gmi"] as const)("automatically selects a working %s instead of offline fallback", (mode) => {
     const selection = resolveProviderSelection(
       { preferredMode: "auto", preferredModelByProvider: {} },
       providersWith({ [mode]: "healthy", local: "healthy", mock: "healthy" }, { [mode]: ["configured-model"] }),

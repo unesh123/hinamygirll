@@ -36,6 +36,7 @@ ProviderMode = Literal[
     "apmix",
     "oxion",
     "articul8",
+    "respan",
     "experiential",
 ]
 CompanionId = Literal["hinaa", "hiro"]
@@ -175,7 +176,7 @@ class ToolExecutionRequest(BaseModel):
 
 class AssistantTurnPlan(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    spokenText: Annotated[str, Field(min_length=1, max_length=8000)]
+    spokenText: Annotated[str, Field(min_length=1, max_length=50000)]
     displayText: Annotated[str, Field(min_length=1, max_length=150000)]
     language: Language
     emotion: Emotion
@@ -247,7 +248,7 @@ class PersonalityRequest(StrictModel):
 class TurnRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
     sessionId: Annotated[str, Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")]
-    text: Annotated[str, Field(min_length=1, max_length=8000)]
+    text: Annotated[str, Field(min_length=1, max_length=200000)]
     companionId: CompanionId = "hinaa"
     language: Language = "mixed"
     providerMode: ProviderMode = "mock"

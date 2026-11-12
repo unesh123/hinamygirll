@@ -64,6 +64,7 @@ export interface ComposerV6Props {
     intelligence?: IntelligenceLevel;
     attachmentRole?: AttachmentRole;
     isGoalMode?: boolean;
+    text?: string;
   }) => void;
   onStop?: () => void;
   isGenerating?: boolean;
@@ -270,16 +271,15 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
           const finalInput = value.trim()
             ? `${value.trim()}\n${docContext}`
             : `Please analyze this attached document:\n${docContext}`;
-          onChange(finalInput);
+          onChange("");
           setAttachedDocuments([]);
-          setTimeout(() => {
-            onSend({
-              mode: isGoalMode ? "goal" : actionMode,
-              intelligence: intelligenceLevel,
-              attachmentRole: selectedRole,
-              isGoalMode,
-            });
-          }, 50);
+          onSend({
+            text: finalInput,
+            mode: isGoalMode ? "goal" : actionMode,
+            intelligence: intelligenceLevel,
+            attachmentRole: selectedRole,
+            isGoalMode,
+          });
           return;
         }
         onSend({
@@ -369,9 +369,29 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
             };
             reader.readAsDataURL(file);
             e.preventDefault();
-            break;
+            return;
           }
         }
+      }
+    }
+
+    // Auto-detect massive text pastes (> 50,000 characters) and ingest as structured .txt attachment
+    const pastedText = e.clipboardData?.getData("text/plain");
+    if (pastedText && pastedText.length > 50000) {
+      e.preventDefault();
+      const firstLine = pastedText.trim().split("\n")[0].slice(0, 32).replace(/[^a-zA-Z0-9_-]/g, "_") || "pasted_text";
+      const docName = `${firstLine}_${Date.now().toString().slice(-4)}.txt`;
+      setAttachedDocuments((prev) => [
+        ...prev,
+        {
+          name: docName,
+          text: pastedText,
+          kind: "TXT",
+          charCount: pastedText.length,
+        },
+      ]);
+      if (!value.trim()) {
+        onChange(`Attached document: ${docName} (${pastedText.length.toLocaleString()} characters). Please analyze this content.`);
       }
     }
   };
@@ -1308,16 +1328,15 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                     const finalInput = value.trim()
                       ? `${value.trim()}\n${docContext}`
                       : `Please analyze this attached document:\n${docContext}`;
-                    onChange(finalInput);
+                    onChange("");
                     setAttachedDocuments([]);
-                    setTimeout(() => {
-                      onSend({
-                        mode: isGoalMode ? "goal" : actionMode,
-                        intelligence: intelligenceLevel,
-                        attachmentRole: selectedRole,
-                        isGoalMode,
-                      });
-                    }, 50);
+                    onSend({
+                      text: finalInput,
+                      mode: isGoalMode ? "goal" : actionMode,
+                      intelligence: intelligenceLevel,
+                      attachmentRole: selectedRole,
+                      isGoalMode,
+                    });
                     return;
                   }
                 }

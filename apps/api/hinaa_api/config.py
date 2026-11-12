@@ -61,6 +61,14 @@ class Settings(BaseSettings):
     gmi_model: str = Field('deepseek-ai/deepseek-v4.1-flash-1017', alias='GMI_MODEL')
 
     @property
+    def gmi_configured(self) -> bool:
+        return bool(self.gmi_api_key and self.gmi_api_key.get_secret_value().strip())
+
+    @property
+    def active_gmi_model(self) -> str:
+        return self.gmi_model
+
+    @property
     def active_gmi_base_url(self) -> str:
         from urllib.parse import urlparse
         value = self.gmi_base_url.strip().rstrip('/')

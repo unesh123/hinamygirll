@@ -128,7 +128,7 @@ def extract_xlsx_summary(raw_bytes: bytes, max_rows: int = 50) -> str:
         return f"Excel Spreadsheet: Unable to parse binary sheet ({str(err)})."
 
 
-def extract_docx_text(raw_bytes: bytes, max_chars: int = 8000) -> str:
+def extract_docx_text(raw_bytes: bytes, max_chars: int = 100000) -> str:
     """Extracts clean paragraph text from DOCX bytes using standard zipfile and xml parsing."""
     try:
         with zipfile.ZipFile(io.BytesIO(raw_bytes)) as zf:
@@ -161,6 +161,27 @@ def extract_docx_text(raw_bytes: bytes, max_chars: int = 8000) -> str:
         return f"Word Document: Unable to parse document ({str(err)})."
 
 
+def extract_pdf_text(raw_bytes: bytes, max_chars: int = 100000) -> str:
+    """Extracts text pages from PDF bytes safely using pypdf."""
+    try:
+        import pypdf
+        reader = pypdf.PdfReader(io.BytesIO(raw_bytes))
+        pages_text: list[str] = []
+        for idx, page in enumerate(reader.pages):
+            txt = page.extract_text()
+            if txt and txt.strip():
+                pages_text.append(f"--- Page {idx + 1} ---\n{txt.strip()}")
+        if not pages_text:
+            return "PDF Document: No readable text extracted."
+        full_text = "\n\n".join(pages_text)
+        if len(full_text) > max_chars:
+            return full_text[:max_chars] + f"\n\n[... truncated {len(full_text) - max_chars} characters]"
+        return full_text
+    except Exception as err:
+        logger.warning("Failed to extract PDF text: %s", err)
+        return f"PDF Document: Unable to parse ({str(err)})."
+
+
 def inspect_zip_archive(raw_bytes: bytes, max_entries: int = 100) -> str:
     """Safely inspects a ZIP archive file tree and uncompressed sizes without extraction."""
     try:
@@ -191,7 +212,7 @@ def inspect_zip_archive(raw_bytes: bytes, max_entries: int = 100) -> str:
         return f"ZIP Archive: Invalid or corrupted archive ({str(err)})."
 
 
-def extract_text_document(raw_bytes: bytes, max_chars: int = 10000) -> str:
+def extract_text_document(raw_bytes: bytes, max_chars: int = 100000) -> str:
     """Decodes plain text or markdown document bytes safely."""
     try:
         try:

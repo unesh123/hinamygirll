@@ -84,6 +84,8 @@ const AUTO_PRIORITY: ConcreteProviderMode[] = [
   "codecraft",
   "custom",
   "real",
+  "respan",
+  "gmi",
   "pgsgrove",
   "xkiro",
   "apmix",

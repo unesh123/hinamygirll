@@ -105,11 +105,26 @@
 
     /* Top Header Bar */
     #top-header {
-      height: 50px; border-bottom: 1px solid var(--border);
+      min-height: 50px; border-bottom: 1px solid var(--border);
       display: flex; align-items: center; justify-content: space-between;
       padding: 0 16px; background: #fff; flex-shrink: 0;
+      overflow: hidden; gap: 8px; flex-wrap: nowrap;
     }
-    .header-left, .header-right { display: flex; align-items: center; gap: 8px; }
+    .header-left {
+      display: flex; align-items: center; gap: 8px;
+      min-width: 0; overflow-x: auto; flex-shrink: 1;
+      scrollbar-width: none;
+    }
+    .header-left::-webkit-scrollbar { display: none; }
+    .header-right {
+      display: flex; align-items: center; gap: 8px;
+      flex-shrink: 0; margin-left: auto;
+    }
+    @media (max-width: 900px) {
+      .breadcrumb { display: none; }
+      .header-right .top-btn { padding: 4px 6px; font-size: 0.7rem; }
+      .voice-pill { padding: 4px 8px; font-size: 0.7rem; }
+    }
     .breadcrumb { font-size: 0.78rem; color: var(--text-muted); font-weight: 600; margin-right: 6px; }
     .breadcrumb strong { color: var(--text-main); }
 
@@ -352,19 +367,10 @@
         <div>Chat <span class="nav-sub">Converse with HINA</span></div>
       </div>
       <div class="nav-item">
-        <div>Runway 3D <span class="nav-sub">3D Voice AI & Couture</span></div>
-      </div>
-      <div class="nav-item">
         <div>Dashboard <span class="nav-sub">System overview</span></div>
       </div>
       <div class="nav-item">
         <div>Models <span class="nav-sub">AI model selection</span></div>
-      </div>
-      <div class="nav-item">
-        <div>Reports <span class="nav-sub">Generated documents</span></div>
-      </div>
-      <div class="nav-item">
-        <div>VIP Deep Vault <span class="nav-sub">DIP World & College</span></div>
       </div>
       <div class="nav-item" id="openSettingsNav">
         <div>Settings <span class="nav-sub">ElevenLabs & VRM Config</span></div>
@@ -387,7 +393,6 @@
         <span class="breadcrumb">HINA STUDIO ▾ / <strong>Chat</strong></span>
         <button class="tab-pill active">💬 Chat</button>
         <button class="tab-pill">🧠 Deep Reasoning</button>
-        <button class="tab-pill">📄 Report</button>
         <button class="tab-pill">🔍 Research</button>
       </div>
       <div class="header-right">
@@ -396,7 +401,6 @@
           🎤 ❤️ Aisha (ElevenLabs) ▾
         </button>
         <button class="top-btn">+ New Chat</button>
-        <button class="top-btn" style="color:var(--pink-accent);">✨ Runway 3D</button>
       </div>
     </header>
 
