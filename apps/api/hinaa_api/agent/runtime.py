@@ -564,6 +564,22 @@ class AgentRuntime:
         self._emit(run_id, "agent.run.recovered", payload={"status": run.status.value})
         return run
 
+    def recover_all_interrupted_runs(self) -> list[AgentRun]:
+        """Scans persistent storage on startup to identify and gracefully recover active runs."""
+        if not self.persistence:
+            return []
+        recovered = []
+        try:
+            active_runs = self.persistence.list_active_runs()
+            for run in active_runs:
+                if run.status in {RunStatus.UNDERSTANDING, RunStatus.PLANNING, RunStatus.EXECUTING, RunStatus.VERIFYING}:
+                    rec = self.recover(run.run_id, run.user_id)
+                    if rec:
+                        recovered.append(rec)
+        except Exception as e:
+            logger.warning("Error recovering interrupted runs on startup: %s", e)
+        return recovered
+
     async def execute(
         self,
         run: AgentRun,

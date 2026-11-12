@@ -170,6 +170,42 @@ class AgentPersistenceService:
                 rec.parameters_json = json.dumps({"__hinaa_step_v2": step.model_dump(mode="json")})
             session.commit()
 
+    def get_step(self, step_id: str) -> PlanStep | None:
+        with self._factory() as session:
+            r = session.query(AgentStepRecord).filter_by(step_id=step_id).first()
+            if not r:
+                return None
+            params = {}
+            deps = []
+            try:
+                raw_json = json.loads(r.parameters_json or "{}")
+                if isinstance(raw_json, dict) and "__hinaa_step_v2" in raw_json:
+                    return PlanStep.model_validate(raw_json["__hinaa_step_v2"])
+                params = raw_json
+            except Exception:
+                pass
+            try:
+                deps = json.loads(r.dependencies_json or "[]")
+            except Exception:
+                pass
+            return PlanStep(
+                step_id=r.step_id,
+                plan_id=r.plan_id,
+                sequence=r.sequence,
+                title=r.title,
+                description="",
+                operation_type=OperationType(r.operation_type),
+                tool_name=r.tool_name,
+                tool_parameters=params,
+                status=StepState(r.state),
+                requires_confirmation=r.requires_confirmation,
+                attempt_count=r.attempt_count,
+                maximum_attempts=r.max_attempts,
+                error_message=r.error_message,
+                dependencies=deps,
+                completed_at=r.completed_at,
+            )
+
     def get_steps_for_plan(self, plan_id: str) -> list[PlanStep]:
         with self._factory() as session:
             recs = (
