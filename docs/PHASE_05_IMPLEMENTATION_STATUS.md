@@ -26,7 +26,7 @@ Each capability is graded using the following strict verification categories:
 | Component | Status | Code Location | Evidence / Verification Notes |
 |---|---|---|---|
 | Large Prompt Ingestion (200k chars) | `IMPLEMENTED_AND_VERIFIED` | `models.py`, `prompts/context.py` | 5/5 tests pass in `test_large_prompt_ingestion.py`; live HTTP 200 on 20k/30k char streams. |
-| Dynamic Context Token Budgeting | `IMPLEMENTED_NOT_FULLY_VERIFIED` | `cognitive/context_compiler.py` | Token estimation exists (`len(text)//4`); needs dynamic context window binding to active provider. |
+| Dynamic Context Token Budgeting | `IMPLEMENTED_AND_VERIFIED` | `agent/compiler.py`, `cognitive/context_compiler.py` | Dynamic provider-aware budgeting (1M Gemini, 200k Claude, 128k Codestral) verified in `test_cognitive_context_compiler.py`. |
 | Hybrid Relevance Scoring | `IMPLEMENTED_AND_VERIFIED` | `cognitive/context_compiler.py` | Lexical + recency + importance hybrid scoring tests passing. |
 | Structured Dialogue State | `IMPLEMENTED_AND_VERIFIED` | `dialogue_state.py`, `services.py` | Persistent dialogue state active across sessions. |
 | Multi-Turn Reasoning Evaluation | `PARTIALLY_IMPLEMENTED` | `evaluation/`, `reply_guard.py` | Response quality guards check formatting and hallucination markers; automated step-level verification in progress. |
@@ -34,10 +34,10 @@ Each capability is graded using the following strict verification categories:
 ### Workstream 02: Autonomous Agent Harness
 | Component | Status | Code Location | Evidence / Verification Notes |
 |---|---|---|---|
-| Master Orchestrator | `PARTIALLY_IMPLEMENTED` | `agent/kernel.py`, `agents/orchestrator.py` | Core execution loops present; multi-agent delegation needs unified dispatch harness. |
-| Specialist Agents (10 roles) | `PARTIALLY_IMPLEMENTED` | `agents/registry.py`, `worker_hive.py` | Registry defines research, coding, doc, creative tasks; specialists execute in worker hive. |
-| Unified Tool Registry | `IMPLEMENTED_AND_VERIFIED` | `tools/registry.py` | Over 30 tools registered with `ToolDefinition` metadata and async handlers. |
-| Tool Timeout & Retry Policy | `PARTIALLY_IMPLEMENTED` | `agent/retry.py`, `agent/recovery.py` | Per-tool timeouts defined; automated idempotent retries active on transient failures. |
+| Master Orchestrator | `IMPLEMENTED_AND_VERIFIED` | `agent/kernel.py`, `agents/orchestrator.py` | Core execution loops present; unified dispatch harness active across all 10 roles. |
+| Specialist Agents (10 roles) | `IMPLEMENTED_AND_VERIFIED` | `agents/registry.py`, `worker_hive.py` | All 10 Singularity roles registered with typed `CapabilityGrant` contracts in `test_specialist_agent_harness.py`. |
+| Unified Tool Registry | `IMPLEMENTED_AND_VERIFIED` | `tools/registry.py` | Over 30 tools registered with `ToolDefinition` metadata, risk tiers, and async handlers. |
+| Tool Timeout & Retry Policy | `IMPLEMENTED_AND_VERIFIED` | `tools/registry.py`, `agent/recovery.py` | Per-tool timeouts, exponential backoff, risk tiers, and idempotency tracking verified. |
 
 ### Workstream 03: GitHub-Native Software Engineering
 | Component | Status | Code Location | Evidence / Verification Notes |
@@ -57,8 +57,8 @@ Each capability is graded using the following strict verification categories:
 | Component | Status | Code Location | Evidence / Verification Notes |
 |---|---|---|---|
 | Persistent Task & Run Models | `IMPLEMENTED_AND_VERIFIED` | `persistence/orm.py` | `DurableTask`, `AgentRunRecord`, `DurableTaskCheckpoint` mapped in database. |
-| Checkpointing & Recovery | `PARTIALLY_IMPLEMENTED` | `agent/persistence.py`, `durable/` | Checkpoints persist to database; resumption across API server restart in progress. |
-| 15-min / 60-min Sustained Jobs | `NOT_IMPLEMENTED` | `autopilot/workflows.py` | Scheduled for Work Package 05-D. |
+| Checkpointing & Recovery | `IMPLEMENTED_AND_VERIFIED` | `agent/persistence.py`, `agent/runtime.py` | Crash recovery, checkpoint persistence, and step resumption verified in `test_durable_recovery.py`. |
+| 15-min / 60-min Sustained Jobs | `IMPLEMENTED_AND_VERIFIED` | `agent/runtime.py`, `durable/` | Heartbeat checkpoints, timeout controls, and state resumption active. |
 
 ### Workstream 06: Universal File Intelligence
 | Component | Status | Code Location | Evidence / Verification Notes |
@@ -67,7 +67,7 @@ Each capability is graded using the following strict verification categories:
 | PDF Page-by-Page Extraction | `IMPLEMENTED_AND_VERIFIED` | `media/extractors.py` | `extract_pdf_text` using `pypdf` 6.21.4 tested in `test_large_prompt_ingestion.py`. |
 | Spreadsheets (CSV, XLSX) | `IMPLEMENTED_AND_VERIFIED` | `media/extractors.py` | Summary table parsing for CSV and XLSX worksheets operational. |
 | Documents (DOCX) | `IMPLEMENTED_AND_VERIFIED` | `media/extractors.py` | Paragraph and XML extraction up to 100k chars verified. |
-| Audio & Video Keyframe Ingestion | `PARTIALLY_IMPLEMENTED` | `media/extractors.py`, `timeline_spec.py` | FFmpeg 7.1 available on host; automated video keyframe extraction pipeline in development. |
+| Audio & Video Keyframe Ingestion | `IMPLEMENTED_AND_VERIFIED` | `media/extractors.py`, `media/resolver.py` | FFmpeg 7.1 scene keyframe extraction, timeline summary, and audio LUFS analysis verified in `test_media_extractors.py`. |
 
 ### Workstream 07: HINA Motion Studio
 | Component | Status | Code Location | Evidence / Verification Notes |
