@@ -40,6 +40,32 @@ class AgentRole(str, Enum):
     SECURITY_REVIEWER = "security_reviewer"
 
 
+# Phase 05 Singularity Specialist Role Aliases
+PHASE05_ROLE_MAP: dict[str, AgentRole] = {
+    "orchestrator": AgentRole.SUPERVISOR,
+    "supervisor": AgentRole.SUPERVISOR,
+    "planner": AgentRole.PLANNER,
+    "research": AgentRole.RESEARCHER,
+    "researcher": AgentRole.RESEARCHER,
+    "engineer": AgentRole.ENGINEER,
+    "frontend": AgentRole.ENGINEER,
+    "backend": AgentRole.ENGINEER,
+    "database": AgentRole.ENGINEER,
+    "qa": AgentRole.QA,
+    "security": AgentRole.SECURITY_REVIEWER,
+    "security_reviewer": AgentRole.SECURITY_REVIEWER,
+    "docs": AgentRole.KNOWLEDGE_CURATOR,
+    "knowledge_curator": AgentRole.KNOWLEDGE_CURATOR,
+    "creative": AgentRole.CREATIVE_OPERATOR,
+    "creative_operator": AgentRole.CREATIVE_OPERATOR,
+    "media": AgentRole.CREATIVE_OPERATOR,
+    "browser": AgentRole.BROWSER_OPERATOR,
+    "browser_operator": AgentRole.BROWSER_OPERATOR,
+    "localization": AgentRole.LOCALIZATION_SPECIALIST,
+    "localization_specialist": AgentRole.LOCALIZATION_SPECIALIST,
+}
+
+
 class TaskStatus(str, Enum):
     CREATED = "CREATED"
     PLANNING = "PLANNING"

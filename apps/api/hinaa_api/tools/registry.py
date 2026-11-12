@@ -24,6 +24,11 @@ class ToolDefinition(BaseModel):
     is_destructive: bool = False        # tool modifies/deletes persistent data
     is_long_running: bool = False       # tool may take >30s
     max_retries: int = 1                # how many times to retry on transient failure
+    # Phase 05 Singularity Enhancements
+    retry_policy: str = "exponential_backoff"  # exponential_backoff | immediate | none
+    risk_tier: int = 1                         # 1=read, 2=scoped_mutation, 3=destructive, 4=boundary/system
+    audit_category: str = "general"            # general | file_system | terminal | network | browser | code | media
+    output_schema: dict[str, Any] = Field(default_factory=dict)
 
 class ToolRegistry:
     def __init__(self):

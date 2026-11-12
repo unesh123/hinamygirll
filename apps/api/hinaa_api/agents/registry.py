@@ -14,6 +14,7 @@ from .contracts import (
     AgentSpec,
     BudgetLedger,
     CapabilityGrant,
+    PHASE05_ROLE_MAP,
     PermissionTier,
     TeamSpec,
     TeamType,
@@ -342,13 +343,21 @@ class SpecialistRegistry:
         self._specs[spec.role] = spec
 
     def get_agent(self, role: AgentRole | str) -> Optional[AgentSpec]:
-        """Fetch agent spec by role. Validates role against whitelist."""
+        """Fetch agent spec by role or Phase 05 alias. Validates role against whitelist."""
         if isinstance(role, str):
-            try:
-                role = AgentRole(role)
-            except ValueError:
-                return None
+            clean = role.lower().strip()
+            if clean in PHASE05_ROLE_MAP:
+                role = PHASE05_ROLE_MAP[clean]
+            else:
+                try:
+                    role = AgentRole(clean)
+                except ValueError:
+                    return None
         return self._specs.get(role)
+
+    def get_agent_by_role(self, role: AgentRole | str) -> Optional[AgentSpec]:
+        """Fetch agent spec by role (alias for get_agent)."""
+        return self.get_agent(role)
 
     def list_agents(self) -> List[AgentSpec]:
         """Return all registered specialist agents."""
