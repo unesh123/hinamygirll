@@ -34,6 +34,20 @@ class CapabilitiesRegistry(BaseModel):
     default_brain: str = "gemini-3.5-flash"
     default_image: str = "gemini-3.1-flash-image"
     default_voice: str = "gemini-live"
+    # Why the default brain is what it is — an explicit HINAA_PRIMARY_BRAIN
+    # that fell back to the pinned Qwen gateway must be visible, not silent.
+    primary_brain_reason: str = ""
+
+
+def video_provider_status(settings: Settings) -> str:
+    """The one-line truth about video generation for the prompt layer.
+
+    A real MP4 exists only when fal.ai is configured; otherwise the honest
+    answer is "unavailable", never a claimed capability.
+    """
+    if settings.fal_configured:
+        return f"configured (fal.ai, endpoint {settings.fal_video_endpoint})"
+    return "not configured — video generation is unavailable (set FAL_KEY to enable it)"
 
 
 def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
@@ -350,26 +364,34 @@ def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
         if model_id != "*":
             add_brain(model_id, "oxion", has_oxion, vision=True)
     default_brain = "mock"
-    if settings.provider_mode == "cx-gateway":
+    primary_brain_reason = ""
+    # An explicit HINAA_PRIMARY_BRAIN overrides provider_mode — but only to a
+    # provider whose key is actually configured. A requested frontier brain
+    # without a key falls back to the pinned Qwen gateway, and the reason is
+    # recorded on the registry so the chat path can say so instead of
+    # silently running a weaker brain.
+    primary_mode, primary_brain_reason = settings.resolve_primary_brain()
+    effective_mode = primary_mode or settings.provider_mode
+    if effective_mode == "cx-gateway":
             default_brain = settings.cx_gateway_model
-    elif settings.provider_mode == "agent-router":
+    elif effective_mode == "agent-router":
         default_brain = settings.active_agent_router_model
-    elif settings.provider_mode == "qwen":
+    elif effective_mode == "qwen":
         default_brain = settings.qwen_model
-    elif settings.provider_mode == "openai":
+    elif effective_mode == "openai":
         default_brain = settings.active_openai_model
-    elif settings.provider_mode == "claude":
+    elif effective_mode == "claude":
         default_brain = settings.active_claude_model
-    elif settings.provider_mode == "xkiro":
+    elif effective_mode == "xkiro":
         default_brain = settings.xkiro_model
-    elif settings.provider_mode == "apmix":
+    elif effective_mode == "apmix":
         default_brain = settings.active_apmix_model
-    elif settings.provider_mode == "oxion":
+    elif effective_mode == "oxion":
         default_brain = settings.active_oxion_model
-    elif settings.provider_mode in {"real", "gemini-live"}:
+    elif effective_mode in {"real", "gemini-live"}:
         # Historical ``real`` mode is Gemini brain + a voice provider.
         default_brain = settings.gemini_model
-    elif settings.provider_mode in {"local", "mock"}:
+    elif effective_mode in {"local", "mock"}:
         default_brain = "mock"
     elif settings.gemini_api_key and settings.gemini_api_key.get_secret_value():
         default_brain = settings.gemini_model
@@ -385,6 +407,7 @@ def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
         default_brain=default_brain,
         default_image="gemini-3.1-flash-image" if has_gemini else "comfyui",
         default_voice="gemini-live" if has_gemini else "browser-native",
+        primary_brain_reason=primary_brain_reason,
     )
 
 
