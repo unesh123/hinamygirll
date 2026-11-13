@@ -3442,8 +3442,14 @@ class ConversationService:
             r"(?i)\b(?:play|playing|listen\s+to|put\s+on|stream|hear|gaana|geet|bajao|baja\s+do|music|song|songs|track|tracks|lofi|youtube|spotify|video|pause\s+music|resume\s+music)\b"
         )
         if MEDIA_PATTERN.search(text) and not re.search(r"(?i)\b(?:why|cannot)\b", text):
+            # youtube_playback_request only. computer_operator used to be
+            # added here too, so any mention of "video"/"music"/"youtube" —
+            # including a question *about* videos — put a Tier 3 OS action
+            # into allowed_tools, which the deterministic guarantee then
+            # turned into a real computer_operator request. An OS action
+            # needs the owner's own action words (see sanction_tools), not
+            # a media noun.
             allowed_set.add("youtube_playback_request")
-            allowed_set.add("computer_operator")
 
         BROWSER_PATTERN = re.compile(
             r"(?i)\b(?:browse|browsing|browser|browser-use|navigate|go\s+to|visit|url|https?://|automate\s+browser|browser\s+agent|web\s+task|scroll|scroll\s+down|scroll\s+up|read\s+page|type\s+into)\b"
@@ -4788,8 +4794,20 @@ class ConversationService:
             return result
 
         if gate_decision.intent == HinaaIntent.CANCEL:
-            self._cancel_inflight_image_jobs(user_id=user_id)
-            cancel_text = "Stopped. I have cancelled any running jobs."
+            # _cancel_inflight_image_jobs returns how many image jobs it
+            # actually cancelled (None when it could not even look). The old
+            # text claimed "cancelled any running jobs" in all three cases —
+            # including when zero jobs were running — which is how a "stop"
+            # turn could report cancelling jobs that never existed.
+            cancelled = self._cancel_inflight_image_jobs(user_id=user_id)
+            if cancelled is None:
+                cancel_text = "Stopped. I couldn't check whether any jobs were running."
+            elif cancelled == 0:
+                cancel_text = "Stopped. No jobs were running."
+            elif cancelled == 1:
+                cancel_text = "Stopped. I cancelled 1 running job."
+            else:
+                cancel_text = f"Stopped. I cancelled {cancelled} running jobs."
             plan = build_plan_from_text(
                 text=cancel_text,
                 companion_id=request.companionId or "hinaa",
@@ -5506,22 +5524,31 @@ class ConversationService:
                     result.value.spokenText = f"Switching your workspace to {target_desc} now."
 
             # Deterministic Computer Operator / OS Action Guarantee
+            # This runs AFTER _gate_tool_intents, so it must not re-invent a
+            # call the gate just refused. Previously it appended a
+            # computer_operator request whenever "computer_operator" was in
+            # allowed_tools, defaulting to {"action": "create_folder",
+            # "target": <the user's whole message>} when the sanction had no
+            # parameters — so a complaint/question ("why are you
+            # hallucinating...") became a Tier 3 computer action with the
+            # complaint text as its target, failed the approval gate, and was
+            # then announced as "I'm creating that folder...". Only file the
+            # call when the owner's own words sanctioned it with parameters.
             if (
                 "computer_operator" in allowed_tools
             ) and not any(t.toolName == "computer_operator" for t in result.value.toolRequests):
                 from .tools.intent_gate import sanction_tools
                 sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
                 cop_params = sanction.parameters.get("computer_operator", {})
-                if not cop_params:
-                    cop_params = {"action": "create_folder", "target": request.text}
-                result.value.toolRequests.append(
-                    ToolRequest(
-                        toolName="computer_operator",
-                        parameters=cop_params,
-                        status="ready",
-                        reason="deterministic-intent",
+                if "computer_operator" in sanction.allowed and cop_params:
+                    result.value.toolRequests.append(
+                        ToolRequest(
+                            toolName="computer_operator",
+                            parameters=cop_params,
+                            status="ready",
+                            reason="deterministic-intent",
+                        )
                     )
-                )
 
             if any(t.toolName == "computer_operator" for t in result.value.toolRequests):
                 cop_req = next(t for t in result.value.toolRequests if t.toolName == "computer_operator")
@@ -5710,8 +5737,20 @@ class ConversationService:
             return result
 
         if gate_decision.intent == HinaaIntent.CANCEL:
-            self._cancel_inflight_image_jobs(user_id=user_id)
-            cancel_text = "Stopped. I have cancelled any running jobs."
+            # _cancel_inflight_image_jobs returns how many image jobs it
+            # actually cancelled (None when it could not even look). The old
+            # text claimed "cancelled any running jobs" in all three cases —
+            # including when zero jobs were running — which is how a "stop"
+            # turn could report cancelling jobs that never existed.
+            cancelled = self._cancel_inflight_image_jobs(user_id=user_id)
+            if cancelled is None:
+                cancel_text = "Stopped. I couldn't check whether any jobs were running."
+            elif cancelled == 0:
+                cancel_text = "Stopped. No jobs were running."
+            elif cancelled == 1:
+                cancel_text = "Stopped. I cancelled 1 running job."
+            else:
+                cancel_text = f"Stopped. I cancelled {cancelled} running jobs."
             plan = build_plan_from_text(
                 text=cancel_text,
                 companion_id=request.companionId or "hinaa",
@@ -6662,22 +6701,24 @@ class ConversationService:
                     result.value.spokenText = f"Switching your workspace to {target_desc} now."
 
             # Deterministic Computer Operator / OS Action Guarantee
+            # Same rule as the REST path above: never invent a computer
+            # action after the gate refused one. Only file it when the
+            # owner's own words sanctioned it with parameters.
             if (
                 "computer_operator" in live_allowed_tools
             ) and not any(t.toolName == "computer_operator" for t in result.value.toolRequests):
                 from .tools.intent_gate import sanction_tools
                 sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
                 cop_params = sanction.parameters.get("computer_operator", {})
-                if not cop_params:
-                    cop_params = {"action": "create_folder", "target": request.text}
-                result.value.toolRequests.append(
-                    ToolRequest(
-                        toolName="computer_operator",
-                        parameters=cop_params,
-                        status="ready",
-                        reason="deterministic-intent",
+                if "computer_operator" in sanction.allowed and cop_params:
+                    result.value.toolRequests.append(
+                        ToolRequest(
+                            toolName="computer_operator",
+                            parameters=cop_params,
+                            status="ready",
+                            reason="deterministic-intent",
+                        )
                     )
-                )
 
             if any(t.toolName == "computer_operator" for t in result.value.toolRequests):
                 cop_req = next(t for t in result.value.toolRequests if t.toolName == "computer_operator")

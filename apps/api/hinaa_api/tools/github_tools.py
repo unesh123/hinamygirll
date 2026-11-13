@@ -371,6 +371,59 @@ async def github_create_issue_handler(params: dict[str, Any]) -> dict[str, Any]:
     return {"status": "ok", "repo": repo, "number": result.get("number"), "url": result.get("html_url")}
 
 
+async def github_list_repos_handler(params: dict[str, Any]) -> dict[str, Any]:
+    """Repos the configured token can see, plus which ones are active.
+
+    Previously there was no tool for this: the model could only work on a
+    repo the owner had already selected elsewhere (or the single default),
+    so "work on my other repo" had no in-conversation answer. Now Hina can
+    list the repos, name the active set, and let the owner pick.
+    """
+    from ..integrations_hub.github_repos import get_active_repos, list_repos
+
+    repos = await list_repos()
+    return {
+        "status": "ok",
+        "activeRepos": get_active_repos(),
+        "repos": [
+            {
+                "fullName": r.get("fullName"),
+                "private": r.get("private"),
+                "description": (r.get("description") or "")[:160],
+                "language": r.get("language") or "",
+                "url": r.get("url"),
+            }
+            for r in repos
+        ][:100],
+    }
+
+
+async def github_set_active_repos_handler(params: dict[str, Any]) -> dict[str, Any]:
+    """Set the repos Hina works on, from the list github_list_repos returned.
+
+    This only changes Hina's local selection (a JSON file in the runtime
+    dir) — it touches nothing on GitHub itself. With several active repos
+    and no default, other GitHub tools refuse to guess and ask the owner
+    to name one per call instead.
+    """
+    from ..integrations_hub.github_repos import get_active_repos, set_active_repos
+
+    raw = params.get("repos")
+    if isinstance(raw, str):
+        raw = [r.strip() for r in raw.split(",") if r.strip()]
+    if not isinstance(raw, list) or not raw:
+        raise HinaaError(
+            "GITHUB_REPOS_REQUIRED",
+            "Pass repos as a list of 'owner/name' values from github_list_repos.",
+            400,
+            True,
+        )
+    previous = get_active_repos()
+    active = set_active_repos([str(r) for r in raw])
+    refresh_repo_hints()
+    return {"status": "ok", "activeRepos": active, "previousActiveRepos": previous}
+
+
 def _def(name: str, display: str, description: str, params: dict[str, dict[str, Any]], required: list[str], *, confirm: bool = False, risk: str = "low") -> ToolDefinition:
     return ToolDefinition(
         name=name,
@@ -388,6 +441,26 @@ _REPO_PARAM = {
 }
 _PATH_PARAM = {"path": {"type": "string", "description": "File path inside the repository"}}
 
+registry.register(
+    _def(
+        "github_list_repos",
+        "GitHub List Repos",
+        "List the GitHub repositories the connected token can see, and which ones are currently active for Hina. Use this first when the owner asks to work on a repo by name, or to switch repos — then github_set_active_repos to choose.",
+        {},
+        [],
+    ),
+    github_list_repos_handler,
+)
+registry.register(
+    _def(
+        "github_set_active_repos",
+        "GitHub Set Active Repos",
+        "Choose which repositories Hina works on, from the github_list_repos list. Pass repos as a list of 'owner/name' values. This only changes Hina's local selection, nothing on GitHub itself.",
+        {"repos": {"type": "array", "description": "Repositories as 'owner/name' values, e.g. [\"unesh123/hinamygirll\"]"}},
+        ["repos"],
+    ),
+    github_set_active_repos_handler,
+)
 registry.register(
     _def(
         "github_repo_overview",
