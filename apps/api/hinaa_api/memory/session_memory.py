@@ -57,6 +57,35 @@ _EXPLICIT_PATTERNS = (
     ),
 )
 
+# Language preference: "talk in English", "speak English only", "Nepali ma
+# bolnu" etc. Previously there was no pattern for this, so an explicit
+# language instruction lived only in the latest turn and was lost on a
+# model switch or a new session.
+_LANGUAGE_PATTERNS = (
+    re.compile(
+        r"\b(?:talk|speak|reply|answer|write)\s+(?:in\s+)?(english|nepali|hindi)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:english|nepali|hindi)\s+(?:only|ma\s+bolnu|me\s+bolo)\b",
+        re.IGNORECASE,
+    ),
+)
+
+# Correction: "MP4, not NP4", "it's MP4, not MMP4", "X, not Y". Previously
+# there was no pattern for this either, so the same typo was corrected
+# three times in one conversation and still repeated.
+_CORRECTION_PATTERNS = (
+    re.compile(
+        r"\b([A-Za-z0-9]{2,20})\s*,\s*not\s+([A-Za-z0-9]{2,20})\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:it'?s|its|i said|i mean)\s+([A-Za-z0-9]{2,20})\s*,?\s*not\s+([A-Za-z0-9]{2,20})\b",
+        re.IGNORECASE,
+    ),
+)
+
 # ... but only when the clause asserts something. A stored fact that reads
 # "that time we went to Pokhara" or "to breathe" is not a fact -- he is
 # reminiscing or nudging -- and half-sentences in the memory list come back in
@@ -164,6 +193,20 @@ class SessionMemory:
             match = pattern.search(user_text)
             if match:
                 memories.append(_clean_fact(match.group(1), "User context"))
+                break
+
+        for pattern in _LANGUAGE_PATTERNS:
+            match = pattern.search(user_text)
+            if match:
+                memories.append(_clean_fact(f"Talk in {match.group(1).title()}", "Language preference"))
+                break
+
+        for pattern in _CORRECTION_PATTERNS:
+            match = pattern.search(user_text)
+            if match:
+                correct, wrong = match.group(1), match.group(2)
+                if correct.lower() != wrong.lower():
+                    memories.append(_clean_fact(f"{correct}, not {wrong}", "Correction"))
                 break
 
         for pattern in _EXPLICIT_PATTERNS:

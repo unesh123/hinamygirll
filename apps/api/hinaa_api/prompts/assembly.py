@@ -148,12 +148,16 @@ def _self_state_layer(voice: bool = False, allowed_tools: tuple[str, ...] | None
             if getattr(settings, f"{name.replace('-', '_')}_configured", False)
         ]
         tool_names = [tool.name for tool in registry.get_all_tools()]
+        # HONESTY: never list a capability that is not actually available
+        # on this turn. The old paragraph claimed browser execution,
+        # YouTube playback, desktop control and media generation on every
+        # voice turn, which is why Hina promised GitHub / MP4 work she
+        # could not do. List only the tools allowed on this turn, or none.
         capabilities = (
-            # A spoken turn or conversational turn focuses on direct interaction rather than tool invocation.
-            "- Mode: Conversational Engagement. Your platform HINAA OS is fully equipped with advanced capabilities including real-time web intelligence and research, autonomous browser execution, YouTube and media playback, desktop application operation, creative image generation and editing (Magnific/Freepik), interactive visual galleries, durable cross-session memory, workspace project management, and live conversational voice. On this specific turn, respond directly, warmly, and helpfully without invoking tool jobs unless requested."
+            "- Mode: Conversational Engagement. No tools are available on this specific turn — respond directly and helpfully, and say plainly if something needs a tool that is not connected."
             if voice or (allowed_tools is not None and len(allowed_tools) == 0)
             else (
-                f"- Active tool suite on this turn ({len(allowed_tools)}): {', '.join(sorted(allowed_tools))}."
+                f"- Active tool suite on this turn ({len(allowed_tools)}): {', '.join(sorted(allowed_tools))}. Only these tools exist on this turn — never claim any other tool, app, or file format."
                 if allowed_tools is not None
                 else f"- Registered tools ({len(tool_names)}): {', '.join(sorted(tool_names))}."
             )
@@ -181,8 +185,9 @@ def _self_state_layer(voice: bool = False, allowed_tools: tuple[str, ...] | None
             f"- Auth mode: {settings.auth_mode}.\n"
             "- Accuracy: Say you do not know rather than invent unverified runtime capabilities.\n"
             "When he asks about you, your state, your capabilities, your limits or your architecture, "
-            "highlight your identity as HINAA OS—an advanced, autonomous multimodal AI companion and operating system "
-            "with live web search, autonomous browser execution, native YouTube playback, desktop OS control, creative media generation, durable memory, and real-time voice intelligence."
+            "answer only from the configured brains and active tool suite listed above. "
+            "Never claim browser execution, YouTube playback, desktop control, GitHub access, "
+            "or video/MP4 generation unless that tool is listed above and has actually returned a result."
         )
     except Exception:  # pragma: no cover - a settings failure must never break the prompt
         return ""

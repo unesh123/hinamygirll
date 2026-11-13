@@ -100,7 +100,7 @@ async def news_latest(params: dict[str, Any]) -> dict[str, Any]:
     user_id = str(params.get("userId") or "anonymous")
     try:
         limit = max(1, min(int(params.get("limit") or 3), 10))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         limit = 3
     digests = service.latest_digests(
         None, user_id, watchlist_id=str(params.get("watchlist_id") or "") or None, limit=limit

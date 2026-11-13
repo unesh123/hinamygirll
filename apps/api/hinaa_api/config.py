@@ -383,8 +383,13 @@ class Settings(BaseSettings):
         "qwen/qwen3.8-max:free",
         validation_alias=AliasChoices("XKIRO_MODEL", "XK_IRO_MODEL"),
     )
+    # Pinned to the Qwen family only. The previous list ended in ",*" and
+    # mixed DeepSeek / MiniMax / Muse Spark / stealth models in, so any
+    # model ID was accepted and a fallback could silently switch families
+    # mid-conversation. No wildcard here: resolve_xkiro_model() must reject
+    # anything not in this list.
     xkiro_allowed_models_raw: str = Field(
-        "qwen/qwen3.8-max:free,qwen/qwen3.8-omni-flash:free,qwen/qwen3.7-flash:free,qwen/qwen3.7-max:free,qwen/qwen3.6-max-preview:free,qwen/qwen3.5-flash:free,deepseek/deepseek-v4.1-flash:free,minimax/minimax-m2.7:free,qwen/qwen3-coder-plus:free,qwen/qwen3-vl-plus:free,inclusionai/ling-3.0-flash-sante:free,meta/muse-spark-1.3-contributor:free,stealth/space-bunny-alpha:free,*",
+        "qwen/qwen3.8-max:free,qwen/qwen3.8-omni-flash:free,qwen/qwen3.7-flash:free,qwen/qwen3.7-max:free,qwen/qwen3.6-max-preview:free,qwen/qwen3.5-flash:free",
         validation_alias=AliasChoices("XKIRO_ALLOWED_MODELS", "XK_IRO_ALLOWED_MODELS"),
     )
     # Cavoti AI Gateway — frontier models (claude-fable-5, claude-opus-5, claude-haiku-4-5)
@@ -418,7 +423,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("APMIX_AI_MODEL", "APMIX_MODEL"),
     )
     apmix_allowed_models_raw: str = Field(
-        "claude-sonnet-4-6-free,claude-sonnet-4.6,deepseek-v4-flash-free,gpt-6-luna-free,*",
+        "claude-sonnet-4-6-free,claude-sonnet-4.6,deepseek-v4-flash-free,gpt-6-luna-free",
         validation_alias=AliasChoices("APMIX_AI_ALLOWED_MODELS", "APMIX_ALLOWED_MODELS"),
     )
     # Oxion AI Gateway — 33+ frontier models (Claude Fable 5.1, Grok 4.6, Opus 5.5) at https://oxionai.com/v1
@@ -435,7 +440,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("OXION_AI_MODEL", "OXION_MODEL"),
     )
     oxion_allowed_models_raw: str = Field(
-        "claude-fable-5,claude-fable-5.1,claude-mythos-preview,claude-opus-4.6,claude-opus-4.7,claude-opus-4.8,claude-opus-5,claude-opus-5.5,claude-sonnet-5,deepseek-v4-flash-0731,deepseek-v4-pro-0813,deepseek-v4-pro-max,gemini-3.1-pro,gemini-3.6-flash,gemini-3.7-flash,gemma-2-2b,glm-5.2,glm-5.3,gpt-5.5,gpt-5.5-pro,gpt-5.6-luna,gpt-5.6-sol,gpt-5.6-terra,grok-4.5,grok-4.6,kimi-k2.6,kimi-k3,muse-spark-1.1,qwen3.7-max,qwen3.8-27b,qwen3.8-max,seed-2.1-pro,seed-2.1-turbo,*",
+        "claude-fable-5,claude-fable-5.1,claude-mythos-preview,claude-opus-4.6,claude-opus-4.7,claude-opus-4.8,claude-opus-5,claude-opus-5.5,claude-sonnet-5,deepseek-v4-flash-0731,deepseek-v4-pro-0813,deepseek-v4-pro-max,gemini-3.1-pro,gemini-3.6-flash,gemini-3.7-flash,gemma-2-2b,glm-5.2,glm-5.3,gpt-5.5,gpt-5.5-pro,gpt-5.6-luna,gpt-5.6-sol,gpt-5.6-terra,grok-4.5,grok-4.6,kimi-k2.6,kimi-k3,muse-spark-1.1,qwen3.7-max,qwen3.8-27b,qwen3.8-max,seed-2.1-pro,seed-2.1-turbo",
         validation_alias=AliasChoices("OXION_AI_ALLOWED_MODELS", "OXION_ALLOWED_MODELS"),
     )
     # Articul8 / Bivia ("Ben") Multi-Modal Decision Engine
@@ -857,7 +862,12 @@ class Settings(BaseSettings):
     magnific_api_key: SecretStr | None = Field(None, alias="MAGNIFIC_API_KEY")
     freepik_model: str = Field("flux-schnell", alias="FREEPIK_DEFAULT_MODEL")
     freepik_daily_limit: int = Field(100, alias="FREEPIK_DAILY_LIMIT")
-    auto_fallback_enabled: bool = Field(True, alias="HINAA_AUTO_FALLBACK_ENABLED")
+    # Silent cross-family fallback is OFF by default. When the pinned brain
+    # fails, Hina must say so instead of silently becoming a different,
+    # weaker model (Qwen -> Mistral -> Gemini) mid-conversation and losing
+    # the user's language / corrections. Set HINAA_AUTO_FALLBACK_ENABLED=true
+    # explicitly only if that degradation is wanted.
+    auto_fallback_enabled: bool = Field(False, alias="HINAA_AUTO_FALLBACK_ENABLED")
     magnific_daily_soft_target_override: int | None = Field(None, alias="MAGNIFIC_DAILY_SOFT_TARGET_OVERRIDE")
     magnific_monthly_plan_credits: int = Field(45000, alias="MAGNIFIC_MONTHLY_PLAN_CREDITS")
     magnific_billing_cycle_anchor_day: int = Field(3, alias="MAGNIFIC_BILLING_CYCLE_ANCHOR_DAY")

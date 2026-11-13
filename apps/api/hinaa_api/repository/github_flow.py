@@ -211,9 +211,13 @@ class GovernedGitHubFlow:
 
         pr_body = "\n".join(body_lines)
 
-        # In local/test mode or with live GitHub API
-        pr_number = abs(hash(task_id)) % 9000 + 1000
-        pr_url = f"https://github.com/mock-repo/pull/{pr_number}"
+        # No real GitHub PR is created here — this flow only prepares a
+        # local branch + commit + PR body. Previously it fabricated a
+        # "https://github.com/mock-repo/pull/<hash>" URL, which Hina could
+        # present as a real pull request. Return empty URL / 0 instead so
+        # no caller can mistake this for a live PR.
+        pr_number = 0
+        pr_url = ""
 
         return PullRequestResult(
             pr_url=pr_url,

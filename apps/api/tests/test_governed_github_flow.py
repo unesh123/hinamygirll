@@ -155,7 +155,9 @@ def test_evidence_backed_pr_guards():
             changed_files=["calc.py"],
             repair_attempts_count=1,
         )
-        assert pr_res.pr_number > 0
+        # No real PR is created by this flow — it must not fabricate a URL.
+        assert pr_res.pr_number == 0
+        assert pr_res.pr_url == ""
         assert pr_res.commit_sha == "c" * 40
         assert pr_res.evidence_count == 2
         assert pr_res.branch == "hina/fix/t1"
