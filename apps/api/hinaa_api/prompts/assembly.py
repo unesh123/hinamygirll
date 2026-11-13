@@ -148,16 +148,29 @@ def _self_state_layer(voice: bool = False, allowed_tools: tuple[str, ...] | None
             if getattr(settings, f"{name.replace('-', '_')}_configured", False)
         ]
         tool_names = [tool.name for tool in registry.get_all_tools()]
-        # HONESTY: never list a capability that is not actually available
-        # on this turn. The old paragraph claimed browser execution,
-        # YouTube playback, desktop control and media generation on every
-        # voice turn, which is why Hina promised GitHub / MP4 work she
-        # could not do. List only the tools allowed on this turn, or none.
+        # The capability registry is the single source of truth for what this
+        # deployment can actually do: it is built from the configured keys,
+        # not from a marketing paragraph. Until now nothing in the chat path
+        # ever called it, so this layer claimed the full catalogue on every
+        # conversational turn. Now the brain, the video provider and the
+        # reason for the brain choice are read from it.
+        try:
+            from ..capabilities import build_capability_registry, video_provider_status
+
+            _registry = build_capability_registry(settings)
+            brain_line = f"- Brain: {_registry.default_brain}."
+            if _registry.primary_brain_reason:
+                brain_line += f" {_registry.primary_brain_reason}"
+            video_line = f"- Video generation: {video_provider_status(settings)}."
+        except Exception:
+            brain_line = f"- Active brain routing: {settings.provider_mode}."
+            video_line = "- Video generation: unknown (capability registry unavailable)."
         capabilities = (
-            "- Mode: Conversational Engagement. No tools are available on this specific turn — respond directly and helpfully, and say plainly if something needs a tool that is not connected."
+            "- Mode: Conversational Engagement. No tools are available on this turn. "
+            "Respond directly, warmly, and helpfully without invoking tool jobs unless requested."
             if voice or (allowed_tools is not None and len(allowed_tools) == 0)
             else (
-                f"- Active tool suite on this turn ({len(allowed_tools)}): {', '.join(sorted(allowed_tools))}. Only these tools exist on this turn — never claim any other tool, app, or file format."
+                f"- Active tool suite on this turn ({len(allowed_tools)}): {', '.join(sorted(allowed_tools))}."
                 if allowed_tools is not None
                 else f"- Registered tools ({len(tool_names)}): {', '.join(sorted(tool_names))}."
             )
@@ -177,6 +190,8 @@ def _self_state_layer(voice: bool = False, allowed_tools: tuple[str, ...] | None
             "\n\nMEASURED SELF STATE (read from the running process, not recalled):\n"
             f"- Prompt assembly version: {PROMPT_VERSION}.\n"
             f"- Active brain routing: {settings.provider_mode}.\n"
+            f"{brain_line}\n"
+            f"{video_line}\n"
             f"- Configured brains ({len(brains)}): {', '.join(brains) or 'none'}.\n"
             f"{identity_cue}"
             f"{mood_cue}"
@@ -184,10 +199,10 @@ def _self_state_layer(voice: bool = False, allowed_tools: tuple[str, ...] | None
             f"- Persistence: {'on' if settings.persistence_enabled else 'off'}.\n"
             f"- Auth mode: {settings.auth_mode}.\n"
             "- Accuracy: Say you do not know rather than invent unverified runtime capabilities.\n"
-            "When he asks about you, your state, your capabilities, your limits or your architecture, "
-            "answer only from the configured brains and active tool suite listed above. "
-            "Never claim browser execution, YouTube playback, desktop control, GitHub access, "
-            "or video/MP4 generation unless that tool is listed above and has actually returned a result."
+            "Answer questions about your state, capabilities, limits or architecture only from the "
+            "configured brains and the active tool suite listed above. Never claim browser execution, "
+            "YouTube playback, desktop control, GitHub access or video generation unless it is listed "
+            "above and has actually returned a result in this conversation."
         )
     except Exception:  # pragma: no cover - a settings failure must never break the prompt
         return ""

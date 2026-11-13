@@ -400,6 +400,24 @@ class Settings(BaseSettings):
         "qwen/qwen3.8-max:free,qwen/qwen3.8-omni-flash:free,qwen/qwen3.7-flash:free,qwen/qwen3.7-max:free,qwen/qwen3.6-max-preview:free,qwen/qwen3.5-flash:free",
         validation_alias=AliasChoices("XKIRO_ALLOWED_MODELS", "XK_IRO_ALLOWED_MODELS"),
     )
+    # Video generation (fal.ai) — the only real MP4 path. The key is never in
+    # chat or the frontend; it lives in the backend env. Without it the video
+    # provider fails closed and Hina must say video generation is unavailable.
+    fal_api_key: SecretStr | None = Field(None, alias="FAL_KEY")
+    # fal.ai video endpoint. Default is Kling v3 Pro — verified 2026-11-13
+    # against fal.ai's own model pages. Do NOT point this at fal-ai/veo3.1*
+    # (any tier): fal deprecates the whole Veo 3.1 tree on 17 Nov 2026, and
+    # Veo 3 is already deprecated. Kept configurable so a future swap (e.g.
+    # google/gemini-omni-flash/v1.1/text-to-video) is one env line.
+    fal_video_endpoint: str = Field(
+        "fal-ai/kling-video/v3/pro/text-to-video", alias="HINAA_FAL_VIDEO_ENDPOINT"
+    )
+    # Frontier brain selection. Set HINAA_PRIMARY_BRAIN to one of
+    # claude/gemini/openai/qwen/xkiro to make that provider the brain — but
+    # only if its API key is actually configured; otherwise Hina stays on the
+    # pinned Qwen model and says so (see resolve_primary_brain). A frontier
+    # model is a key + a paid account away, not a code change away.
+    primary_brain: str | None = Field(None, alias="HINAA_PRIMARY_BRAIN")
     # Cavoti AI Gateway — frontier models (claude-fable-5, claude-opus-5, claude-haiku-4-5)
     cavoti_api_key: SecretStr | None = Field(
         None,
@@ -1695,6 +1713,45 @@ class Settings(BaseSettings):
             allowed = ", ".join(self.xkiro_allowed_models)
             raise ValueError(f"XKiro model is not in XKIRO_ALLOWED_MODELS: {allowed}")
         return model
+
+    @property
+    def fal_configured(self) -> bool:
+        """True only when a fal.ai key is present — the video provider's gate."""
+        return bool(self.fal_api_key and self.fal_api_key.get_secret_value())
+
+    def resolve_primary_brain(self) -> tuple[str | None, str]:
+        """Which brain Hina should actually run on, and why.
+
+        Returns (provider_mode, reason). ``None`` means "no explicit primary
+        requested — keep provider_mode as configured today". A requested
+        frontier brain is used only when its key is configured; otherwise the
+        answer is the pinned Qwen gateway with the reason spelled out, so the
+        choice is visible instead of a silent downgrade.
+        """
+        requested = (self.primary_brain or "").strip().lower()
+        if not requested:
+            return None, ""
+        keyed = {
+            "claude": self.claude_configured,
+            "gemini": self.gemini_configured,
+            "openai": self.openai_configured,
+            "qwen": self.qwen_configured,
+            "xkiro": bool(
+                self.active_xkiro_key
+                and self.active_xkiro_key.get_secret_value()
+            ),
+        }
+        if requested not in keyed:
+            return "xkiro", (
+                f"HINAA_PRIMARY_BRAIN={requested!r} is not a known brain; "
+                "staying on the pinned Qwen gateway."
+            )
+        if keyed[requested]:
+            return requested, f"Primary brain {requested} selected; key configured."
+        return "xkiro", (
+            f"Primary brain {requested} was requested but its API key is not "
+            "configured; staying on the pinned Qwen gateway."
+        )
 
     @property
     def cavoti_configured(self) -> bool:
