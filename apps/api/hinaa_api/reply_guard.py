@@ -47,6 +47,11 @@ _META_REASONING_LINE = re.compile(
 
 _EMPTY_REPLY = "Hey babe! I'm right here with you. How can I help you right now?"
 
+# Invented video formats from the transcript: the model echoed the user's
+# typo "NP4", then invented "MMP4" as if it were real. MP4 is the only
+# video format here — repair those tokens instead of shipping them.
+_INVENTED_FORMAT_RE = re.compile(r"\b(?:NP4|MMP4|NMP4)\b", re.IGNORECASE)
+
 
 @dataclass(frozen=True)
 class GuardIssue:
@@ -158,6 +163,12 @@ def check_reply(
         cleaned = _TOOL_MARKUP_RE.sub("", cleaned).strip()
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
         issues.append(GuardIssue("tool_markup", "removed model invented tool-call markup"))
+
+    # Invented file formats: NP4 / MMP4 are not real formats. Repair them
+    # to MP4 and flag it, so a typo can never ship as a "new format".
+    if _INVENTED_FORMAT_RE.search(cleaned):
+        cleaned = _INVENTED_FORMAT_RE.sub("MP4", cleaned)
+        issues.append(GuardIssue("invented_format", "replaced invented video format (NP4/MMP4) with MP4"))
 
     # A fence the model opened and never closed makes the whole tail a code
     # block on screen; closing it is a repair, not a rewrite.
