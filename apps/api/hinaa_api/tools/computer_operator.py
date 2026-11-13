@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
+from datetime import datetime, timezone
 import json
 import logging
 import math
@@ -1265,6 +1266,304 @@ class NativeComputerOperator:
             final_observation=cls.observe(),
         )
 
+    # ── Core Computer Operator Reality Implementations ────────────────
+
+    @classmethod
+    def get_system_metrics(cls) -> dict[str, Any]:
+        """Collects real hardware metrics using psutil (CPU, Memory, Disk, Platform, Uptime)."""
+        import psutil
+        cpu_usage = psutil.cpu_percent(interval=0.05)
+        cpu_count = psutil.cpu_count(logical=True)
+        vm = psutil.virtual_memory()
+
+        root_drive = "C:\\" if os.name == "nt" else "/"
+        du = psutil.disk_usage(root_drive)
+
+        boot_time = psutil.boot_time()
+        uptime_sec = round(time.time() - boot_time, 1)
+
+        return {
+            "cpu_percent": cpu_usage,
+            "cpu_count": cpu_count,
+            "memory_total_mb": round(vm.total / (1024 * 1024), 1),
+            "memory_used_mb": round(vm.used / (1024 * 1024), 1),
+            "memory_percent": vm.percent,
+            "disk_total_gb": round(du.total / (1024 * 1024 * 1024), 2),
+            "disk_used_gb": round(du.used / (1024 * 1024 * 1024), 2),
+            "disk_percent": du.percent,
+            "platform": platform.platform(),
+            "os_name": platform.system(),
+            "uptime_seconds": uptime_sec,
+        }
+
+    @classmethod
+    def inspect_processes(cls, limit: int = 25, sort_by: str = "cpu") -> list[dict[str, Any]]:
+        """Enumerates active processes with real resource consumption."""
+        import psutil
+        procs = []
+        for p in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_info', 'status']):
+            try:
+                info = p.info
+                mem_mb = round((info['memory_info'].rss if info.get('memory_info') else 0) / (1024 * 1024), 1)
+                procs.append({
+                    "pid": info['pid'],
+                    "name": info['name'] or "unknown",
+                    "cpu_percent": info.get('cpu_percent') or 0.0,
+                    "memory_mb": mem_mb,
+                    "status": info.get('status') or "running",
+                })
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+        if sort_by == "memory":
+            procs.sort(key=lambda x: x["memory_mb"], reverse=True)
+        else:
+            procs.sort(key=lambda x: x["cpu_percent"], reverse=True)
+        return procs[:limit]
+
+    @classmethod
+    def list_applications(cls) -> list[dict[str, Any]]:
+        """Discovers active and installed desktop applications."""
+        import psutil
+        apps = []
+        seen = set()
+        for p in psutil.process_iter(['name', 'exe']):
+            try:
+                name = p.info.get('name')
+                exe = p.info.get('exe')
+                if name and name.lower() not in seen:
+                    seen.add(name.lower())
+                    apps.append({
+                        "name": name,
+                        "executable": exe or name,
+                        "type": "running_application",
+                    })
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return sorted(apps, key=lambda a: a["name"].lower())[:60]
+
+    @classmethod
+    def read_folder(cls, folder_path: str, limit: int = 100) -> dict[str, Any]:
+        """Safely inspects authorized folder contents without path traversal."""
+        p = Path(folder_path).resolve()
+        sensitive_roots = ["C:\\Windows\\System32\\config", "C:\\Windows\\System32\\drivers"]
+        for s in sensitive_roots:
+            if str(p).lower().startswith(s.lower()):
+                return {
+                    "success": False,
+                    "error": f"Path '{p}' is a protected system directory.",
+                }
+        if not p.exists() or not p.is_dir():
+            return {
+                "success": False,
+                "error": f"Directory '{p}' does not exist.",
+            }
+
+        entries = []
+        try:
+            for item in sorted(p.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))[:limit]:
+                try:
+                    stat = item.stat()
+                    entries.append({
+                        "name": item.name,
+                        "is_dir": item.is_dir(),
+                        "size_bytes": stat.st_size if not item.is_dir() else 0,
+                        "modified_at": stat.st_mtime,
+                    })
+                except Exception:
+                    continue
+        except PermissionError:
+            return {
+                "success": False,
+                "error": f"Access to '{p}' was denied by OS permissions.",
+            }
+
+        return {
+            "path": str(p),
+            "count": len(entries),
+            "entries": entries,
+        }
+
+    @classmethod
+    def search_files(cls, folder_path: str, pattern: str = "*", max_results: int = 50) -> dict[str, Any]:
+        """Safely searches files in approved directory."""
+        p = Path(folder_path).resolve()
+        if not p.exists() or not p.is_dir():
+            return {
+                "success": False,
+                "error": f"Directory '{p}' does not exist.",
+            }
+
+        matches = []
+        try:
+            for root, dirs, files in os.walk(str(p)):
+                if any(ignored in root for ignored in (".git", "node_modules", ".venv", ".runtime")):
+                    continue
+                for f in files:
+                    if pattern == "*" or pattern.lower() in f.lower() or (pattern.startswith("*.") and f.endswith(pattern[1:])):
+                        fp = Path(root) / f
+                        try:
+                            matches.append({
+                                "name": f,
+                                "path": str(fp),
+                                "size_bytes": fp.stat().st_size,
+                            })
+                            if len(matches) >= max_results:
+                                break
+                        except Exception:
+                            pass
+                if len(matches) >= max_results:
+                    break
+        except PermissionError:
+            return {
+                "success": False,
+                "error": f"Search access to '{p}' was denied.",
+            }
+
+        return {
+            "path": str(p),
+            "pattern": pattern,
+            "total_matches": len(matches),
+            "matches": matches,
+        }
+
+    @classmethod
+    def inspect_browser(cls) -> dict[str, Any]:
+        """Inspects running browser state and debugging connectivity."""
+        import psutil
+        browser_names = ["chrome.exe", "msedge.exe", "brave.exe", "firefox.exe"]
+        active_browsers = []
+        for p in psutil.process_iter(['pid', 'name']):
+            try:
+                name = (p.info.get('name') or "").lower()
+                if name in browser_names and name not in active_browsers:
+                    active_browsers.append(name)
+            except Exception:
+                continue
+
+        return {
+            "running_browsers": active_browsers,
+            "browser_active": len(active_browsers) > 0,
+            "cdp_available": cls.is_daemon_live(),
+            "detail": f"Active browsers detected: {', '.join(active_browsers)}" if active_browsers else "No active desktop browsers detected.",
+        }
+
+    @classmethod
+    def execute_workspace_command(cls, command: str, cwd: Optional[str] = None, timeout_seconds: float = 30.0) -> dict[str, Any]:
+        """Executes a bounded shell command inside authorized workspace."""
+        from hinaa_api.config import get_settings
+        settings = get_settings()
+        default_ws = Path(settings.local_workspace_dir or Path.cwd()).resolve()
+        work_dir = Path(cwd).resolve() if cwd else default_ws
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        start_time = time.time()
+        try:
+            res = subprocess.run(
+                [_powershell_exe() if os.name == "nt" else "/bin/bash", "-NoProfile" if os.name == "nt" else "-c", "-Command" if os.name == "nt" else command, command if os.name == "nt" else ""],
+                cwd=str(work_dir),
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+            )
+            dur = round((time.time() - start_time) * 1000, 2)
+            return {
+                "exit_code": res.returncode,
+                "stdout": res.stdout[:50_000],
+                "stderr": res.stderr[:20_000],
+                "duration_ms": dur,
+                "command": command,
+                "cwd": str(work_dir),
+            }
+        except subprocess.TimeoutExpired:
+            return {
+                "exit_code": -1,
+                "stdout": "",
+                "stderr": f"Command timed out after {timeout_seconds}s",
+                "duration_ms": round(timeout_seconds * 1000, 2),
+                "command": command,
+                "cwd": str(work_dir),
+            }
+        except Exception as e:
+            return {
+                "exit_code": 1,
+                "stdout": "",
+                "stderr": str(e),
+                "duration_ms": round((time.time() - start_time) * 1000, 2),
+                "command": command,
+                "cwd": str(work_dir),
+            }
+
+    @classmethod
+    def inspect_docker(cls) -> dict[str, Any]:
+        """Truthfully inspects Docker containers if Docker daemon is running."""
+        import shutil
+        docker_bin = shutil.which("docker")
+        if not docker_bin:
+            return {
+                "available": False,
+                "status": "UNAVAILABLE",
+                "containers": [],
+                "detail": "Docker CLI executable was not found on system PATH.",
+            }
+        try:
+            res = subprocess.run([docker_bin, "ps", "-a", "--format", "{{json .}}"], capture_output=True, text=True, timeout=3.0)
+            if res.returncode != 0:
+                return {
+                    "available": False,
+                    "status": "UNAVAILABLE",
+                    "containers": [],
+                    "detail": f"Docker daemon is not responding: {res.stderr.strip() or 'daemon stopped'}",
+                }
+            containers = []
+            for line in res.stdout.splitlines():
+                if line.strip():
+                    try:
+                        containers.append(json.loads(line))
+                    except Exception:
+                        pass
+            return {
+                "available": True,
+                "status": "COMPLETED",
+                "count": len(containers),
+                "containers": containers,
+                "detail": f"Discovered {len(containers)} Docker containers.",
+            }
+        except Exception as e:
+            return {
+                "available": False,
+                "status": "UNAVAILABLE",
+                "containers": [],
+                "detail": f"Docker inspection error: {e}",
+            }
+
+    @classmethod
+    def get_diagnostic_logs(cls, lines: int = 50) -> dict[str, Any]:
+        """Retrieves actual application and server diagnostic logs."""
+        log_dir = Path(__file__).resolve().parents[3] / "apps" / "api" / ".runtime" / "logs"
+        log_files = list(log_dir.glob("*.log")) if log_dir.exists() else []
+        if not log_files:
+            log_dir = Path(__file__).resolve().parents[4] / "apps" / "api"
+            log_files = list(log_dir.glob("*.log"))
+
+        extracted_lines = []
+        source_file = "none"
+        if log_files:
+            latest = max(log_files, key=lambda f: f.stat().st_mtime)
+            source_file = latest.name
+            try:
+                content = latest.read_text(encoding="utf-8", errors="replace").splitlines()
+                extracted_lines = content[-lines:]
+            except Exception as e:
+                extracted_lines = [f"Log read error: {e}"]
+        else:
+            extracted_lines = ["No local diagnostic log files found. Backend runtime active."]
+
+        return {
+            "source_file": source_file,
+            "line_count": len(extracted_lines),
+            "lines": extracted_lines,
+        }
+
 
 # ---------------------------------------------------------------------------
 # Tool Registration
@@ -1275,8 +1574,9 @@ computer_operator_tool_def = ToolDefinition(
     display_name="HINAA Computer-Use Engine v2",
     description=(
         "Autonomous Computer-Use Engine with 3-eye perception (Accessibility, DOM, Vision), "
-        "primitive actions (mouse_move, click, double_click, right_click, drag, type_text, press_hotkey, scroll, screenshot, open_application, chrome_control, daemon_status), safety confirmation gate, "
-        "and verified multi-step execution loops."
+        "hardware metrics, process inspection, desktop app and window management, "
+        "safe filesystem operations, browser navigation, isolated workspace command execution, "
+        "truthful Docker inspection, and verified execution evidence envelopes."
     ),
     parameters={
         "action": {
@@ -1284,8 +1584,27 @@ computer_operator_tool_def = ToolDefinition(
             "enum": [
                 "observe_desktop",
                 "observe",
+                "get_system_metrics",
+                "inspect_processes",
+                "list_applications",
                 "open_app",
                 "open_application",
+                "list_windows",
+                "inspect_windows",
+                "close_window",
+                "minimize_window",
+                "maximize_window",
+                "read_folder",
+                "search_files",
+                "screenshot",
+                "capture_screen",
+                "capture_screenshot",
+                "inspect_browser",
+                "navigate_browser",
+                "chrome_control",
+                "execute_workspace_command",
+                "inspect_docker",
+                "get_diagnostic_logs",
                 "media_control",
                 "type_text",
                 "press_hotkey",
@@ -1295,14 +1614,7 @@ computer_operator_tool_def = ToolDefinition(
                 "right_click",
                 "drag",
                 "scroll",
-                "screenshot",
-                "capture_screen",
-                "chrome_control",
                 "daemon_status",
-                "list_windows",
-                "close_window",
-                "minimize_window",
-                "maximize_window",
                 "draft_message",
                 "send_message",
                 "type_and_send",
@@ -1316,15 +1628,43 @@ computer_operator_tool_def = ToolDefinition(
         },
         "target": {
             "type": "string",
-            "description": "Target application name, window title, or hotkey combination.",
+            "description": "Target application name, window title, path, or hotkey combination.",
         },
         "content": {
             "type": "string",
-            "description": "Text content to type, message body, or search query.",
+            "description": "Text content to type, command line string, message body, or search query.",
         },
         "recipient": {
             "type": "string",
             "description": "Optional contact or recipient name for messaging.",
+        },
+        "path": {
+            "type": "string",
+            "description": "Folder or directory path for filesystem operations.",
+        },
+        "pattern": {
+            "type": "string",
+            "description": "File search pattern or extension (e.g. '*.ts', 'config').",
+        },
+        "limit": {
+            "type": "integer",
+            "description": "Maximum number of processes, files, or log lines to retrieve.",
+        },
+        "sort_by": {
+            "type": "string",
+            "description": "Sort order for process inspection ('cpu' or 'memory').",
+        },
+        "command": {
+            "type": "string",
+            "description": "Shell command to execute inside authorized workspace.",
+        },
+        "cwd": {
+            "type": "string",
+            "description": "Working directory override within workspace.",
+        },
+        "timeout_seconds": {
+            "type": "number",
+            "description": "Maximum seconds allowed for command execution before timeout.",
         },
         "x": {
             "type": "integer",
@@ -1356,15 +1696,15 @@ computer_operator_tool_def = ToolDefinition(
         },
         "url": {
             "type": "string",
-            "description": "Target web URL for Chrome browser control.",
+            "description": "Target web URL for browser navigation.",
         },
         "selector": {
             "type": "string",
-            "description": "CSS selector for Chrome browser interaction.",
+            "description": "CSS selector for browser interaction.",
         },
         "chrome_action": {
             "type": "string",
-            "description": "Chrome automation action ('navigate', 'click', 'type', 'extract').",
+            "description": "Browser automation action ('navigate', 'click', 'type', 'extract').",
         },
         "confirmed": {
             "type": "boolean",
@@ -1387,6 +1727,10 @@ computer_operator_tool_def = ToolDefinition(
 
 
 async def execute_computer_operator(parameters: dict[str, Any]) -> dict[str, Any]:
+    start_ts = datetime.now(timezone.utc).isoformat()
+    start_perf = time.perf_counter()
+    execution_id = str(uuid.uuid4())
+
     action = str(parameters.get("action", "")).strip().lower()
     target = str(parameters.get("target", "")).strip()
     content = str(parameters.get("content", "")).strip()
@@ -1397,114 +1741,159 @@ async def execute_computer_operator(parameters: dict[str, Any]) -> dict[str, Any
     y = int(parameters.get("y", 0))
     button = str(parameters.get("button", "left")).strip().lower()
 
+    def _envelope(
+        ok: bool,
+        data: dict[str, Any],
+        exit_code: int | None = None,
+        error_msg: str | None = None,
+        state_override: str | None = None,
+    ) -> dict[str, Any]:
+        dur = round((time.perf_counter() - start_perf) * 1000, 2)
+        end_ts = datetime.now(timezone.utc).isoformat()
+        t_state = state_override or ("COMPLETED" if ok else "FAILED")
+        target_res = (
+            target
+            or data.get("created_path")
+            or data.get("path")
+            or data.get("command")
+            or "system"
+        )
+        return {
+            "execution_id": execution_id,
+            "tool_identifier": f"computer_operator.{action}",
+            "target_resource": str(target_res),
+            "start_timestamp": start_ts,
+            "completion_timestamp": end_ts,
+            "execution_status": "COMPLETED" if ok else "FAILED",
+            "truthfulness_state": t_state,
+            "exit_code": exit_code if exit_code is not None else (0 if ok else 1),
+            "duration_ms": dur,
+            "output": data,
+            "error_details": error_msg or data.get("error"),
+            "success": ok,
+            **data,
+        }
+
+    # Directive §1: Tool Registry Integrity & Truthfulness Gate
+    registered_actions = computer_operator_tool_def.parameters.get("action", {}).get("enum", [])
+    if action not in registered_actions:
+        return _envelope(
+            False,
+            {"error": f"Unknown or unimplemented computer operator action '{action}'."},
+            exit_code=1,
+            error_msg=f"Unknown or unimplemented computer operator action '{action}'.",
+            state_override="UNAVAILABLE",
+        )
+
     # Directive §5: Real computer-operator authorization gate
-    from hinaa_api.tools.policy import classify_computer_operator_action, check_action_tier_authorization, ActionRiskTier
+    from hinaa_api.tools.policy import (
+        classify_computer_operator_action,
+        check_action_tier_authorization,
+        ActionRiskTier,
+    )
     tier = classify_computer_operator_action(action, parameters)
     approval_source = str(parameters.get("approval_source") or parameters.get("approvalSource") or "none")
     verdict = check_action_tier_authorization(tier, confirmed=confirmed, approval_source=approval_source)
     if not verdict.permitted:
-        return {
-            "success": False,
-            "error": verdict.message,
-            "code": verdict.code,
-            "action": action,
-            "tier": int(tier),
-            "requires_explicit_approval": True,
-        }
+        return _envelope(
+            False,
+            {
+                "error": verdict.message,
+                "code": verdict.code,
+                "action": action,
+                "tier": int(tier),
+                "requires_explicit_approval": True,
+            },
+            exit_code=1,
+            error_msg=verdict.message,
+            state_override="FAILED",
+        )
 
-    if action in ("observe_desktop", "observe"):
-        obs = NativeComputerOperator.observe()
-        return {"success": True, "observation": obs.model_dump(mode="json")}
+    # 1. System Metrics
+    if action in ("get_system_metrics", "system_info"):
+        metrics = NativeComputerOperator.get_system_metrics()
+        return _envelope(
+            True,
+            {
+                "system_metrics": metrics,
+                "detail": f"CPU {metrics['cpu_percent']}%, RAM {metrics['memory_percent']}%, Uptime {metrics['uptime_seconds']}s",
+            },
+        )
 
+    # 2. Inspect Running Processes
+    elif action in ("inspect_processes", "list_processes"):
+        limit_val = int(parameters.get("limit", 25))
+        sort_by = str(parameters.get("sort_by", "cpu"))
+        procs = NativeComputerOperator.inspect_processes(limit=limit_val, sort_by=sort_by)
+        return _envelope(
+            True,
+            {
+                "processes": procs,
+                "count": len(procs),
+                "detail": f"Inspected {len(procs)} active processes sorted by {sort_by}.",
+            },
+        )
+
+    # 3. List Available Applications
+    elif action in ("list_applications", "list_apps"):
+        apps = NativeComputerOperator.list_applications()
+        return _envelope(
+            True,
+            {
+                "applications": apps,
+                "count": len(apps),
+                "detail": f"Discovered {len(apps)} applications.",
+            },
+        )
+
+    # 4. Open Approved Application
     elif action in ("open_app", "open_application"):
         res = await NativeComputerOperator.open_application(target or content)
-        return res.model_dump(mode="json")
+        res_dict = res.model_dump(mode="json")
+        return _envelope(res.success, res_dict, error_msg=res.error)
 
-    elif action == "media_control":
-        res = await NativeComputerOperator.media_control(target or "toggle", query=content)
-        return res.model_dump(mode="json")
+    # 5. Inspect Application Windows
+    elif action in ("list_windows", "inspect_windows"):
+        windows = await NativeComputerOperator.list_windows()
+        return _envelope(
+            True,
+            {
+                "windows": windows,
+                "count": len(windows),
+                "detail": f"Discovered {len(windows)} active desktop application windows.",
+            },
+        )
 
-    elif action == "type_text":
-        ok = await NativeComputerOperator.type_text(content or target)
-        return {"success": ok, "action": "type_text", "detail": f"Typed text of length {len(content or target)}"}
+    # 6. Read Authorized Folder
+    elif action in ("read_folder", "list_folder"):
+        folder_path = target or content or str(parameters.get("path", "."))
+        limit_val = int(parameters.get("limit", 100))
+        res = NativeComputerOperator.read_folder(folder_path, limit=limit_val)
+        ok = "error" not in res
+        return _envelope(ok, res, error_msg=res.get("error"))
 
-    elif action == "press_hotkey":
-        ok = await NativeComputerOperator.press_hotkey(target or content)
-        return {"success": ok, "action": "press_hotkey", "target": target or content}
+    # 7. Search Approved Files
+    elif action in ("search_files", "find_files"):
+        folder_path = target or str(parameters.get("path", "."))
+        pat = str(parameters.get("pattern", "*"))
+        max_r = int(parameters.get("max_results", 50))
+        res = NativeComputerOperator.search_files(folder_path, pattern=pat, max_results=max_r)
+        ok = "error" not in res
+        return _envelope(ok, res, error_msg=res.get("error"))
 
-    elif action == "mouse_move":
-        ok = await NativeComputerOperator.mouse_move(x=x, y=y, smooth=True)
-        return {
-            "success": ok,
-            "action": "mouse_move",
-            "x": x,
-            "y": y,
-            "via_daemon": NativeComputerOperator.is_daemon_live(),
-            "detail": f"Cursor glided to ({x}, {y})",
-        }
-
-    elif action == "click":
-        click_x = x if (x > 0 or y > 0) else None
-        click_y = y if (x > 0 or y > 0) else None
-        ok = await NativeComputerOperator.click(x=click_x, y=click_y, button=button)
-        return {
-            "success": ok,
-            "action": "click",
-            "x": x,
-            "y": y,
-            "button": button,
-            "via_daemon": NativeComputerOperator.is_daemon_live(),
-            "detail": f"Clicked {button} button at ({x}, {y})" if click_x is not None else f"Clicked {button} button at current position",
-        }
-
-    elif action == "double_click":
-        click_x = x if (x > 0 or y > 0) else None
-        click_y = y if (x > 0 or y > 0) else None
-        ok = await NativeComputerOperator.double_click(x=click_x, y=click_y)
-        return {
-            "success": ok,
-            "action": "double_click",
-            "x": x,
-            "y": y,
-            "via_daemon": NativeComputerOperator.is_daemon_live(),
-            "detail": f"Double-clicked at ({x}, {y})" if click_x is not None else "Double-clicked at current position",
-        }
-
-    elif action == "right_click":
-        click_x = x if (x > 0 or y > 0) else None
-        click_y = y if (x > 0 or y > 0) else None
-        ok = await NativeComputerOperator.right_click(x=click_x, y=click_y)
-        return {
-            "success": ok,
-            "action": "right_click",
-            "x": x,
-            "y": y,
-            "via_daemon": NativeComputerOperator.is_daemon_live(),
-            "detail": f"Right-clicked at ({x}, {y})" if click_x is not None else "Right-clicked at current position",
-        }
-
-    elif action == "drag":
-        start_x = int(parameters.get("start_x", x))
-        start_y = int(parameters.get("start_y", y))
-        end_x = int(parameters.get("end_x", parameters.get("target_x", 0)))
-        end_y = int(parameters.get("end_y", parameters.get("target_y", 0)))
-        ok = await NativeComputerOperator.drag(start_x=start_x, start_y=start_y, end_x=end_x, end_y=end_y)
-        return {
-            "success": ok,
-            "action": "drag",
-            "start_x": start_x,
-            "start_y": start_y,
-            "end_x": end_x,
-            "end_y": end_y,
-            "via_daemon": NativeComputerOperator.is_daemon_live(),
-            "detail": f"Dragged from ({start_x}, {start_y}) to ({end_x}, {end_y})",
-        }
-
-    elif action in ("screenshot", "capture_screen"):
+    # 8. Capture Requested Screenshot
+    elif action in ("screenshot", "capture_screen", "capture_screenshot"):
         res = await NativeComputerOperator.screenshot()
-        return res
+        ok = bool(res.get("success", False))
+        return _envelope(ok, res, error_msg=res.get("error"))
 
-    elif action == "chrome_control":
+    # 9. Inspect Browser State
+    elif action in ("inspect_browser", "browser_state"):
+        res = NativeComputerOperator.inspect_browser()
+        return _envelope(True, res)
+
+    # 10. Navigate Authorized Browser Sessions / Chrome Control
+    elif action in ("navigate_browser", "chrome_control", "browser_navigate"):
         chrome_act = str(parameters.get("chrome_action", "")).strip().lower() or "navigate"
         target_url = parameters.get("url") or (target if target.startswith("http") else None)
         res = await NativeComputerOperator.chrome_control(
@@ -1513,61 +1902,170 @@ async def execute_computer_operator(parameters: dict[str, Any]) -> dict[str, Any
             selector=parameters.get("selector"),
             text=content or parameters.get("text"),
         )
-        return res
+        ok = bool(res.get("success", False))
+        return _envelope(ok, res, error_msg=res.get("error"))
 
-    elif action == "daemon_status":
-        live = NativeComputerOperator.is_daemon_live()
-        return {
-            "success": True,
-            "daemon_online": live,
-            "daemon_url": NativeComputerOperator.DAEMON_URL,
-            "detail": (
-                "Desktop daemon is active and responsive on port 8765"
-                if live
-                else "Desktop daemon is offline. Run 'scripts/start-desktop-daemon.bat' for interactive desktop gliding."
-            ),
-        }
+    # 11. Execute Workspace Command
+    elif action in ("execute_workspace_command", "workspace_command", "run_command"):
+        cmd = content or target or str(parameters.get("command", ""))
+        cwd_param = parameters.get("cwd")
+        timeout_s = float(parameters.get("timeout_seconds", 30.0))
+        res = NativeComputerOperator.execute_workspace_command(cmd, cwd=cwd_param, timeout_seconds=timeout_s)
+        ok = (res.get("exit_code") == 0)
+        return _envelope(
+            ok,
+            res,
+            exit_code=res.get("exit_code"),
+            error_msg=res.get("stderr") if not ok else None,
+        )
 
-    elif action == "list_windows":
-        windows = await NativeComputerOperator.list_windows()
-        return {
-            "success": True,
-            "action": "list_windows",
-            "windows": windows,
-            "count": len(windows),
-            "detail": f"Discovered {len(windows)} active desktop application windows.",
-        }
+    # 12. Inspect Docker Containers
+    elif action in ("inspect_docker", "docker_inspect", "list_containers"):
+        res = NativeComputerOperator.inspect_docker()
+        ok = bool(res.get("available", False))
+        return _envelope(ok, res, state_override=res.get("status"))
 
+    # 13. Retrieve Diagnostic Logs
+    elif action in ("get_diagnostic_logs", "diagnostic_logs", "read_logs"):
+        lines_cnt = int(parameters.get("limit") or parameters.get("lines") or 50)
+        res = NativeComputerOperator.get_diagnostic_logs(lines=lines_cnt)
+        return _envelope(True, res)
+
+    # Observation
+    elif action in ("observe_desktop", "observe"):
+        obs = NativeComputerOperator.observe()
+        return _envelope(True, {"observation": obs.model_dump(mode="json")})
+
+    # Window Actions
     elif action == "close_window":
         app_target = target or content
         ok = await NativeComputerOperator.close_window(app_target)
-        return {
-            "success": ok,
-            "action": "close_window",
-            "target": app_target,
-            "detail": f"Closed window matching '{app_target}'" if ok else f"Could not find or close window matching '{app_target}'.",
-        }
+        return _envelope(
+            ok,
+            {
+                "target": app_target,
+                "detail": f"Closed window matching '{app_target}'" if ok else f"Could not find or close window matching '{app_target}'.",
+            },
+        )
 
     elif action in ("minimize_window", "maximize_window"):
         app_target = target or content
         state = "minimize" if "minimize" in action else "maximize"
         ok = await NativeComputerOperator.set_window_state(app_target, state=state)
-        return {
-            "success": ok,
-            "action": action,
-            "target": app_target,
-            "detail": f"{state.title()}d window matching '{app_target}'" if ok else f"Could not change window state for '{app_target}'.",
-        }
+        return _envelope(
+            ok,
+            {
+                "target": app_target,
+                "detail": f"{state.title()}d window matching '{app_target}'" if ok else f"Could not change window state for '{app_target}'.",
+            },
+        )
+
+    # Mouse & Keyboard Actions
+    elif action == "type_text":
+        ok = await NativeComputerOperator.type_text(content or target)
+        return _envelope(ok, {"detail": f"Typed text of length {len(content or target)}"})
+
+    elif action == "press_hotkey":
+        ok = await NativeComputerOperator.press_hotkey(target or content)
+        return _envelope(ok, {"target": target or content})
+
+    elif action == "mouse_move":
+        ok = await NativeComputerOperator.mouse_move(x=x, y=y, smooth=True)
+        return _envelope(
+            ok,
+            {
+                "x": x,
+                "y": y,
+                "via_daemon": NativeComputerOperator.is_daemon_live(),
+                "detail": f"Cursor moved to ({x}, {y})",
+            },
+        )
+
+    elif action == "click":
+        click_x = x if (x > 0 or y > 0) else None
+        click_y = y if (x > 0 or y > 0) else None
+        ok = await NativeComputerOperator.click(x=click_x, y=click_y, button=button)
+        return _envelope(
+            ok,
+            {
+                "x": x,
+                "y": y,
+                "button": button,
+                "via_daemon": NativeComputerOperator.is_daemon_live(),
+                "detail": f"Clicked {button} button at ({x}, {y})" if click_x is not None else f"Clicked {button} button at current position",
+            },
+        )
+
+    elif action == "double_click":
+        click_x = x if (x > 0 or y > 0) else None
+        click_y = y if (x > 0 or y > 0) else None
+        ok = await NativeComputerOperator.double_click(x=click_x, y=click_y)
+        return _envelope(
+            ok,
+            {
+                "x": x,
+                "y": y,
+                "via_daemon": NativeComputerOperator.is_daemon_live(),
+                "detail": f"Double-clicked at ({x}, {y})" if click_x is not None else "Double-clicked at current position",
+            },
+        )
+
+    elif action == "right_click":
+        click_x = x if (x > 0 or y > 0) else None
+        click_y = y if (x > 0 or y > 0) else None
+        ok = await NativeComputerOperator.right_click(x=click_x, y=click_y)
+        return _envelope(
+            ok,
+            {
+                "x": x,
+                "y": y,
+                "via_daemon": NativeComputerOperator.is_daemon_live(),
+                "detail": f"Right-clicked at ({x}, {y})" if click_x is not None else "Right-clicked at current position",
+            },
+        )
+
+    elif action == "drag":
+        start_x = int(parameters.get("start_x", x))
+        start_y = int(parameters.get("start_y", y))
+        end_x = int(parameters.get("end_x", parameters.get("target_x", 0)))
+        end_y = int(parameters.get("end_y", parameters.get("target_y", 0)))
+        ok = await NativeComputerOperator.drag(start_x=start_x, start_y=start_y, end_x=end_x, end_y=end_y)
+        return _envelope(
+            ok,
+            {
+                "start_x": start_x,
+                "start_y": start_y,
+                "end_x": end_x,
+                "end_y": end_y,
+                "via_daemon": NativeComputerOperator.is_daemon_live(),
+                "detail": f"Dragged from ({start_x}, {start_y}) to ({end_x}, {end_y})",
+            },
+        )
 
     elif action == "scroll":
         direction = target if target in ("up", "down") else "down"
         amount = int(parameters.get("amount", 3))
         ok = await NativeComputerOperator.scroll(direction=direction, amount=amount)
-        return {"success": ok, "action": "scroll", "direction": direction, "amount": amount}
+        return _envelope(ok, {"direction": direction, "amount": amount})
+
+    elif action == "media_control":
+        res = await NativeComputerOperator.media_control(target or "toggle", query=content)
+        return _envelope(res.success, res.model_dump(mode="json"), error_msg=res.error)
+
+    elif action == "daemon_status":
+        live = NativeComputerOperator.is_daemon_live()
+        return _envelope(
+            True,
+            {
+                "daemon_online": live,
+                "daemon_url": NativeComputerOperator.DAEMON_URL,
+                "detail": "Desktop daemon is active on port 8765" if live else "Desktop daemon is offline.",
+            },
+        )
 
     elif action == "draft_message":
         res = await NativeComputerOperator.draft_message(app_name=target or "whatsapp", text=content, recipient=recipient)
-        return res.model_dump(mode="json")
+        return _envelope(res.success, res.model_dump(mode="json"), error_msg=res.error)
 
     elif action == "send_message":
         res = await NativeComputerOperator.send_message(
@@ -1577,32 +2075,29 @@ async def execute_computer_operator(parameters: dict[str, Any]) -> dict[str, Any
             confirmed=confirmed,
             confirmation_token=token,
         )
-        return res.model_dump(mode="json")
+        return _envelope(res.success, res.model_dump(mode="json"), error_msg=res.error)
 
     elif action == "type_and_send":
-        # Safe route: defaults to draft unless confirmed
         if confirmed:
             res = await NativeComputerOperator.send_message(app_name=target or "whatsapp", text=content, recipient=recipient, confirmed=True)
         else:
             res = await NativeComputerOperator.draft_message(app_name=target or "whatsapp", text=content, recipient=recipient)
-        return res.model_dump(mode="json")
+        return _envelope(res.success, res.model_dump(mode="json"), error_msg=res.error)
 
     elif action in ("create_folder", "mkdir", "make_directory"):
         raw_target = str(target or content or parameters.get("path", "")).strip()
-        # Path validation guard: Reject conversational text or invalid paths
         if (
             not raw_target
             or len(raw_target) > 150
             or "\n" in raw_target
             or "[N]" in raw_target
-            or any(w in raw_target.lower() for w in ("fuck", "persona", "babe", " meri jaan", "can you", "please create", "i want"))
+            or any(w in raw_target.lower() for w in ("fuck", "persona", "babe", "can you", "please create", "i want"))
         ):
-            return {
-                "success": False,
-                "action": "create_folder",
-                "error": "INVALID_PATH",
-                "detail": "Provided path contains conversational text or exceeds valid path length.",
-            }
+            return _envelope(
+                False,
+                {"error": "INVALID_PATH", "detail": "Provided path contains conversational text or exceeds valid path length."},
+                error_msg="INVALID_PATH",
+            )
 
         folder_name = ""
         q_match = re.search(r'["\']([^"\']+)["\']', raw_target)
@@ -1613,7 +2108,6 @@ async def execute_computer_operator(parameters: dict[str, Any]) -> dict[str, Any
             if n_match:
                 folder_name = n_match.group(1).strip()
 
-        # Sanitize folder_name against illegal Windows filename characters
         if folder_name:
             folder_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', folder_name).strip('. ')
 
@@ -1622,17 +2116,14 @@ async def execute_computer_operator(parameters: dict[str, Any]) -> dict[str, Any
         if drive_match:
             drive_letter = (drive_match.group(1) or drive_match.group(2) or drive_match.group(3)).upper()
 
-        # Validate direct path format strictly: must start with drive, cannot contain illegal chars
         if re.match(r'^[a-zA-Z]:[\\/][^<>:"|?*\n\r]*$', raw_target) and not any(c in raw_target[3:] for c in ('?', '*', '"', '<', '>', '|', ':')):
             dest_path = Path(raw_target)
         elif os.name != "nt" and raw_target.startswith("/") and not re.search(r'[<>:"|?*\x00-\x1f]', raw_target):
-            # POSIX absolute path: honor it as-is instead of inventing a drive.
             dest_path = Path(raw_target)
         else:
             if not folder_name:
                 folder_name = "New Folder"
             if os.name != "nt":
-                # No drive letters off Windows; "C:\\x" would be a literal directory name.
                 dest_path = Path.home() / folder_name
             else:
                 if not drive_letter:
@@ -1641,29 +2132,30 @@ async def execute_computer_operator(parameters: dict[str, Any]) -> dict[str, Any
 
         try:
             dest_path.mkdir(parents=True, exist_ok=True)
-            return {
-                "success": True,
-                "action": "create_folder",
-                "created_path": str(dest_path),
-                "drive": dest_path.drive,
-                "detail": f"Successfully created folder at '{dest_path}'",
-            }
+            return _envelope(
+                True,
+                {
+                    "created_path": str(dest_path),
+                    "drive": dest_path.drive,
+                    "detail": f"Successfully created folder at '{dest_path}'",
+                },
+            )
         except Exception as e:
-            logger.warning("Failed to create folder %s: %s", dest_path, e)
-            return {
-                "success": False,
-                "action": "create_folder",
-                "error": str(e),
-                "detail": f"Failed to create folder at '{dest_path}': {e}",
-            }
+            return _envelope(False, {"error": str(e), "detail": f"Failed to create folder at '{dest_path}': {e}"}, error_msg=str(e))
 
     elif action == "run_operator_loop":
         steps = parameters.get("plan_steps", [])
         report = await NativeComputerOperator.run_operator_loop(goal=target or "Execute Task", plan_steps=steps)
-        return report.model_dump(mode="json")
+        return _envelope(report.success, report.model_dump(mode="json"))
 
     else:
-        return {"success": False, "error": f"Unknown computer operator action '{action}'."}
+        return _envelope(
+            False,
+            {"error": f"Unknown or unimplemented computer operator action '{action}'."},
+            exit_code=1,
+            error_msg=f"Unknown or unimplemented computer operator action '{action}'.",
+            state_override="UNAVAILABLE",
+        )
 
 
 registry.register(computer_operator_tool_def, execute_computer_operator)

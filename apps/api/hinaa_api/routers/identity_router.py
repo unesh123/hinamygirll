@@ -45,6 +45,76 @@ async def update_identity_traits(body: Dict[str, Any] = Body(...)) -> Dict[str, 
     return mgr.identity.model_dump()
 
 
+@router.get("/api/personality/profile")
+@router.get("/v1/personality/profile")
+async def get_personality_profile() -> Dict[str, Any]:
+    """Returns persistent persona profile, calibrated traits, preview quote, and principles."""
+    from ..identity import get_identity_manager
+    from ..prompts.persona_modes import (
+        PRIME_COMMUNICATION_PRINCIPLES,
+        get_persona_prime_quote,
+    )
+    mgr = get_identity_manager()
+    traits = mgr.identity.traits.model_dump()
+    quote = get_persona_prime_quote(
+        directness=traits.get("directness", 0.90),
+        sarcasm=traits.get("sarcasm", 0.45),
+        technical_depth=traits.get("technical_depth", 0.95),
+        formality=traits.get("formality", 0.20),
+    )
+    return {
+        "profile": "HINA PERSONA PRIME",
+        "defaultMode": "UNFILTERED_DIRECT",
+        "activeMode": mgr.identity.active_mode.value,
+        "traits": traits,
+        "previewQuote": quote,
+        "communicationPrinciples": PRIME_COMMUNICATION_PRINCIPLES,
+        "invariants": mgr.identity.invariants,
+    }
+
+
+@router.put("/api/personality/profile")
+@router.post("/api/personality/profile")
+@router.put("/v1/personality/profile")
+@router.post("/v1/personality/profile")
+async def update_personality_profile(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    """Updates persistent traits and active mode for Persona Prime."""
+    from ..identity import get_identity_manager, RelationshipMode
+    from ..prompts.persona_modes import (
+        PRIME_COMMUNICATION_PRINCIPLES,
+        get_persona_prime_quote,
+    )
+    mgr = get_identity_manager()
+    if "traits" in body and isinstance(body["traits"], dict):
+        mgr.update_traits(**body["traits"])
+    elif any(k in body for k in ("directness", "sarcasm", "technical_depth", "formality", "warmth", "intellect")):
+        mgr.update_traits(**body)
+
+    if "activeMode" in body or "mode" in body:
+        m_val = str(body.get("activeMode") or body.get("mode") or "").strip()
+        try:
+            mgr.set_relationship_mode(RelationshipMode(m_val))
+        except ValueError:
+            pass
+
+    traits = mgr.identity.traits.model_dump()
+    quote = get_persona_prime_quote(
+        directness=traits.get("directness", 0.90),
+        sarcasm=traits.get("sarcasm", 0.45),
+        technical_depth=traits.get("technical_depth", 0.95),
+        formality=traits.get("formality", 0.20),
+    )
+    return {
+        "profile": "HINA PERSONA PRIME",
+        "defaultMode": "UNFILTERED_DIRECT",
+        "activeMode": mgr.identity.active_mode.value,
+        "traits": traits,
+        "previewQuote": quote,
+        "communicationPrinciples": PRIME_COMMUNICATION_PRINCIPLES,
+        "invariants": mgr.identity.invariants,
+    }
+
+
 @router.get("/api/personality/mood")
 @router.get("/v1/personality/mood")
 async def get_current_mood() -> Dict[str, Any]:

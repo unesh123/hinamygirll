@@ -49,7 +49,7 @@ class CleanRoomRebuildParams(BaseModel):
     task: str = Field(
         ...,
         min_length=3,
-        max_length=4000,
+        max_length=100_000,
         description="High-level description of the feature or capability to clean-room rebuild",
     )
     target_evidence: str = Field(

@@ -9,9 +9,12 @@ import {
   PartyPopper,
   Briefcase,
   ChevronDown,
+  Sliders,
 } from 'lucide-react';
+import { PersonaControlDrawer } from './PersonaControlDrawer';
 
 export type PersonaMode =
+  | 'prime'
   | 'companion'
   | 'roast'
   | 'unfiltered'
@@ -32,6 +35,15 @@ interface PersonaConfig {
 }
 
 const PERSONA_CONFIG: Record<PersonaMode, PersonaConfig> = {
+  prime: {
+    icon: Zap,
+    label: 'Hina Prime',
+    emoji: '⚡',
+    color: '#00d4ff',
+    bg: 'rgba(0,212,255,0.12)',
+    glow: 'rgba(0,212,255,0.3)',
+    description: 'Direct, sovereign AI intelligence',
+  },
   companion: {
     icon: MessageCircle,
     label: 'Companion',
@@ -120,8 +132,9 @@ export function PersonaModeSelector({
   className,
 }: PersonaModeSelectorProps) {
   const [open, setOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const cfg = PERSONA_CONFIG[value];
+  const cfg = PERSONA_CONFIG[value] || PERSONA_CONFIG.prime;
   const Icon = cfg.icon;
 
   /* close on outside click */
@@ -281,9 +294,44 @@ export function PersonaModeSelector({
                 );
               }
             )}
+
+            {/* Persona Prime Calibration Drawer Trigger */}
+            <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  setDrawerOpen(true);
+                }}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  padding: '7px 10px',
+                  borderRadius: 8,
+                  border: '1px solid rgba(0, 212, 255, 0.3)',
+                  background: 'rgba(0, 212, 255, 0.08)',
+                  color: '#00d4ff',
+                  fontSize: 11,
+                  fontWeight: 650,
+                  cursor: 'pointer',
+                }}
+              >
+                <Sliders size={13} />
+                <span>Calibrate Persona Prime</span>
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      <PersonaControlDrawer
+        isOpen={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        isDark={true}
+      />
     </div>
   );
 }

@@ -2411,7 +2411,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if active_settings.xkiro_configured:
             if xkiro_probe.serving:
                 xkiro_state = "healthy"
-                probe_measured.add("xkiro")
                 xkiro_message = f"XKiro AI is connected (1M daily free tokens, {xkiro_probe.model_count} models serving; default: {active_settings.xkiro_model})."
             elif xkiro_probe.reason in ("http_401", "http_403", "refused", "no_url"):
                 xkiro_state = "unavailable"
@@ -2425,7 +2424,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if active_settings.apmix_configured:
             if apmix_probe.serving:
                 apmix_state = "healthy"
-                probe_measured.add("apmix")
                 apmix_message = f"APMIX.AI is connected ({apmix_probe.model_count} models serving; default: {active_settings.apmix_model})."
             elif apmix_probe.reason in ("http_401", "http_403", "refused", "no_url"):
                 apmix_state = "unavailable"
@@ -2444,7 +2442,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if active_settings.oxion_configured:
             if oxion_probe.serving:
                 oxion_state = "healthy"
-                probe_measured.add("oxion")
                 oxion_message = f"Oxion AI is connected ({oxion_probe.model_count} models serving; default: {active_settings.oxion_model})."
             elif oxion_probe.reason in ("http_401", "http_403", "refused", "no_url"):
                 oxion_state = "unavailable"
@@ -2458,8 +2455,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if active_settings.explabs_configured:
             if explabs_probe.serving:
                 explabs_state = "healthy"
-                probe_measured.add("experiential")
-                probe_measured.add("explabs")
                 explabs_message = f"Experiential Labs is connected ({explabs_probe.model_count} models serving; default: {active_settings.active_explabs_model})."
             elif explabs_probe.reason in ("http_401", "http_403", "refused", "no_url"):
                 explabs_state = "unavailable"
@@ -2473,7 +2468,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if active_settings.respan_configured:
             if respan_probe.serving:
                 respan_state = "healthy"
-                probe_measured.add("respan")
                 respan_message = f"Respan AI is connected ({respan_probe.model_count} models serving; default: {active_settings.respan_model})."
             elif respan_probe.reason in ("http_401", "http_403", "refused", "no_url"):
                 respan_state = "unavailable"

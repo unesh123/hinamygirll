@@ -47,12 +47,12 @@ class SubagentForkParams(BaseModel):
     objective: str = Field(
         ...,
         min_length=5,
-        max_length=4000,
+        max_length=100_000,
         description="Clear, actionable goal for the subordinate agent to execute autonomously",
     )
     context: Optional[str] = Field(
         default="",
-        max_length=15000,
+        max_length=100_000,
         description="Supporting context, code snippets, documentation, or previous findings to pass into the fork",
     )
     allowed_tools: Optional[List[str]] = Field(

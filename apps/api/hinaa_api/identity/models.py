@@ -8,18 +8,23 @@ from pydantic import BaseModel, Field
 
 
 class RelationshipMode(str, Enum):
-    COMPANION = "companion"              # Warm, supportive, conversational, empathetic
-    CO_PILOT = "co_pilot"                # Collaborative, engineering-focused, structured
-    ANALYST = "analyst"                  # Rigorous, concise, objective, analytical
-    AUTONOMOUS_OPERATOR = "operator"    # Independent, proactive, goal-driven, concise updates
+    PRIME = "prime"                              # Direct, unfiltered, sovereign intelligence, zero fluff
+    UNFILTERED_DIRECT = "unfiltered_direct"      # Alias for prime
+    COMPANION = "companion"                      # Warm, supportive, conversational, empathetic
+    CO_PILOT = "co_pilot"                        # Collaborative, engineering-focused, structured
+    ANALYST = "analyst"                          # Rigorous, concise, objective, analytical
+    AUTONOMOUS_OPERATOR = "operator"            # Independent, proactive, goal-driven, concise updates
 
 
 class PersonaTraits(BaseModel):
-    warmth: float = Field(default=0.85, ge=0.0, le=1.0)
+    directness: float = Field(default=0.90, ge=0.0, le=1.0)
+    sarcasm: float = Field(default=0.45, ge=0.0, le=1.0)
+    technical_depth: float = Field(default=0.95, ge=0.0, le=1.0)
+    formality: float = Field(default=0.20, ge=0.0, le=1.0)
+    warmth: float = Field(default=0.65, ge=0.0, le=1.0)
     intellect: float = Field(default=0.95, ge=0.0, le=1.0)
-    playfulness: float = Field(default=0.70, ge=0.0, le=1.0)
-    assertiveness: float = Field(default=0.75, ge=0.0, le=1.0)
-    technical_depth: float = Field(default=0.90, ge=0.0, le=1.0)
+    playfulness: float = Field(default=0.50, ge=0.0, le=1.0)
+    assertiveness: float = Field(default=0.90, ge=0.0, le=1.0)
 
 
 class CharacterIdentity(BaseModel):

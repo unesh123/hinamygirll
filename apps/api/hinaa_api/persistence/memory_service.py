@@ -18,6 +18,7 @@ from .orm import (
     ConversationEntity,
     ConversationSummary,
     EpisodicMemory,
+    ExactMessageArchiveRecord,
     ExplicitMemory,
     MemoryConsent,
     Message,
@@ -542,6 +543,44 @@ class MemoryService:
             session.add(asst_msg)
             session.flush()
 
+            # ExactMessageArchiveRecord — Phase 06 Memory Nexus: preserve exact bytes & tokens with idempotent dedup
+            existing_user_archive = session.scalar(
+                select(ExactMessageArchiveRecord).where(ExactMessageArchiveRecord.message_id == user_msg.id)
+            )
+            if not existing_user_archive:
+                user_raw_bytes = len(user_text.encode("utf-8"))
+                session.add(
+                    ExactMessageArchiveRecord(
+                        conversation_id=conversation.id,
+                        message_id=user_msg.id,
+                        user_id=user.id,
+                        role="user",
+                        raw_text=user_text,
+                        char_count=len(user_text),
+                        byte_count=user_raw_bytes,
+                        estimated_tokens=max(1, len(user_text) // 4),
+                        attachment_metadata=json.dumps(attachments or []),
+                    )
+                )
+            existing_asst_archive = session.scalar(
+                select(ExactMessageArchiveRecord).where(ExactMessageArchiveRecord.message_id == asst_msg.id)
+            )
+            if not existing_asst_archive:
+                asst_raw_bytes = len(assistant_text.encode("utf-8"))
+                session.add(
+                    ExactMessageArchiveRecord(
+                        conversation_id=conversation.id,
+                        message_id=asst_msg.id,
+                        user_id=user.id,
+                        role="assistant",
+                        raw_text=assistant_text,
+                        char_count=len(assistant_text),
+                        byte_count=asst_raw_bytes,
+                        estimated_tokens=max(1, len(assistant_text) // 4),
+                        attachment_metadata="[]",
+                    )
+                )
+
             entities = self._upsert_turn_entities(
                 session,
                 user_id=user_id,
@@ -932,6 +971,69 @@ class MemoryService:
             convo.title = title[:200]
             session.commit()
             return True
+
+    def search_exact_archives(
+        self,
+        user_id: str,
+        query: str = "",
+        conversation_id: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Search exact message archives preserving exact text, bytes, token counts and metadata."""
+        with self._factory() as session:
+            user = self._user(session, user_id)
+            stmt = select(ExactMessageArchiveRecord).where(
+                ExactMessageArchiveRecord.user_id == user.id
+            )
+            if conversation_id:
+                stmt = stmt.where(ExactMessageArchiveRecord.conversation_id == conversation_id)
+            if query.strip():
+                stmt = stmt.where(ExactMessageArchiveRecord.raw_text.ilike(f"%{query.strip()}%"))
+            stmt = stmt.order_by(ExactMessageArchiveRecord.created_at.desc()).offset(offset).limit(limit)
+            records = session.scalars(stmt).all()
+            return [
+                {
+                    "id": r.id,
+                    "conversation_id": r.conversation_id,
+                    "message_id": r.message_id,
+                    "user_id": r.user_id,
+                    "role": r.role,
+                    "raw_text": r.raw_text,
+                    "char_count": r.char_count,
+                    "byte_count": r.byte_count,
+                    "estimated_tokens": r.estimated_tokens,
+                    "attachment_metadata": _json_loads(r.attachment_metadata, []),
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                }
+                for r in records
+            ]
+
+    def get_exact_archive(self, user_id: str, message_id: str) -> dict[str, Any] | None:
+        """Fetch a specific exact message archive by message ID."""
+        with self._factory() as session:
+            user = self._user(session, user_id)
+            r = session.scalar(
+                select(ExactMessageArchiveRecord).where(
+                    ExactMessageArchiveRecord.user_id == user.id,
+                    ExactMessageArchiveRecord.message_id == message_id,
+                )
+            )
+            if not r:
+                return None
+            return {
+                "id": r.id,
+                "conversation_id": r.conversation_id,
+                "message_id": r.message_id,
+                "user_id": r.user_id,
+                "role": r.role,
+                "raw_text": r.raw_text,
+                "char_count": r.char_count,
+                "byte_count": r.byte_count,
+                "estimated_tokens": r.estimated_tokens,
+                "attachment_metadata": _json_loads(r.attachment_metadata, []),
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
 
     @staticmethod
     def _entity_public(entity: ConversationEntity) -> dict[str, Any]:

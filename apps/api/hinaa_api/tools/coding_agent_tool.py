@@ -45,7 +45,7 @@ MAX_ATTEMPTS_CEILING = 5
 
 
 class CodingAgentParams(BaseModel):
-    task: str = Field(..., min_length=3, max_length=4000, description="What to change or build, in the owner's words")
+    task: str = Field(..., min_length=3, max_length=100_000, description="What to change or build, in the owner's words")
     file_path: str = Field(..., min_length=1, max_length=500, description="Target file, relative to the workspace root")
     test_command: str | None = Field(None, max_length=500, description="Verification command, e.g. 'pytest tests/test_x.py -q'. Defaults to a Python syntax gate for .py files.")
     workspace_root: str | None = Field(None, max_length=500, description="Workspace root override; defaults to HINAA_LOCAL_WORKSPACE_DIR or the HINAA repo")

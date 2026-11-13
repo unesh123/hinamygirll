@@ -16,7 +16,7 @@ from ..creative.registry import CreativeModelRegistry
 
 
 class CreativeJobBody(BaseModel):
-    prompt: Annotated[str, Field(min_length=1, max_length=4000)]
+    prompt: Annotated[str, Field(min_length=1, max_length=50_000)]
     model: Annotated[str, Field(min_length=1, max_length=120)]
 
 

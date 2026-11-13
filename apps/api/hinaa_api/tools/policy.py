@@ -95,15 +95,27 @@ class ActionRiskTier(IntEnum):
 def classify_computer_operator_action(action: str, parameters: dict[str, Any] | None = None) -> ActionRiskTier:
     """Classify computer operator sub-actions into deterministic risk tiers."""
     act = str(action or "").strip().lower()
-    if act in ("observe", "observe_desktop", "list_windows", "daemon_status", "screenshot", "system_info"):
+    if act in (
+        "observe", "observe_desktop", "list_windows", "inspect_windows", "daemon_status",
+        "screenshot", "capture_screen", "capture_screenshot", "system_info", "get_system_metrics",
+        "inspect_processes", "list_applications", "read_folder", "search_files",
+        "inspect_browser", "inspect_docker", "get_diagnostic_logs"
+    ):
         return ActionRiskTier.TIER_0_READ_ONLY
     if act in ("create_folder", "mkdir", "make_directory"):
         return ActionRiskTier.TIER_1_REVERSIBLE
-    if act in ("chrome_control", "browser_navigate", "download"):
+    if act in ("chrome_control", "browser_navigate", "navigate_browser", "download"):
         return ActionRiskTier.TIER_2_EXTERNAL
-    if act in ("open_app", "open_application", "terminal_hands", "powershell", "type_text", "press_hotkey", "click", "mouse_move", "drag"):
+    if act in (
+        "open_app", "open_application", "terminal_hands", "powershell", "type_text",
+        "press_hotkey", "click", "double_click", "right_click", "mouse_move", "drag",
+        "scroll", "execute_workspace_command"
+    ):
         return ActionRiskTier.TIER_3_PROCESS
-    if act in ("send_message", "type_and_send", "delete_file", "kill_process", "publish", "deploy"):
+    if act in (
+        "send_message", "type_and_send", "delete_file", "kill_process", "publish",
+        "deploy", "install_software", "admin_change"
+    ):
         return ActionRiskTier.TIER_4_DESTRUCTIVE
     return ActionRiskTier.TIER_3_PROCESS
 

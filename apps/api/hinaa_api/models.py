@@ -300,7 +300,7 @@ class TurnRequest(BaseModel):
 
 class SpeechRequest(StrictModel):
     language: Language = "mixed"
-    text: Annotated[str, Field(min_length=1, max_length=4000)]
+    text: Annotated[str, Field(min_length=1, max_length=50_000)]
     companionId: CompanionId = "hinaa"
     providerMode: ProviderMode = "mock"
     realtime: bool = False

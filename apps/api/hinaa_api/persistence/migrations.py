@@ -349,6 +349,16 @@ def _migration_0018_identity(engine: Engine) -> None:
             table.create(engine, checkfirst=True)
 
 
+def _migration_0019_exact_message_archives(engine: Engine) -> None:
+    """Creates exact_message_archives table for Phase 06 Memory Nexus byte/token preservation."""
+    from .orm import ExactMessageArchiveRecord
+
+    existing = set(inspect(engine).get_table_names())
+    if "exact_message_archives" not in existing:
+        ExactMessageArchiveRecord.__table__.create(engine, checkfirst=True)
+        logger.info("Applied migration: created table exact_message_archives")
+
+
 MIGRATIONS: list[tuple[str, str, Callable[[Engine], None]]] = [
     ("0001", "initial_schema", _migration_0001_initial_schema),
     ("0002", "explicit_memories_expires_at", _migration_0002_explicit_memories_expires_at),
@@ -368,6 +378,7 @@ MIGRATIONS: list[tuple[str, str, Callable[[Engine], None]]] = [
     ("0016", "productivity_tables", _migration_0016_productivity_tables),
     ("0017", "news_and_social", _migration_0017_news_and_social),
     ("0018", "identity", _migration_0018_identity),
+    ("0019", "exact_message_archives", _migration_0019_exact_message_archives),
 ]
 
 

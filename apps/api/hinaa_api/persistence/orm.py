@@ -97,6 +97,23 @@ class MessageAttachment(Base):
     message: Mapped[Message] = relationship(back_populates="attachments")
 
 
+class ExactMessageArchiveRecord(Base):
+    """Immutable exact archive record preserving unaltered turn text, token counts, and bytes."""
+    __tablename__ = "exact_message_archives"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    conversation_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    message_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)  # user | assistant | system
+    raw_text: Mapped[str] = mapped_column(Text(), nullable=False)
+    char_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    byte_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    estimated_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    attachment_metadata: Mapped[str] = mapped_column(Text(), default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class ConversationSummary(Base):
     __tablename__ = "conversation_summaries"
 
