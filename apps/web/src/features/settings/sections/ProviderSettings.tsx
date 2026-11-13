@@ -55,6 +55,7 @@ const MODE_LABELS: Record<ProviderPreferenceMode, string> = {
   apmix:          "APMIX.AI (api.apmix.ai)",
   oxion:          "Oxion AI (oxionai.com)",
   respan:         "Respan AI (api.respan.ai)",
+  coarena:        "Coarena AI (coarena.ai)",
   experiential:   "Experiential Labs (api.experientiallabs.ai)",
 };
 
@@ -82,6 +83,7 @@ const MODE_DESCRIPTIONS: Record<ProviderPreferenceMode, string> = {
   apmix:          "api.apmix.ai — fast free DeepSeek V4 Flash & upcoming GPT-6 Luna.",
   oxion:          "oxionai.com — 33+ frontier models (Claude Fable 5.1, Grok 4.6, Opus 5.5).",
   respan:         "api.respan.ai — unified gateway & multi-model router.",
+  coarena:        "coarena.ai — free frontier Claude Sonnet 5.5, Gemini 4 Argon, deep reasoning.",
   experiential:   "api.experientiallabs.ai — frontier Claude Opus 5.5 gateway.",
 };
 

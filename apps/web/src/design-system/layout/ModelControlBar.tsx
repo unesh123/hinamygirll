@@ -192,6 +192,28 @@ export const CANONICAL_PROVIDERS: CanonicalProvider[] = [
     ],
   },
   {
+    mode: "coarena",
+    label: "✨ Coarena AI (Free Frontier)",
+    defaultModel: "claude-sonnet-5-5",
+    models: [
+      { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", isDefault: true },
+      { id: "gemini-4-argon", label: "Gemini 4 Argon" },
+      { id: "claude-opus-5-5", label: "Claude Opus 5.5" },
+      { id: "claude-fable-5-2", label: "Claude Fable 5.2" },
+      { id: "claude-fable-5-1", label: "Claude Fable 5.1" },
+      { id: "claude-fable-5", label: "Claude Fable 5" },
+      { id: "claude-haiku-5-5", label: "Claude Haiku 5.5" },
+      { id: "grok-4-7", label: "Grok 4.7" },
+      { id: "gemini-4-carbon", label: "Gemini 4 Carbon" },
+      { id: "gemini-3-8-flash", label: "Gemini 3.8 Flash" },
+      { id: "deepseek-v4-1-flash-1017", label: "DeepSeek V4.1 Flash" },
+      { id: "glm-5-3-flash", label: "GLM 5.3 Flash" },
+      { id: "kimi-k3-1-pro", label: "Kimi K3.1 Pro" },
+      { id: "mimo-v2-6-pro", label: "MiMo v2.6 Pro" },
+      { id: "minimax-m3-1-flash", label: "MiniMax M3.1 Flash" },
+    ],
+  },
+  {
     mode: "experiential",
     label: "🧪 Experiential Labs",
     defaultModel: "claude-opus-5.5",
@@ -290,6 +312,10 @@ export function ModelControlBar({
     if (id === "gemini-flash-latest") return "Gemini Flash Latest";
     if (id === "gemini-pro-latest") return "Gemini Pro Latest";
     if (id === "gemini-2.5-flash") return "Gemini 2.5 Flash";
+    if (id === "claude-sonnet-5-5") return "Claude Sonnet 5.5";
+    if (id === "gemini-4-argon") return "Gemini 4 Argon";
+    if (id === "gemini-4-carbon") return "Gemini 4 Carbon";
+    if (id === "grok-4-7") return "Grok 4.7";
     if (id === "claude-fable-5") return "Claude Fable 5";
     if (id === "claude-fable-5.1") return "Claude Fable 5.1";
     if (id === "claude-sonnet-5") return "Claude Sonnet 5";
@@ -348,6 +374,8 @@ export function ModelControlBar({
                   ? "APMIX.AI"
                   : currentMode === "oxion"
                     ? "Oxion AI"
+                    : currentMode === "coarena"
+                      ? "Coarena AI"
                     : providerOptions.find((p) => p.mode === currentMode)?.label || currentMode;
 
   const currentImageObj = IMAGE_ENGINES.find((e) => e.id === imageEngine) || IMAGE_ENGINES[0];

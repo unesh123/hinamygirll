@@ -94,7 +94,9 @@ export function buildProviderOptions(statuses: ProviderStatus[]): ProviderOption
   const byId = new Map(statuses.map((s) => [s.id, s]));
 
   const alwaysPresent: ProviderMode[] = ["mock", "local"];
-  const cloudProviders: ProviderMode[] = ["gmi", "custom", "openai", "real", "groq", "cx-gateway", "claude", "qwen", "agent-router", "codecraft", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "oxion", "experiential"];
+  const cloudProviders: ProviderMode[] = PROVIDER_MODES.filter(
+    (m) => !alwaysPresent.includes(m) && m !== ("auto" as any),
+  );
 
   const options: ProviderOption[] = [];
 

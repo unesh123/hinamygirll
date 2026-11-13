@@ -70,6 +70,7 @@ export type ProviderPreferenceMode =
   | "apmix"
   | "oxion"
   | "respan"
+  | "coarena"
   | "experiential";
 
 /** Saved model selection per provider. Null = automatic. */

@@ -80,6 +80,7 @@ export function resolveVoiceRoute(
 const AUTO_PRIORITY: ConcreteProviderMode[] = [
   "cx-gateway",
   "claude",
+  "coarena",
   "experiential",
   "codecraft",
   "custom",

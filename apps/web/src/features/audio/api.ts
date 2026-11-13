@@ -23,6 +23,7 @@ export type ProviderMode =
   | "apmix"
   | "oxion"
   | "respan"
+  | "coarena"
   | "experiential";
 
 
