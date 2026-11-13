@@ -42,12 +42,20 @@ class CapabilitiesRegistry(BaseModel):
 def video_provider_status(settings: Settings) -> str:
     """The one-line truth about video generation for the prompt layer.
 
-    A real MP4 exists only when fal.ai is configured; otherwise the honest
-    answer is "unavailable", never a claimed capability.
+    A real MP4 exists only when a provider is configured; otherwise the
+    honest answer is "unavailable", never a claimed capability.
     """
     if settings.fal_configured:
         return f"configured (fal.ai, endpoint {settings.fal_video_endpoint})"
-    return "not configured — video generation is unavailable (set FAL_KEY to enable it)"
+    if settings.hf_configured:
+        return (
+            f"configured (Hugging Face Inference Providers, free token, "
+            f"model {settings.hf_video_model})"
+        )
+    return (
+        "not configured — video generation is unavailable "
+        "(set HF_TOKEN for the free Hugging Face route, or FAL_KEY for paid fal.ai)"
+    )
 
 
 def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
