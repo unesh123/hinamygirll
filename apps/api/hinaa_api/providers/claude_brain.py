@@ -205,7 +205,7 @@ def _stringify(result: Any) -> str:
     else:
         try:
             text = json.dumps(result, default=str, ensure_ascii=False)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             text = str(result)
     if len(text) > _MAX_TOOL_RESULT_CHARS:
         text = text[:_MAX_TOOL_RESULT_CHARS] + "…[truncated]"

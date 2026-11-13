@@ -102,7 +102,7 @@ def verify_state(settings: Settings | None, state: str, now: float | None = None
         )
         if valid and int(expires) >= (now or time.time()):
             return user_id
-    except ValueError, UnicodeDecodeError:
+    except (ValueError, UnicodeDecodeError):
         pass
     raise HinaaError(
         "OAUTH_STATE_INVALID",

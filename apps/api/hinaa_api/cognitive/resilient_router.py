@@ -169,8 +169,15 @@ class ResilientProviderRouter:
             if self.get_provider_status(preferred_provider).state != CircuitState.OPEN:
                 chain = [preferred_provider] + [p for p in chain if p != preferred_provider]
 
+        # Never silently degrade to local_rule (a 0.30-quality canned-rule
+        # engine) when a real brain fails. It answers as if it were Hina
+        # while knowing almost nothing, which is exactly the "she got dumb"
+        # failure. Only include it if it was explicitly requested.
+        if preferred_provider != "local_rule":
+            chain = [p for p in chain if p != "local_rule"]
+
         if not chain:
-            chain = ["gemini", "local_rule"]
+            chain = ["gemini"]
         return chain
 
     def select_healthy_provider_chain(
@@ -189,14 +196,17 @@ class ResilientProviderRouter:
                 chain.append(preferred_provider)
 
         for p_name in self._provider_order:
+            # local_rule is excluded from silent fallback (see rank_providers).
+            if p_name == "local_rule" and preferred_provider != "local_rule":
+                continue
             if p_name not in chain:
                 st = self.get_provider_status(p_name)
                 if st.state != CircuitState.OPEN:
                     chain.append(p_name)
 
-        # If all circuits are open, fallback to the last-ditch local rule or gemini
+        # If all circuits are open, last-ditch is a real model, never local_rule.
         if not chain:
-            chain = ["gemini", "local_rule"]
+            chain = ["gemini"]
 
         return chain
 

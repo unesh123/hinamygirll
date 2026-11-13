@@ -635,11 +635,12 @@ class OpenAILLMProvider:
         return default
 
     async def _chat_text(self, prompt: PromptPackage) -> str:
+        # Pinned model only. Previously xkiro silently retried as
+        # mistralai/ministral-14b then cohere/command-a-reasoning on 429/503,
+        # so the user was suddenly talking to a different, weaker model
+        # mid-conversation with no warning. If the pinned model fails, the
+        # error must surface (see HINAA_AUTO_FALLBACK_ENABLED) instead.
         models_to_try = [self._model_for_payload()]
-        if self._provider_id == "xkiro":
-            for fb_m in ("mistralai/ministral-14b", "cohere/command-a-reasoning"):
-                if fb_m not in models_to_try:
-                    models_to_try.append(fb_m)
         last_resp: httpx.Response | None = None
         for candidate_model in models_to_try:
             payload = {
@@ -706,11 +707,9 @@ class OpenAILLMProvider:
         budget = _llm_budget_tokens(prompt)
         stream_temp = self._effective_temperature(0.45)
         primary_model = self._model_for_payload() if (self._provider_id in {"qwen", "codecraft", "agent-router"} | _GATEWAY_PROVIDERS) else self._model
+        # Pinned model only — see _chat_text: no silent cross-family retry
+        # to Mistral / Cohere when the pinned model returns 429/503.
         models_to_try = [primary_model]
-        if self._provider_id == "xkiro":
-            for fb_m in ("mistralai/ministral-14b", "cohere/command-a-reasoning"):
-                if fb_m not in models_to_try:
-                    models_to_try.append(fb_m)
 
         for candidate_model in models_to_try:
             if self._provider_id in {"qwen", "codecraft", "agent-router"} | _GATEWAY_PROVIDERS:

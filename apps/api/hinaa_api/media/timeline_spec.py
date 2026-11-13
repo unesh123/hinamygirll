@@ -232,25 +232,17 @@ class VertexVeoAdapter(AsyncVideoProviderAdapter):
         return False
 
     async def fetch(self, provider_job_id: str) -> Artifact:
-        job = self._jobs.get(provider_job_id)
-        if not job or job.get("status") != "succeeded":
-            raise HinaaError("JOB_NOT_READY", f"Provider job {provider_job_id} has not succeeded.", 400)
-        out_dir = Path("apps/api/data/artifacts/video")
-        out_dir.mkdir(parents=True, exist_ok=True)
-        file_path = out_dir / f"{provider_job_id}.mp4"
-        if not file_path.exists():
-            file_path.write_bytes(b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00isomiso2avc1mp41")
-        return Artifact(
-            id=f"art_{provider_job_id}",
-            kind="video",
-            path=str(file_path),
-            filename=f"{provider_job_id}.mp4",
-            mimeType="video/mp4",
-            sha256=hashlib.sha256(file_path.read_bytes()).hexdigest(),
-            sizeBytes=file_path.stat().st_size,
-            durationSeconds=job["spec"].get("durationSeconds", 8.0),
-            provenance={"provider": "vertex-veo", "jobId": provider_job_id, "mode": job["mode"]},
+        # BLOCKED: this adapter never calls Google/Vertex. It used to write
+        # a 24-byte fake MP4 header to disk and return it as a successful
+        # video, so Hina could "deliver" an MP4 that plays nothing.
+        # Fail honestly instead — wire a real provider (e.g. fal.ai Veo)
+        # before claiming video generation works.
+        raise HinaaError(
+            "VIDEO_PROVIDER_NOT_CONFIGURED",
+            "Vertex Veo is not wired up — no real video was generated, so no MP4 file exists to return.",
+            503,
         )
+        # No Artifact is returned: there is no real video file.
 
 
 # ── 4. Deterministic FFmpeg Video Renderer & QC Gate ───────────────────────
@@ -318,9 +310,13 @@ class DeterministicVideoRenderer:
             _, stderr = await proc.communicate()
 
             if proc.returncode != 0:
-                logger.warning("FFmpeg render notice: %s", stderr.decode(errors="replace")[-300:])
-                # Fallback: create mock media container if ffmpeg encoders missing
-                master_mp4.write_bytes(b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00isomiso2avc1mp41")
+                # Fail honestly: previously this wrote a 24-byte fake MP4
+                # header and marked the job "succeeded". A failed render
+                # must be a failed job, never a fake file.
+                raise RuntimeError(
+                    f"FFmpeg render failed (exit {proc.returncode}): "
+                    f"{stderr.decode(errors='replace')[-300:]}"
+                )
 
             # Create preview copy & poster image
             shutil.copyfile(master_mp4, preview_mp4)

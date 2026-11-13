@@ -31,7 +31,7 @@ def _when(raw: str | None) -> datetime | None:
     raw = raw.strip()
     try:
         moment = parsedate_to_datetime(raw)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         try:
             moment = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         except ValueError:
