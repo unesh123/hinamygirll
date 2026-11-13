@@ -387,10 +387,19 @@ class Settings(BaseSettings):
         "qwen/qwen3.8-max:free,qwen/qwen3.8-omni-flash:free,qwen/qwen3.7-flash:free,qwen/qwen3.7-max:free,qwen/qwen3.6-max-preview:free,qwen/qwen3.5-flash:free,deepseek/deepseek-v4.1-flash:free,minimax/minimax-m2.7:free,qwen/qwen3-coder-plus:free,qwen/qwen3-vl-plus:free,inclusionai/ling-3.0-flash-sante:free,meta/muse-spark-1.3-contributor:free,stealth/space-bunny-alpha:free,*",
         validation_alias=AliasChoices("XKIRO_ALLOWED_MODELS", "XK_IRO_ALLOWED_MODELS"),
     )
-    # Video generation (fal.ai) — the only real MP4 path. The key is never in
+    # Video generation (fal.ai) — the paid MP4 path. The key is never in
     # chat or the frontend; it lives in the backend env. Without it the video
     # provider fails closed and Hina must say video generation is unavailable.
     fal_api_key: SecretStr | None = Field(None, alias="FAL_KEY")
+    # Video generation (Hugging Face Inference Providers) — the FREE path.
+    # A free personal token from huggingface.co/settings/tokens with the
+    # "Inference Providers" permission. Every HF account gets a small monthly
+    # credit pool that auto-applies — a handful of clips a month, slow and
+    # rate-limited, but $0. When FAL_KEY is also set, the paid fal provider
+    # wins; otherwise this is the provider Hina uses.
+    hf_api_key: SecretStr | None = Field(None, alias="HF_TOKEN")
+    hf_video_provider: str = Field("fal-ai", alias="HINAA_HF_VIDEO_PROVIDER")
+    hf_video_model: str = Field("Wan-AI/Wan2.2-TI2V-5B", alias="HINAA_HF_VIDEO_MODEL")
     # fal.ai video endpoint. Default is Kling v3 Pro — verified 2026-11-13
     # against fal.ai's own model pages. Do NOT point this at fal-ai/veo3.1*
     # (any tier): fal deprecates the whole Veo 3.1 tree on 17 Nov 2026, and
@@ -1683,6 +1692,11 @@ class Settings(BaseSettings):
     def fal_configured(self) -> bool:
         """True only when a fal.ai key is present — the video provider's gate."""
         return bool(self.fal_api_key and self.fal_api_key.get_secret_value())
+
+    @property
+    def hf_configured(self) -> bool:
+        """True only when a free HF token is present — the $0 video gate."""
+        return bool(self.hf_api_key and self.hf_api_key.get_secret_value())
 
     def resolve_primary_brain(self) -> tuple[str | None, str]:
         """Which brain Hina should actually run on, and why.

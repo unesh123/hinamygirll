@@ -281,10 +281,21 @@ class FalVideoProvider(CreativeProvider):
 
 
 def get_video_provider() -> CreativeProvider:
-    """The real provider when fal is configured, else the fail-closed stub."""
+    """The video provider, in priority order.
+
+    1. fal.ai when FAL_KEY is set — paid, best quality, fastest.
+    2. Hugging Face Inference Providers when HF_TOKEN is set — free token,
+       small monthly credit pool, a handful of clips a month.
+    3. Otherwise the fail-closed stub: video generation is unavailable and
+       Hina must say so, never fake a video.
+    """
+    from .hf_video_provider import HfVideoProvider
     from .video_generative_provider import GenerativeVideoProvider
 
-    provider = FalVideoProvider()
-    if provider.is_available():
-        return provider
+    fal = FalVideoProvider()
+    if fal.is_available():
+        return fal
+    hf = HfVideoProvider()
+    if hf.is_available():
+        return hf
     return GenerativeVideoProvider(is_configured=False)

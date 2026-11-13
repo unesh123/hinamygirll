@@ -39,3 +39,5 @@ opentelemetry-instrumentation-fastapi==0.66b2
 opentelemetry-instrumentation-httpx==0.66b2
 opentelemetry-instrumentation-sqlalchemy==0.66b2
 sentry-sdk==2.74.0
+# Free video generation via Hugging Face Inference Providers (hf_video_provider.py).
+huggingface_hub==0.34.0

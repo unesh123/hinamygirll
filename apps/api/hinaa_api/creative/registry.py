@@ -361,27 +361,33 @@ class CreativeRegistry:
         )
 
         # 6. Text-to-Video (Generative)
-        # Real provider: fal.ai (see creative/providers/fal_video_provider.py).
-        # Available only when FAL_KEY is set in the backend env; otherwise
-        # BLOCKED, so nothing downstream can claim a video it cannot make.
+        # Real providers: fal.ai (paid, see fal_video_provider.py) or
+        # Hugging Face Inference Providers (free token, see
+        # hf_video_provider.py). Available when either key is set in the
+        # backend env; otherwise BLOCKED, so nothing downstream can claim a
+        # video it cannot make.
         fal_endpoint = os.environ.get("HINAA_FAL_VIDEO_ENDPOINT", "fal-ai/kling-video/v3/pro/text-to-video")
         fal_ready = bool(os.environ.get("FAL_KEY", "").strip())
+        hf_ready = bool(os.environ.get("HF_TOKEN", "").strip())
+        video_ready = fal_ready or hf_ready
         caps[CreativeOperation.TEXT_TO_VIDEO] = CapabilityEntry(
             operation=CreativeOperation.TEXT_TO_VIDEO,
-            status=CapabilityStatus.AVAILABLE if fal_ready else CapabilityStatus.BLOCKED,
-            provider="fal.ai" if fal_ready else "none",
-            model=fal_endpoint if fal_ready else "none",
+            status=CapabilityStatus.AVAILABLE if video_ready else CapabilityStatus.BLOCKED,
+            provider=("fal.ai" if fal_ready else "huggingface") if video_ready else "none",
+            model=(fal_endpoint if fal_ready else os.environ.get("HINAA_HF_VIDEO_MODEL", "Wan-AI/Wan2.2-TI2V-5B")) if video_ready else "none",
             hardware_target="GPU",
             cost_credits_estimate=0,
             description_en=(
                 "Generative AI video via fal.ai (Kling v3 Pro). Requires FAL_KEY and prepaid fal.ai credits."
                 if fal_ready
+                else "Generative AI video via Hugging Face Inference Providers (free token, small monthly credit pool)."
+                if hf_ready
                 else "Generative AI video requires installed local video diffusion model (SVD/CogVideo) or active external video provider."
             ),
             description_ne="एआई जेनेरेटिभ भिडियोका लागि स्थानीय भिडियो डिफ्युजन मोडेल आवश्यक पर्दछ (हाल अनउपलब्ध)।",
             limitations=(
                 []
-                if fal_ready
+                if video_ready
                 else ["Blocked: Generative video diffusion weights not installed and video API disabled"]
             ),
         )
