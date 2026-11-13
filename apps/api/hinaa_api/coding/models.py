@@ -92,6 +92,11 @@ class CodingTaskSpec(BaseModel):
     max_repair_iterations: int = Field(default=3, ge=1, le=10)
     timeout_seconds: float = Field(default=120.0, ge=10.0, le=600.0)
     require_high_security: bool = False
+    create_pr: bool = False
+    repo: Optional[str] = None
+    base_branch: Optional[str] = "main"
+    task_type: str = "feat"
+    approval_token: Optional[str] = None
 
 
 class CodingTaskStatus(BaseModel):
@@ -111,3 +116,8 @@ class CodingTaskStatus(BaseModel):
     error: Optional[str] = None
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     completed_at: Optional[str] = None
+    commit_sha: Optional[str] = None
+    branch_name: Optional[str] = None
+    pr_url: Optional[str] = None
+    pr_number: Optional[int] = None
+    verification_evidence: List[str] = Field(default_factory=list)

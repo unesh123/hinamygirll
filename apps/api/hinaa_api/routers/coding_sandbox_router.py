@@ -41,8 +41,15 @@ async def create_coding_task(request: Request, spec_data: Dict[str, Any] = Body(
     target_content = spec_data.get("target_content", "")
     replacement_content = spec_data.get("replacement_content", "")
     test_cmd = spec_data.get("test_command")
+    repair_patches = spec_data.get("repair_patches")
     if target_file:
-        asyncio.create_task(loop.execute_task(target_file, target_content, replacement_content, test_cmd))
+        asyncio.create_task(loop.execute_task(
+            target_file,
+            target_content,
+            replacement_content,
+            test_cmd,
+            repair_patches=repair_patches,
+        ))
     return loop.status.model_dump()
 
 

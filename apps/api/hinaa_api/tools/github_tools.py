@@ -309,8 +309,18 @@ async def github_create_pull_request_handler(params: dict[str, Any]) -> dict[str
         "head": head,
         "base": base,
         "body": str(params.get("body") or "")[:60_000],
+        "draft": True,
     }
     result = await client.post_json(f"/repos/{repo}/pulls", body)
+    number = result.get("number")
+    if type(number) is not int or number <= 0:
+        raise HinaaError("GITHUB_PR_UNVERIFIED", "GitHub returned no valid PR number. Inspect remote state before retrying.", 502, True)
+    result = await client.get_json(f"/repos/{repo}/pulls/{number}")
+    if (result.get("html_url") != f"https://github.com/{repo}/pull/{number}"
+            or result.get("head", {}).get("ref") != head.split(":")[-1]
+            or result.get("base", {}).get("ref") != base
+            or result.get("state") != "open" or result.get("draft") is not True):
+        raise HinaaError("GITHUB_PR_UNVERIFIED", "Created draft PR could not be verified. Inspect remote state before retrying.", 502, True)
     return {
         "status": "ok",
         "repo": repo,
@@ -318,6 +328,7 @@ async def github_create_pull_request_handler(params: dict[str, Any]) -> dict[str
         "url": result.get("html_url"),
         "title": result.get("title"),
         "state": result.get("state"),
+        "draft": result.get("draft"),
     }
 
 

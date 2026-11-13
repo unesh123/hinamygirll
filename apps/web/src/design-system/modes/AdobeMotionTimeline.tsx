@@ -206,7 +206,7 @@ export const AdobeMotionTimeline: React.FC<AdobeMotionTimelineProps> = React.mem
         {/* Latency Meter */}
         <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: isDark ? "#cbd5e1" : "#475569" }}>
           <Zap size={11} color="#f59e0b" />
-          <span style={{ fontWeight: 700, color: isDark ? "#ffffff" : "#0f172a" }}>{latencyMs !== undefined ? `${Math.round(latencyMs)} ms` : "142 ms • Ready"}</span>
+          <span style={{ fontWeight: 700, color: isDark ? "#ffffff" : "#0f172a" }}>{latencyMs !== undefined ? `${Math.round(latencyMs)} ms` : "Latency not measured"}</span>
         </div>
 
         {/* Context Window Gauge */}

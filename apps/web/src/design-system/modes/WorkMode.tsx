@@ -1032,7 +1032,7 @@ export function WorkMode({
         <AdobeMotionTimeline
           isDark={isDark}
           activeModel={activeProviderModel || activeProviderMode || "qwen3.8-max"}
-          latencyMs={plan?.latencyMs ?? (companionState !== "idle" ? 180 : 142)}
+          latencyMs={plan?.latencyMs ?? undefined}
           tokensUsed={messages.reduce((acc, m) => acc + Math.round((m.content?.length || 0) / 4), 1420)}
           totalTokens={128000}
           isWalking={isWalking}

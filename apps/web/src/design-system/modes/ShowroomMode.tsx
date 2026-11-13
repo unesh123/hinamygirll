@@ -1363,10 +1363,10 @@ export const ShowroomMode: React.FC<ShowroomModeProps> = memo(({
                     Cognitive Response Latency
                   </div>
                   <div style={{ fontSize: 36, fontWeight: 600, color: isDark ? "#ffffff" : "#17191c", marginTop: 4 }}>
-                    142ms
+                    Not measured
                   </div>
                   <div style={{ fontSize: 13, color: "#10b981", fontWeight: 600, marginTop: 2 }}>
-                    ↑ 5.5x faster with Casual Fast-Path
+                    Live benchmark required
                   </div>
 
                   {/* Gestural line simulation */}

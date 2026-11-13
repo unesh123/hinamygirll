@@ -87,21 +87,19 @@ class GitWorkspaceService:
         return task_dirty, unrelated_dirty
 
     def _get_dirty_files(self) -> list[DirtyFile]:
-        status_output = self._run_git(["status", "--porcelain"])
+        # NUL delimiters preserve Unicode, spaces and newlines in filenames.
+        # Disable rename folding so each path is independently scope checked.
+        status_output = self._run_git(["status", "--porcelain", "-z", "--untracked-files=all", "--no-renames"])
         if not status_output:
             return []
 
         results: list[DirtyFile] = []
-        for line in status_output.splitlines():
-            line = line.rstrip()
+        for line in status_output.split("\0"):
             if len(line) < 4:
                 continue
             index_status = line[0]
             worktree_status = line[1]
-            path = line[3:].strip()
-            # Handle quoted paths with spaces
-            if path.startswith('"') and path.endswith('"'):
-                path = path[1:-1]
+            path = line[3:]
 
             is_staged = index_status not in (" ", "?")
             status_code = (index_status + worktree_status).strip()
@@ -122,6 +120,7 @@ class GitWorkspaceService:
                 cwd=self.root_path,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 check=False,
             )
             return res.stdout if res.returncode == 0 else ""

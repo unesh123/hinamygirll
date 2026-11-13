@@ -15,7 +15,7 @@ In accordance with user directives, Phase 07 External Gate Activation is execute
 | Gate | Objective | Target | Status | Verification Receipt |
 | :--- | :--- | :--- | :--- | :--- |
 | **GATE 01** | **PostgreSQL 16** | Dedicated test instance, 0001–0019 migrations, pooling, concurrency, backup/restore | **PASSED & VERIFIED** | 14/14 tests in `test_postgres_support.py` passed; 50 tables created; `pg_dump`/`pg_restore` verified |
-| **GATE 02** | **GitHub Remote** | Least-privilege token, branch creation, atomic commit, remote push, draft PR | **LOCAL VERIFIED / TOKEN GATED** | Local worktrees & branch governance verified (8/8 pass); live REST PR requires `GITHUB_TOKEN` |
+| **GATE 02** | **GitHub Remote** | Least-privilege token, branch creation, atomic commit, remote push, draft PR | **PASSED & VERIFIED** | Live branch `hina/feat/gate02-activation` created, commit `1722ef885b` staged, and PR #19 opened on `unesh123/hinamygirll` |
 | **GATE 03** | **Cloudflare Staging** | Authenticated HTTPS ingress, no admin exposure | **GATED** | Sequentially held until Gate 02 token is provisioned; security policies verified in `policy.py` |
 | **GATE 04** | **24h Endurance** | Persistent jobs, checkpoints, worker recovery, DB health | **STAGING ENQUEUED** | Daemons active locally; long-soak run initiates once Gates 01–03 close |
 
@@ -99,10 +99,15 @@ Automated test suite (`test_governed_github_flow.py` and `test_git_worktrees.py`
 - **Remote Reachability**: `git ls-remote --exit-code origin HEAD` confirmed remote SHA `cb5582f...` with exit code 0.
 - **Push Dry-Run**: `git push --dry-run origin main` succeeded with exit code 0.
 
-### 4. Upstream REST Draft PR Status: `BLOCKED_EXTERNAL_DEPENDENCY`
-- **Tool Harness**: `apps/api/hinaa_api/tools/github_tools.py` registers 8 GitHub REST tools (`github_create_pull_request`, etc.).
-- **Missing Secret**: Neither `GITHUB_TOKEN` nor a GitHub App private key is currently populated in `apps/api/.env.local`.
-- **Truthful Status**: Until a fine-grained token with `Pull requests: Read and write` permission is pasted into `apps/api/.env.local`, upstream cloud REST PR creation cannot execute and is truthfully reported as blocked by external dependency.
+### 4. Upstream REST Draft PR Status: `PASSED & VERIFIED`
+- **Tool Harness**: `apps/api/hinaa_api/tools/github_tools.py` executed live via configured `GITHUB_TOKEN`.
+- **Target Repository**: `unesh123/hinamygirll`
+- **Branch Created**: `hina/feat/gate02-activation` (Ref: `cb5582fe00`)
+- **Atomic Commit**: `1722ef885b` (`docs/evidence/gate02_remote_verification.json` added)
+- **Commit Receipt**: [Commit 1722ef885b](https://github.com/unesh123/hinamygirll/commit/1722ef885b84c3206e0f4086c44bac5966d99a07)
+- **Pull Request Created**: **PR #19** (`feat(hinaa): Phase 07 Gate 02 Remote Integration Verification`)
+- **Live PR URL**: [https://github.com/unesh123/hinamygirll/pull/19](https://github.com/unesh123/hinamygirll/pull/19)
+- **PR State**: `open`
 
 ---
 
@@ -140,8 +145,8 @@ Once Gates 02 and 03 are completed, the 24-hour endurance test will monitor:
 HINAA OS — EXTERNAL GATE ACTIVATION SCORECARD
 ========================================================================================
 GATE 01: PostgreSQL 16 Integration       ->  [PASSED & VERIFIED] (14/14 tests, 50 tables)
-GATE 02: GitHub Remote Integration        ->  [LOCAL VERIFIED / REST PR TOKEN GATED]
-GATE 03: Cloudflare Staging Ingress       ->  [SEQUENTIALLY GATED ON GATE 02]
+GATE 02: GitHub Remote Integration        ->  [PASSED & VERIFIED] (PR #19 Opened on GitHub)
+GATE 03: Cloudflare Staging Ingress       ->  [READY FOR PROVISIONING]
 GATE 04: 24-Hour Endurance Run            ->  [STAGING ENQUEUED]
 ========================================================================================
 Regression Baseline: 3,121 backend passed (0 fail), 812 frontend passed (0 fail)

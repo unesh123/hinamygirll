@@ -876,7 +876,14 @@ class NativeComputerOperator:
                             if ($found) {{
                                 Start-Process "shell:AppsFolder\\$($found.AppID)" -ErrorAction Stop
                             }} else {{
-                                Start-Process $target -ErrorAction Stop
+                                $tokens = -split $target
+                                $exe = $tokens[0]
+                                if ($tokens.Count -gt 1) {{
+                                    $argStr = ($tokens[1..($tokens.Count - 1)] -join ' ')
+                                    Start-Process -FilePath $exe -ArgumentList $argStr -ErrorAction Stop
+                                }} else {{
+                                    Start-Process -FilePath $exe -ErrorAction Stop
+                                }}
                             }}
                         }}
                     }}

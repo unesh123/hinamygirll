@@ -69,6 +69,7 @@ class GovernedGitHubFlow:
             cwd=self.workspace_root,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             check=False,
         )
 
@@ -125,7 +126,7 @@ class GovernedGitHubFlow:
 
         # 2. Stage ONLY task-scoped files
         for df in task_dirty:
-            stage_res = self._run_git(["add", df.path])
+            stage_res = self._run_git(["--literal-pathspecs", "add", "--", df.path])
             if stage_res.returncode != 0:
                 raise RuntimeError(f"Failed to stage file {df.path}: {stage_res.stderr}")
 
@@ -138,7 +139,10 @@ class GovernedGitHubFlow:
         )
 
         # 4. Commit
-        commit_res = self._run_git(["commit", "-m", commit_msg])
+        commit_res = self._run_git([
+            "--literal-pathspecs", "commit", "--only", "-m", commit_msg,
+            "--", *[df.path for df in task_dirty],
+        ])
         if commit_res.returncode != 0:
             raise RuntimeError(f"Git commit failed: {commit_res.stderr}")
 
@@ -156,7 +160,7 @@ class GovernedGitHubFlow:
             unrelated_files_preserved=[f.path for f in unrelated_dirty],
         )
 
-    def create_evidence_backed_pr(
+    async def create_evidence_backed_pr(
         self,
         task_id: str,
         task_goal: str,
@@ -166,7 +170,10 @@ class GovernedGitHubFlow:
         verification_evidence: list[str],
         changed_files: list[str],
         repair_attempts_count: int = 0,
-        mock_remote: bool = True,
+        mock_remote: bool = False,
+        *,
+        repo: str,
+        base: str,
     ) -> PullRequestResult:
         """Creates an evidence-backed Pull Request.
 
@@ -176,6 +183,9 @@ class GovernedGitHubFlow:
         - Requires CREATE_PR permission.
         """
         self.workspace_service.verify_action_allowed("create_pr")
+
+        if mock_remote:
+            raise EvidenceGuardViolation("Simulated pull requests cannot be reported as completed work.")
 
         if not verification_passed:
             raise EvidenceGuardViolation(
@@ -188,6 +198,10 @@ class GovernedGitHubFlow:
             )
 
         branch_name = self.generate_branch_name(task_type, task_id)
+        if not verification_evidence or not changed_files:
+            raise EvidenceGuardViolation("Passing verification evidence and changed files are required.")
+        if not base or base == branch_name:
+            raise EvidenceGuardViolation("A distinct target branch is required.")
         title = f"[{task_type.upper()}] {task_goal[:70]}"
 
         body_lines = [
@@ -211,9 +225,29 @@ class GovernedGitHubFlow:
 
         pr_body = "\n".join(body_lines)
 
-        # In local/test mode or with live GitHub API
-        pr_number = abs(hash(task_id)) % 9000 + 1000
-        pr_url = f"https://github.com/mock-repo/pull/{pr_number}"
+        from urllib.parse import quote
+        from ..tools.github_tools import _GithubClient
+
+        client = _GithubClient()
+        repo = client._repo(repo)
+        remote = await client.get_json(f"/repos/{repo}/git/ref/heads/{quote(branch_name, safe='')}")
+        if remote.get("object", {}).get("sha") != commit_sha:
+            raise EvidenceGuardViolation("Remote task branch does not match the verified commit; push and verify it first.")
+        created = await client.post_json(f"/repos/{repo}/pulls", {
+            "title": title, "head": branch_name, "base": base, "body": pr_body, "draft": True,
+        })
+        pr_number = created.get("number")
+        if type(pr_number) is not int or pr_number <= 0:
+            raise EvidenceGuardViolation("GitHub did not return a valid PR number; inspect remote state before retrying.")
+        verified = await client.get_json(f"/repos/{repo}/pulls/{pr_number}")
+        pr_url = verified.get("html_url")
+        if (pr_url != f"https://github.com/{repo}/pull/{pr_number}"
+                or verified.get("head", {}).get("sha") != commit_sha
+                or verified.get("head", {}).get("ref") != branch_name
+                or verified.get("base", {}).get("ref") != base
+                or verified.get("state") != "open"
+                or verified.get("draft") is not True):
+            raise EvidenceGuardViolation("Created PR could not be verified; inspect remote state before retrying.")
 
         return PullRequestResult(
             pr_url=pr_url,
