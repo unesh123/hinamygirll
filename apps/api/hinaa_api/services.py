@@ -1265,6 +1265,15 @@ class ProviderRouter:
                 user_action_required=True,
             )
 
+    def _require_coarena_brain(self) -> None:
+        if self.settings.active_coarena_key is None or self.settings.active_coarena_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "Coarena is not configured. Add COARENA_API_KEY to apps/api/.env.local.",
+                503,
+                user_action_required=True,
+            )
+
     def _require_articul8_brain(self) -> None:
         if self.settings.active_articul8_key is None or self.settings.active_articul8_base_url is None:
             raise HinaaError(
@@ -1672,6 +1681,21 @@ class ProviderRouter:
                 model,
                 base_url=active_respan_base_url,
                 provider_id="respan",
+            )
+        if mode == "coarena":
+            self._require_coarena_brain()
+            active_coarena_key = self.settings.active_coarena_key
+            active_coarena_base_url = self.settings.active_coarena_base_url
+            assert active_coarena_key and active_coarena_base_url
+            try:
+                model = self.settings.resolve_coarena_model(brain_model)
+            except ValueError:
+                model = self.settings.active_coarena_model
+            return OpenAILLMProvider(
+                active_coarena_key.get_secret_value(),
+                model,
+                base_url=active_coarena_base_url,
+                provider_id="coarena",
             )
         if mode in {"articul8", "bivia", "ben"}:
             raise HinaaError(
@@ -4144,6 +4168,7 @@ class ConversationService:
             "seekai": self.settings.active_seekai_model,
             "tokentable": self.settings.active_tokentable_model,
             "xkiro": self.settings.active_xkiro_model,
+            "coarena": self.settings.active_coarena_model,
             "cavoti": self.settings.active_cavoti_model,
             "apmix": self.settings.active_apmix_model,
             "oxion": self.settings.active_oxion_model,
@@ -4226,6 +4251,7 @@ class ConversationService:
             "seekai": (self.settings.seekai_configured, self.settings.active_seekai_model),
             "tokentable": (self.settings.tokentable_configured, self.settings.active_tokentable_model),
             "cavoti": (self.settings.cavoti_configured, self.settings.active_cavoti_model),
+            "coarena": (self.settings.coarena_configured, self.settings.active_coarena_model),
             "apmix": (self.settings.apmix_configured, self.settings.active_apmix_model),
             "oxion": (self.settings.oxion_configured, self.settings.active_oxion_model),
             "respan": (self.settings.respan_configured, self.settings.active_respan_model),

@@ -343,6 +343,7 @@ _BRAIN_PROVIDER_IDS = frozenset(
         "apmix",
         "oxion",
         "respan",
+        "coarena",
         "experiential",
     }
 )
@@ -2071,6 +2072,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "protocol": "openai-compatible",
             },
             {
+                "id": "coarena",
+                "name": "Coarena AI",
+                "configured": bool(getattr(active_settings, "coarena_configured", False)),
+                "defaultModel": active_settings.active_coarena_model,
+                "allowedModels": list(active_settings.coarena_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
                 "id": "articul8",
                 "name": "Articul8 Bivia decisions",
                 "configured": active_settings.articul8_configured,
@@ -2396,8 +2405,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 api_key=active_settings.active_respan_key.get_secret_value() if active_settings.active_respan_key else None,
             )
 
+        async def _probe_coarena_gw():
+            if not active_settings.coarena_configured:
+                return GatewayModelsOutcome(False, 0, "no_url", "Coarena AI needs COARENA_API_KEY.")
+            return await probe_gateway_models(
+                active_settings.active_coarena_base_url,
+                api_key=active_settings.active_coarena_key.get_secret_value() if active_settings.active_coarena_key else None,
+            )
+
         gw_results = await asyncio.gather(
-            _probe_xkiro_gw(), _probe_apmix_gw(), _probe_oxion_gw(), _probe_explabs_gw(), _probe_respan_gw(),
+            _probe_xkiro_gw(), _probe_apmix_gw(), _probe_oxion_gw(), _probe_explabs_gw(), _probe_respan_gw(), _probe_coarena_gw(),
             return_exceptions=True,
         )
         xkiro_probe = gw_results[0] if isinstance(gw_results[0], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[0]))
@@ -2405,6 +2422,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         oxion_probe = gw_results[2] if isinstance(gw_results[2], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[2]))
         explabs_probe = gw_results[3] if isinstance(gw_results[3], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[3]))
         respan_probe = gw_results[4] if isinstance(gw_results[4], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[4]))
+        coarena_probe = gw_results[5] if isinstance(gw_results[5], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[5]))
 
         xkiro_state = "unavailable"
         xkiro_message = "XKiro AI needs XKIRO_API_KEY and XKIRO_BASE_URL."
@@ -2475,6 +2493,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             else:
                 respan_state = "degraded"
                 respan_message = f"Respan AI configured: {respan_probe.detail}"
+
+        coarena_state = "unavailable"
+        coarena_message = "Coarena AI needs COARENA_API_KEY."
+        if active_settings.coarena_configured:
+            if coarena_probe.serving:
+                coarena_state = "healthy"
+                probe_measured.add("coarena")
+                coarena_message = f"Coarena AI is connected ({coarena_probe.model_count} models serving; default: {active_settings.coarena_model})."
+            elif coarena_probe.reason in ("http_401", "http_403", "refused", "no_url"):
+                coarena_state = "unavailable"
+                coarena_message = f"Coarena AI authentication failed: {coarena_probe.detail}"
+            else:
+                coarena_state = "degraded"
+                coarena_message = f"Coarena AI configured: {coarena_probe.detail}"
 
         # Gemini / real is measured healthy when credentials are configured
         if active_settings.gemini_configured:
@@ -2913,6 +2945,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ],
                 state=respan_state,
                 userMessage=respan_message,
+            ),
+            ProviderStatus(
+                id="coarena",
+                capabilities=[
+                    "llm",
+                    "fast-brain",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.coarena_model}",
+                    *[f"model:{model}" for model in active_settings.coarena_allowed_models],
+                ],
+                state=coarena_state,
+                userMessage=coarena_message,
             ),
             ProviderStatus(
                 id="tinyfish",

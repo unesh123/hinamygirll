@@ -37,6 +37,7 @@ ProviderMode = Literal[
     "oxion",
     "articul8",
     "respan",
+    "coarena",
     "experiential",
 ]
 CompanionId = Literal["hinaa", "hiro"]

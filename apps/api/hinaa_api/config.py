@@ -495,6 +495,23 @@ class Settings(BaseSettings):
         "gpt-4o-mini,gpt-4o,claude-3-5-sonnet,gemini-1.5-flash,*",
         validation_alias=AliasChoices("RESPAN_AI_ALLOWED_MODELS", "RESPAN_ALLOWED_MODELS"),
     )
+    # Coarena AI Gateway — free frontier models (claude-sonnet-5-5, gemini-4-argon, etc.)
+    coarena_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("COARENA_API_KEY", "COARENA_KEY"),
+    )
+    coarena_base_url: str = Field(
+        "https://coarena.ai/api/v1",
+        validation_alias=AliasChoices("COARENA_BASE_URL"),
+    )
+    coarena_model: str = Field(
+        "claude-sonnet-5-5",
+        validation_alias=AliasChoices("COARENA_MODEL"),
+    )
+    coarena_allowed_models_raw: str = Field(
+        "claude-sonnet-5-5,claude-opus-5-5,claude-fable-5,claude-fable-5-1,claude-fable-5-2,claude-haiku-5-5,gemini-4-argon,gemini-4-carbon,gemini-3-8-flash,grok-4-7,deepseek-v4-1-flash-1017,glm-5-3-flash,hy4,kimi-k3,kimi-k3-1-pro,mimo-v2-6-pro,minimax-m3-1-flash,qwen3-8-2-4t-a95b,*",
+        validation_alias=AliasChoices("COARENA_ALLOWED_MODELS"),
+    )
     # Articul8 / Bivia ("Ben") Multi-Modal Decision Engine
     articul8_api_key: SecretStr | None = Field(
         None,
@@ -1750,6 +1767,9 @@ class Settings(BaseSettings):
             "gemini": self.gemini_configured,
             "openai": self.openai_configured,
             "qwen": self.qwen_configured,
+            "coarena": self.coarena_configured,
+            "cavoti": self.cavoti_configured,
+            "explabs": self.explabs_configured,
             "xkiro": bool(
                 self.active_xkiro_key
                 and self.active_xkiro_key.get_secret_value()
@@ -1929,6 +1949,46 @@ class Settings(BaseSettings):
         if "*" not in self.respan_allowed_models and model not in self.respan_allowed_models:
             allowed = ", ".join(self.respan_allowed_models)
             raise ValueError(f"Respan model is not in RESPAN_ALLOWED_MODELS: {allowed}")
+        return model
+
+    @property
+    def coarena_configured(self) -> bool:
+        return bool(
+            self.coarena_api_key
+            and self.coarena_api_key.get_secret_value()
+            and self.active_coarena_base_url
+        )
+
+    @property
+    def active_coarena_key(self) -> SecretStr | None:
+        if self.coarena_api_key and self.coarena_api_key.get_secret_value():
+            return self.coarena_api_key
+        return None
+
+    @property
+    def active_coarena_base_url(self) -> str | None:
+        value = (self.coarena_base_url or "").strip().rstrip("/")
+        if value and not value.endswith("/v1"):
+            value = f"{value}/v1"
+        return value or "https://coarena.ai/api/v1"
+
+    @property
+    def active_coarena_model(self) -> str:
+        return self.coarena_model or "claude-sonnet-5-5"
+
+    @property
+    def coarena_allowed_models(self) -> list[str]:
+        configured = [m.strip() for m in self.coarena_allowed_models_raw.split(",") if m.strip()]
+        models = configured or [self.active_coarena_model]
+        if self.active_coarena_model and self.active_coarena_model not in models:
+            models.insert(0, self.active_coarena_model)
+        return list(dict.fromkeys(models))
+
+    def resolve_coarena_model(self, requested: str | None = None) -> str:
+        model = (requested or "").strip() or self.active_coarena_model
+        if "*" not in self.coarena_allowed_models and model not in self.coarena_allowed_models:
+            allowed = ", ".join(self.coarena_allowed_models)
+            raise ValueError(f"Coarena model is not in COARENA_ALLOWED_MODELS: {allowed}")
         return model
 
     @property

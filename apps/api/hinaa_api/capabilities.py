@@ -392,6 +392,8 @@ def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
         default_brain = settings.active_claude_model
     elif effective_mode == "xkiro":
         default_brain = settings.xkiro_model
+    elif effective_mode == "coarena":
+        default_brain = settings.active_coarena_model
     elif effective_mode == "apmix":
         default_brain = settings.active_apmix_model
     elif effective_mode == "oxion":
