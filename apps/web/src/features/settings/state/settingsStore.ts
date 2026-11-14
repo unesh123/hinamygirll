@@ -173,7 +173,11 @@ function validateModelByProvider(raw: unknown): ModelByProvider {
   for (const key of allowed) {
     const v = raw[key];
     if (typeof v === "string" || v === null) {
-      result[key] = v;
+      if (key === "xkiro" && typeof v === "string" && (v.includes("qwen") || v.includes("minimax"))) {
+        result[key] = "mistralai/codestral-2508";
+      } else {
+        result[key] = v;
+      }
     }
     // else: malformed entry — skip it (leaves key absent, treated as null at read time)
   }

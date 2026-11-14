@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import os
@@ -721,7 +722,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         async def invoke(_step):
             try:
                 try:
-                    value = await asyncio.wait_for(handler(parameters), timeout=tool_def.timeout_seconds or 60.0)
+                    sig = inspect.signature(handler)
+                    if len(sig.parameters) == 1:
+                        raw_res = handler(parameters)
+                    else:
+                        try:
+                            raw_res = handler(**parameters)
+                        except TypeError:
+                            raw_res = handler(parameters)
+                    if inspect.isawaitable(raw_res):
+                        value = await asyncio.wait_for(raw_res, timeout=tool_def.timeout_seconds or 60.0)
+                    else:
+                        value = raw_res
                 except TimeoutError as error:
                     raise HinaaError("TOOL_TIMEOUT", "The tool exceeded its execution deadline.", 504) from error
                 if isinstance(value, dict) and value.get("status") in {"error", "failed"}:
@@ -979,6 +991,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):  # type: ignore[no-untyped-def]
+        # Load all registered tools and advanced agent/Kali capabilities
+        from .tools import load_all_tools
+        load_all_tools()
+
         # Start VMC UDP listener for VSeeFace face tracking
         await vmc_bridge.start_udp(port=active_settings.vmc_port)
         if agent_persistence:
@@ -2114,6 +2130,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "servingModels": omniroute_serving,
                 "protocol": "openai-compatible",
             },
+            {
+                "id": "ollama",
+                "name": "Ollama (Local Uncensored)",
+                "configured": bool(active_settings.ollama_configured),
+                "defaultModel": active_settings.active_ollama_model,
+                "allowedModels": [
+                    "dolphin-mistral:7b",
+                    "llama2-uncensored:7b",
+                    "SparkLLM/Spark-X2.5-1.7B:latest",
+                ] if active_settings.ollama_allowed_models == ["*"] else list(active_settings.ollama_allowed_models),
+                "protocol": "openai-compatible",
+            },
         ]
 
         # `configured` answers "does the backend hold a credential?". The chip has
@@ -2301,7 +2329,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 try:
                     if base.endswith("/v1"):
                         base = base[:-3].rstrip("/")
-                    async with httpx.AsyncClient(timeout=1.5) as probe_client:
+                    base = base.replace("localhost", "127.0.0.1")
+                    async with httpx.AsyncClient(timeout=3.0) as probe_client:
                         tags_resp = await probe_client.get(f"{base}/api/tags")
                         if tags_resp.status_code == 200:
                             tags_data = tags_resp.json()
@@ -3730,6 +3759,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/v1/tools")
     @app.get("/api/v1/tools")
     async def list_tools() -> list[dict[str, Any]]:
+        from .tools import load_all_tools
+        load_all_tools()
         from .tools.dynamic_tools import sync_dynamic_tools
         sync_dynamic_tools()
         tools = registry.get_all_tools()
@@ -5968,7 +5999,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if not handler:
                 return {"error": f"Tool {tool_name} not found"}
             try:
-                return await handler(params)
+                res = handler(params)
+                if inspect.isawaitable(res):
+                    res = await res
+                return res
             except Exception as e:
                 return {"error": str(e)}
 

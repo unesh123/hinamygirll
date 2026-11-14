@@ -3,6 +3,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GenericResultRenderer } from "./GenericResultRenderer";
 
 describe("GenericResultRenderer", () => {
+  it.each([
+    { status: "error", error: { code: "PROVIDER_AUTH_REJECTED", message: "Provider rejected credentials" }, data: null },
+    { data: { toolId: "test", data: { success: false, error: { code: "PROVIDER_AUTH_REJECTED", message: "Provider rejected credentials" } } } },
+    { status: "failed", code: "PROVIDER_AUTH_REJECTED", message: "Provider rejected credentials", data: { images: [{ imageUrl: "https://example.test/fake.png" }] } },
+  ])("renders structured failures before success-specific cards", (result) => {
+    render(<GenericResultRenderer toolName="image_generate" result={result} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Provider rejected credentials");
+    expect(screen.getByRole("alert")).toHaveTextContent("PROVIDER_AUTH_REJECTED");
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("does not invent a reason for an empty failed receipt", () => {
+    render(<GenericResultRenderer toolName="test_tool" result={{ success: false }} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("did not provide a failure reason");
+  });
   beforeEach(() => {
     vi.restoreAllMocks();
   });

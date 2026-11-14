@@ -250,7 +250,7 @@ class GeminiLLMProvider:
 
             async def _gemini_segment_stream(contents: Any) -> AsyncIterator[str]:
                 """One round: yield raw text deltas, record finish reason."""
-                for attempt in range(2):
+                for attempt in range(3):
                     try:
                         stream = await client.aio.models.generate_content_stream(
                             model=self._model,
@@ -265,11 +265,23 @@ class GeminiLLMProvider:
                         break
                     except Exception as e:
                         msg = str(e).lower()
-                        if attempt == 0 and not chunks and (
-                            "503" in msg or "high demand" in msg or "unavailable" in msg or "overloaded" in msg
+                        if attempt < 2 and not chunks and (
+                            "503" in msg
+                            or "high demand" in msg
+                            or "unavailable" in msg
+                            or "overloaded" in msg
+                            or "429" in msg
+                            or "resource_exhausted" in msg
+                            or "rate limit" in msg
                         ):
-                            logger.warning("Gemini 503/high demand transient error, retrying in 1s: %s", e)
-                            await asyncio.sleep(1.0)
+                            delay = 3.0 * (attempt + 1)
+                            logger.warning(
+                                "Gemini transient error (attempt %d/3), retrying in %.1fs: %s",
+                                attempt + 1,
+                                delay,
+                                e,
+                            )
+                            await asyncio.sleep(delay)
                             continue
                         raise
                 if not chunks:
@@ -349,7 +361,7 @@ class GeminiLLMProvider:
 
     async def _stream_json(self, client: genai.Client, prompt: PromptPackage) -> str:
         max_output_tokens, _ = _llm_budgets(prompt)
-        for attempt in range(2):
+        for attempt in range(3):
             try:
                 chunks: list[str] = []
                 stream = await client.aio.models.generate_content_stream(
@@ -368,11 +380,23 @@ class GeminiLLMProvider:
                 return "".join(chunks)
             except Exception as e:
                 msg = str(e).lower()
-                if attempt == 0 and (
-                    "503" in msg or "high demand" in msg or "unavailable" in msg or "overloaded" in msg
+                if attempt < 2 and (
+                    "503" in msg
+                    or "high demand" in msg
+                    or "unavailable" in msg
+                    or "overloaded" in msg
+                    or "429" in msg
+                    or "resource_exhausted" in msg
+                    or "rate limit" in msg
                 ):
-                    logger.warning("Gemini 503/high demand transient error in plan, retrying in 1s: %s", e)
-                    await asyncio.sleep(1.0)
+                    delay = 3.0 * (attempt + 1)
+                    logger.warning(
+                        "Gemini transient error in plan (attempt %d/3), retrying in %.1fs: %s",
+                        attempt + 1,
+                        delay,
+                        e,
+                    )
+                    await asyncio.sleep(delay)
                     continue
                 raise
 

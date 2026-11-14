@@ -103,12 +103,11 @@ export const CANONICAL_PROVIDERS: CanonicalProvider[] = [
   {
     mode: "xkiro",
     label: "⚡ XKiro AI (Free)",
-    defaultModel: "qwen/qwen3.8-max:free",
+    defaultModel: "mistralai/codestral-2508",
     models: [
-      { id: "qwen/qwen3.8-max:free", label: "Qwen 3.8 Max (Free)", isDefault: true },
-      { id: "qwen/qwen3.7-flash:free", label: "Qwen 3.7 Flash (Free)" },
-      { id: "deepseek/deepseek-v4.1-flash:free", label: "DeepSeek V4.1 Flash (Free)" },
-      { id: "minimax/minimax-m2.7:free", label: "MiniMax M2.7 (Free)" },
+      { id: "mistralai/codestral-2508", label: "Mistral Codestral 2508", isDefault: true },
+      { id: "mistralai/ministral-14b", label: "Ministral 14B" },
+      { id: "mistralai/ministral-8b", label: "Ministral 8B" },
     ],
   },
   {
@@ -194,10 +193,11 @@ export const CANONICAL_PROVIDERS: CanonicalProvider[] = [
   {
     mode: "coarena",
     label: "✨ Coarena AI (Free Frontier)",
-    defaultModel: "claude-sonnet-5-5",
+    defaultModel: "gemini-4-argon",
     models: [
-      { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", isDefault: true },
-      { id: "gemini-4-argon", label: "Gemini 4 Argon" },
+      { id: "gemini-4-argon", label: "Gemini 4 Argon", isDefault: true },
+      { id: "gpt-6-astra", label: "GPT-6 Astra" },
+      { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5" },
       { id: "claude-opus-5-5", label: "Claude Opus 5.5" },
       { id: "claude-fable-5-2", label: "Claude Fable 5.2" },
       { id: "claude-fable-5-1", label: "Claude Fable 5.1" },
@@ -238,9 +238,13 @@ export function getStoredModelPrefs(): ModelPreferences {
     const raw = localStorage.getItem(STORAGE_KEY_MODEL_PREFS);
     if (raw) {
       const parsed = JSON.parse(raw);
+      let brainModel = parsed.brainModel ?? null;
+      if (parsed.brainMode === "xkiro" && brainModel && (brainModel.includes("qwen") || brainModel.includes("minimax"))) {
+        brainModel = "mistralai/codestral-2508";
+      }
       return {
         brainMode: parsed.brainMode ?? "auto",
-        brainModel: parsed.brainModel ?? null,
+        brainModel,
         imageEngine: parsed.imageEngine ?? "auto",
         voiceEngine: parsed.voiceEngine ?? "auto",
       };

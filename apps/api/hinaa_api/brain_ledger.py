@@ -284,6 +284,7 @@ _SETTINGS_PREFIX: dict[str, str] = {
     "ben": "articul8",
     "experiential": "explabs",
     "respan": "respan",
+    "coarena": "coarena",
 }
 
 

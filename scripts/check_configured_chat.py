@@ -23,7 +23,7 @@ from hinaa_api.brain_ledger import fingerprint_for, record_call, row_for_brain
 
 MODES = ["gmi", "openai", "custom", "real", "groq", "claude", "qwen", "agent-router",
          "cx-gateway", "codecraft", "ollama", "pgsgrove", "seekai", "tokentable",
-         "xkiro", "cavoti", "apmix", "oxion", "respan", "experiential"]
+         "xkiro", "cavoti", "apmix", "oxion", "respan", "coarena", "experiential"]
 
 
 def text_delta(data: dict) -> str:

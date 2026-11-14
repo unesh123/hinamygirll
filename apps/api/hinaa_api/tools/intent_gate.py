@@ -50,6 +50,7 @@ GATED_TOOLS = {
     "clean_room_loop",
     "terminal_hands",
     "html_anime_generate",
+    "create_motion_video",
     "mobile_run_task",
     "customgpt_query",
 }
@@ -189,7 +190,12 @@ _WEBSITE = re.compile(
 )
 _HTML_ANIME = re.compile(
     r"""(?ix) \b (?: build | create | design | make | develop | generate | code | write | draw | animate ) \b [^.?!]* \b
-        (?: anime(?:\s+(?:scene|short|clip|film|animation))? | html[\s-]?anime | hyperframes ) \b"""
+        (?: anime(?:\s+(?:scene|short|clip|film|animation|video))? | html[\s-]?anime | hyperframes |
+            (?:cinematic\s+)?(?:video|animation)\s+(?:in\s+code|by\s+code|using\s+code|without\s+(?:video\s+)?(?:models?|diffusion|ai\s+video)) ) \b"""
+)
+_MOTION_VIDEO = re.compile(
+    r"""(?ix) \b (?: build | create | design | make | develop | generate | render ) \b [^.?!]* \b
+        (?: motion\s+video | motion\s+graphics | animated\s+explainer | explainer\s+video ) \b"""
 )
 _MOBILE_TASK = re.compile(
     r"""(?ix) \b (?: mobile | android | phone | emulator ) \b [^.?!]* \b (?: open | tap | click | check | install | test | control | run | type ) \b
@@ -838,6 +844,11 @@ def _sanction_single(
     if _HTML_ANIME.search(lowered) and not META_FRAMING.search(lowered):
         sanction.allowed.add("html_anime_generate")
         sanction.parameters["html_anime_generate"] = {"logline": raw}
+        return sanction
+
+    if _MOTION_VIDEO.search(lowered) and not META_FRAMING.search(lowered):
+        sanction.allowed.add("create_motion_video")
+        sanction.parameters["create_motion_video"] = {"title": raw}
         return sanction
 
     if _MOBILE_TASK.search(lowered) and not META_FRAMING.search(lowered):

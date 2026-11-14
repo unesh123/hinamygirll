@@ -63,7 +63,26 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
 
   // Extract from envelope if present
   const envelope = result.data !== undefined ? result.data : result;
-  const data = envelope?.toolId && envelope.data !== undefined ? envelope.data : envelope;
+  const payload = envelope?.toolId && envelope.data !== undefined ? envelope.data : envelope;
+  const data = payload && typeof payload === "object" ? payload : {};
+  const layers = [result, envelope, data].filter((value) => value && typeof value === "object");
+  const failure = layers.find((value) => value.error || value.success === false || ["error", "failed", "failure"].includes(String(value.status ?? value.state ?? "").toLowerCase()));
+  if (failure) {
+    const error = failure.error;
+    const reason = [typeof error === "string" ? error : error?.message, error?.detail, failure.message, failure.detail, failure.details, failure.error_reason]
+      .find((value) => typeof value === "string" && value.trim());
+    const code = [error?.code, failure.code, failure.error_code].find((value) => typeof value === "string");
+    const researchFailure = toolName === "web_search";
+    return (
+      <div role="alert" aria-label={researchFailure ? "Research service recovery" : "Tool execution failure"} style={{ marginTop: 12, padding: 12, borderRadius: 8, border: "1px solid #dc2626", color: "var(--text-primary)", overflowWrap: "anywhere" }}>
+        <strong>{researchFailure ? "Research service needs attention" : `Tool execution failed: ${toolName}`}</strong>
+        <p>{reason || "The tool did not provide a failure reason. The requested action is not confirmed complete."}</p>
+        {code && <p>Error code: <code>{code}</code></p>}
+        {researchFailure && code === "YOUCOM_TIMEOUT" && <p>Try a narrower query or retry shortly.</p>}
+        <small>Review the reason before retrying an action that may have changed files or external services.</small>
+      </div>
+    );
+  }
 
   // Render Requires Approval
   if (result.status === 'RequiresApproval' || data.status === 'RequiresApproval') {
@@ -819,21 +838,6 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
             <div className="hinaa-markdown" style={{ marginTop: 8, fontSize: 12.5, lineHeight: 1.65, color: '#e5d8c5' }} dangerouslySetInnerHTML={{ __html: reportHtml }} />
           </details>
         )}
-      </div>
-    );
-  }
-
-  // Render error
-  if (data.error || result.status === 'error' || data.status === 'error') {
-    const errorMsg = data.error || data.details || "An error occurred";
-    return (
-      <div style={{ marginTop: 12, padding: 12, borderRadius: 8, background: 'rgba(220, 38, 38, 0.08)', border: '1px solid rgba(220, 38, 38, 0.2)' }}>
-        <div style={{ fontSize: '0.75rem', color: '#dc2626', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-          <AlertTriangle size={14} /> Tool Execution Failed ({toolName})
-        </div>
-        <div style={{ fontSize: '0.8rem', color: '#7f1d1d', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
-          {errorMsg}
-        </div>
       </div>
     );
   }

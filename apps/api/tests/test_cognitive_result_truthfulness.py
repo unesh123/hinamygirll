@@ -11,6 +11,19 @@ from hinaa_api.cognitive.kernel import CognitiveKernel
 from hinaa_api.cognitive.session_bridge import SessionBridge
 
 
+@pytest.mark.parametrize("field", ["status", "state"])
+@pytest.mark.parametrize("status", ["FAILED", "cancelled", "queued", "running", "partial", "timeout", "blocked", "unknown"])
+def test_nonterminal_and_failed_receipts_never_count_as_success(field, status):
+    from hinaa_api.cognitive.kernel import _tool_result_error
+    assert _tool_result_error({"success": True, "verified": True, field: status})
+
+
+@pytest.mark.parametrize("status", ["ok", "success", "completed", "SUCCEEDED"])
+def test_consistent_verified_terminal_receipts_remain_valid(status):
+    from hinaa_api.cognitive.kernel import _tool_result_error
+    assert _tool_result_error({"success": True, "verified": True, "status": status}) is None
+
+
 def kernel_fixture(tmp_path, monkeypatch, result):
     import hinaa_api.tools.computer_operator as computer
     import hinaa_api.tools.intent_gate as intents
@@ -28,6 +41,9 @@ def kernel_fixture(tmp_path, monkeypatch, result):
 @pytest.mark.parametrize("result", [
     {"success": False, "detail": "Launch failed"},
     {"success": True, "verified": False, "detail": "Window never appeared"},
+    {"success": True, "verified": True, "status": "failed", "error": "Launch denied"},
+    {"success": True, "verified": True, "status": "cancelled"},
+    {"success": True, "verified": True, "error": "Verification timed out"},
     {"success": True, "detail": "Process spawned; no verification supplied"},
     {"success": True, "verified": True, "data": None},
     "Launching test-editor...",

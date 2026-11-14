@@ -133,7 +133,14 @@ def _llm_stream_char_budget() -> int:
 def _messages(prompt: PromptPackage) -> list[dict[str, Any]]:
     from hinaa_api.models import safe_extract_display_text
 
-    system_msg = {"role": "system", "content": prompt.system_instruction}
+    if isinstance(prompt, str):
+        return [
+            {"role": "system", "content": "You are Hina."},
+            {"role": "user", "content": prompt},
+        ]
+
+    system_instruction = getattr(prompt, "system_instruction", "") or ""
+    system_msg = {"role": "system", "content": system_instruction}
     messages: list[dict[str, Any]] = [system_msg]
 
     attachments = getattr(prompt, "attachments", None) or []
@@ -181,12 +188,15 @@ def _messages(prompt: PromptPackage) -> list[dict[str, Any]]:
         return messages
 
     # Fallback to contiguous user_contents
-    if isinstance(prompt.user_contents, str):
-        user_text = prompt.user_contents
-    elif isinstance(prompt.user_contents, (list, tuple)):
-        user_text = "\n\n".join(str(item) for item in prompt.user_contents)
+    contents = getattr(prompt, "user_contents", None)
+    if isinstance(contents, str):
+        user_text = contents
+    elif isinstance(contents, (list, tuple)):
+        user_text = "\n\n".join(str(item) for item in contents)
+    elif contents is not None:
+        user_text = str(contents)
     else:
-        user_text = str(prompt.user_contents)
+        user_text = getattr(prompt, "raw_user_text", "") or ""
 
     if not image_parts:
         messages.append({"role": "user", "content": user_text})
@@ -403,7 +413,7 @@ class OpenAILLMProvider:
                     text=fallback_text,
                     companion_id=companion_id,
                     language=language,
-                    depth=prompt.response_depth,
+                    depth=getattr(prompt, "response_depth", "normal"),
                 )
                 try:
                     import json
@@ -553,7 +563,7 @@ class OpenAILLMProvider:
                 max_continuations=_orchestrator_continuations(prompt),
                 char_budget=_llm_stream_char_budget(),
                 generation_id=f"{self._provider_id}:{started:.0f}",
-                min_words=depth_word_floor(prompt.response_depth),
+                min_words=depth_word_floor(getattr(prompt, "response_depth", "normal")),
             )
             outcome = await orchestrator.run(
                 first_segment_stream=_first_stream(),
@@ -579,7 +589,7 @@ class OpenAILLMProvider:
                 text=answer,
                 companion_id=companion_id,
                 language=language,
-                depth=prompt.response_depth,
+                depth=getattr(prompt, "response_depth", "normal"),
             )
             if not plan.thinking and first_decoder and first_decoder.thinking:
                 plan.thinking = first_decoder.thinking
@@ -617,17 +627,27 @@ class OpenAILLMProvider:
         # QwenCloud & custom gateways document `max_tokens`; standard
         # OpenAI uses `max_completion_tokens`. Both get the full budget.
         payload["max_tokens" if self._provider_id in {"qwen", "agent-router", "codecraft"} | _GATEWAY_PROVIDERS else "max_completion_tokens"] = _llm_budget_tokens(prompt)
-        async with _pooled_client() as client:
-            response = await client.post(
-                self._chat_url(),
-                headers=self._headers(),
-                json=payload,
-            )
-        self._raise_for_status(response)
-        data = response.json()
-        choices = data.get("choices") or []
-        content = choices[0].get("message", {}).get("content") if choices else None
-        return content if isinstance(content, str) else ""
+        last_resp: httpx.Response | None = None
+        num_keys = max(1, len(self._keys))
+        for key_idx in range(num_keys):
+            async with _pooled_client() as client:
+                response = await client.post(
+                    self._chat_url(),
+                    headers=self._headers(),
+                    json=payload,
+                )
+            last_resp = response
+            if response.status_code in {401, 403, 429} and key_idx < num_keys - 1:
+                self._rotate_key()
+                continue
+            self._raise_for_status(response)
+            data = response.json()
+            choices = data.get("choices") or []
+            content = choices[0].get("message", {}).get("content") if choices else None
+            return content if isinstance(content, str) else ""
+        if last_resp is not None:
+            self._raise_for_status(last_resp)
+        return ""
 
     def _effective_temperature(self, default: float) -> float:
         if self._provider_id == "experiential" or self._model == "claude-opus-5.5":
@@ -643,28 +663,33 @@ class OpenAILLMProvider:
         models_to_try = [self._model_for_payload()]
         last_resp: httpx.Response | None = None
         for candidate_model in models_to_try:
-            payload = {
-                "model": candidate_model,
-                "messages": _messages(prompt),
-                "temperature": self._effective_temperature(0.35),
-                # Dynamically budgeted tokens based on turn depth and interaction mode
-                "max_tokens": _llm_budget_tokens(prompt),
-            }
-            async with _pooled_client() as client:
-                response = await client.post(
-                    self._chat_url(),
-                    headers=self._headers(),
-                    json=payload,
-                )
-            last_resp = response
-            if response.status_code in {429, 503} and len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
-                continue
-            self._raise_for_status(response)
-            data = response.json()
-            choices = data.get("choices") or []
-            msg = choices[0].get("message", {}) if choices else {}
-            content = msg.get("content") or msg.get("reasoning") or msg.get("reasoning_content")
-            return content if isinstance(content, str) else ""
+            num_keys = max(1, len(self._keys))
+            for key_idx in range(num_keys):
+                payload = {
+                    "model": candidate_model,
+                    "messages": _messages(prompt),
+                    "temperature": self._effective_temperature(0.35),
+                    # Dynamically budgeted tokens based on turn depth and interaction mode
+                    "max_tokens": _llm_budget_tokens(prompt),
+                }
+                async with _pooled_client() as client:
+                    response = await client.post(
+                        self._chat_url(),
+                        headers=self._headers(),
+                        json=payload,
+                    )
+                last_resp = response
+                if response.status_code in {401, 403, 429} and key_idx < num_keys - 1:
+                    self._rotate_key()
+                    continue
+                if response.status_code in {429, 503} and len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
+                    break
+                self._raise_for_status(response)
+                data = response.json()
+                choices = data.get("choices") or []
+                msg = choices[0].get("message", {}) if choices else {}
+                content = msg.get("content") or msg.get("reasoning") or msg.get("reasoning_content")
+                return content if isinstance(content, str) else ""
         if last_resp is not None:
             self._raise_for_status(last_resp)
         return ""
@@ -680,21 +705,31 @@ class OpenAILLMProvider:
                 {"role": "user", "content": "\n\n".join(schema_repair_contents(invalid_raw))},
             ],
             "temperature": self._effective_temperature(0.0),
-            "max_completion_tokens": 4096,
+            ("max_tokens" if self._provider_id in {"qwen", "agent-router", "codecraft"} | _GATEWAY_PROVIDERS else "max_completion_tokens"): 4096,
             "response_format": {"type": "json_object"},
         }
-        async with _pooled_client() as client:
-            response = await client.post(
-                self._chat_url(),
-                headers=self._headers(),
-                json=payload,
-            )
-        self._raise_for_status(response)
-        data = response.json()
-        choices = data.get("choices") or []
-        msg = choices[0].get("message", {}) if choices else {}
-        content = msg.get("content") or msg.get("reasoning") or msg.get("reasoning_content")
-        return content if isinstance(content, str) else ""
+        last_resp: httpx.Response | None = None
+        num_keys = max(1, len(self._keys))
+        for key_idx in range(num_keys):
+            async with _pooled_client() as client:
+                response = await client.post(
+                    self._chat_url(),
+                    headers=self._headers(),
+                    json=payload,
+                )
+            last_resp = response
+            if response.status_code in {401, 403, 429} and key_idx < num_keys - 1:
+                self._rotate_key()
+                continue
+            self._raise_for_status(response)
+            data = response.json()
+            choices = data.get("choices") or []
+            msg = choices[0].get("message", {}) if choices else {}
+            content = msg.get("content") or msg.get("reasoning") or msg.get("reasoning_content")
+            return content if isinstance(content, str) else ""
+        if last_resp is not None:
+            self._raise_for_status(last_resp)
+        return ""
 
     async def _stream_text(
         self, prompt: PromptPackage, finish_reason_holder: dict[str, str | None] | None = None
@@ -712,92 +747,102 @@ class OpenAILLMProvider:
         models_to_try = [primary_model]
 
         for candidate_model in models_to_try:
-            if self._provider_id in {"qwen", "codecraft", "agent-router"} | _GATEWAY_PROVIDERS:
-                payload: dict[str, object] = {
-                    "model": candidate_model,
-                    "messages": _messages(prompt),
-                    "temperature": stream_temp,
-                    "max_tokens": budget,
-                    "stream": True,
-                }
-            else:
-                payload = {
-                    "model": candidate_model,
-                    "messages": _messages(prompt),
-                    "temperature": 0.45,
-                    "max_completion_tokens": budget,
-                    "stream": True,
-                }
-            streamed_any = False
-            stream_failed_early = False
-            try:
-                async with _pooled_client() as client:
-                    async with client.stream(
-                        "POST",
-                        self._chat_url(),
-                        headers=self._headers(),
-                        json=payload,
-                    ) as response:
-                        if (response.status_code >= 400 or response.status_code in {429, 503}) and len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
-                            stream_failed_early = True
-                        else:
-                            self._raise_for_status(response)
-                            in_thought = False
-                            async for line in response.aiter_lines():
-                                if not line.startswith("data:"):
-                                    continue
-                                event = line.removeprefix("data:").strip()
-                                if event == "[DONE]":
+            num_keys = max(1, len(self._keys))
+            for key_idx in range(num_keys):
+                if self._provider_id in {"qwen", "codecraft", "agent-router"} | _GATEWAY_PROVIDERS:
+                    payload: dict[str, object] = {
+                        "model": candidate_model,
+                        "messages": _messages(prompt),
+                        "temperature": stream_temp,
+                        "max_tokens": budget,
+                        "stream": True,
+                    }
+                else:
+                    payload = {
+                        "model": candidate_model,
+                        "messages": _messages(prompt),
+                        "temperature": 0.45,
+                        "max_completion_tokens": budget,
+                        "stream": True,
+                    }
+                streamed_any = False
+                stream_failed_early = False
+                key_failed_early = False
+                try:
+                    async with _pooled_client() as client:
+                        async with client.stream(
+                            "POST",
+                            self._chat_url(),
+                            headers=self._headers(),
+                            json=payload,
+                        ) as response:
+                            if response.status_code in {401, 403, 429} and key_idx < num_keys - 1:
+                                self._rotate_key()
+                                key_failed_early = True
+                            elif (response.status_code >= 400 or response.status_code in {429, 503}) and len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
+                                stream_failed_early = True
+                            else:
+                                self._raise_for_status(response)
+                                in_thought = False
+                                async for line in response.aiter_lines():
+                                    if not line.startswith("data:"):
+                                        continue
+                                    event = line.removeprefix("data:").strip()
+                                    if event == "[DONE]":
+                                        if finish_reason_holder is not None and not finish_reason_holder.get("value"):
+                                            finish_reason_holder["value"] = "stop"
+                                        break
+                                    try:
+                                        data = json.loads(event)
+                                    except json.JSONDecodeError:
+                                        continue
+                                    if isinstance(data, dict) and "error" in data:
+                                        if len(models_to_try) > 1 and candidate_model != models_to_try[-1] and not streamed_any:
+                                            stream_failed_early = True
+                                            break
+                                        err_msg = data["error"].get("message", "Upstream stream error")
+                                        raise HinaaError("PROVIDER_UNAVAILABLE", err_msg, 502, True)
+                                    choices = data.get("choices") or []
+                                    if not choices:
+                                        continue
+                                    if finish_reason_holder is not None:
+                                        raw_fr = choices[0].get("finish_reason")
+                                        if raw_fr:
+                                            finish_reason_holder["value"] = str(raw_fr)
+                                    delta_dict = choices[0].get("delta") or {}
+                                    content_chunk = delta_dict.get("content")
+                                    reasoning_chunk = delta_dict.get("reasoning_content") or delta_dict.get("reasoning")
+                                    if isinstance(reasoning_chunk, str) and reasoning_chunk:
+                                        streamed_any = True
+                                        if not in_thought:
+                                            in_thought = True
+                                            yield "<think>"
+                                        yield reasoning_chunk
+                                    if isinstance(content_chunk, str) and content_chunk:
+                                        streamed_any = True
+                                        if in_thought:
+                                            in_thought = False
+                                            yield "</think>\n\n"
+                                        yield content_chunk
+                                if not streamed_any and len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
+                                    stream_failed_early = True
+                                elif streamed_any:
                                     if finish_reason_holder is not None and not finish_reason_holder.get("value"):
                                         finish_reason_holder["value"] = "stop"
-                                    break
-                                try:
-                                    data = json.loads(event)
-                                except json.JSONDecodeError:
-                                    continue
-                                if isinstance(data, dict) and "error" in data:
-                                    if len(models_to_try) > 1 and candidate_model != models_to_try[-1] and not streamed_any:
-                                        stream_failed_early = True
-                                        break
-                                    err_msg = data["error"].get("message", "Upstream stream error")
-                                    raise HinaaError("PROVIDER_UNAVAILABLE", err_msg, 502, True)
-                                choices = data.get("choices") or []
-                                if not choices:
-                                    continue
-                                if finish_reason_holder is not None:
-                                    raw_fr = choices[0].get("finish_reason")
-                                    if raw_fr:
-                                        finish_reason_holder["value"] = str(raw_fr)
-                                delta_dict = choices[0].get("delta") or {}
-                                content_chunk = delta_dict.get("content")
-                                reasoning_chunk = delta_dict.get("reasoning_content") or delta_dict.get("reasoning")
-                                if isinstance(reasoning_chunk, str) and reasoning_chunk:
-                                    streamed_any = True
-                                    if not in_thought:
-                                        in_thought = True
-                                        yield "<think>"
-                                    yield reasoning_chunk
-                                if isinstance(content_chunk, str) and content_chunk:
-                                    streamed_any = True
                                     if in_thought:
-                                        in_thought = False
                                         yield "</think>\n\n"
-                                    yield content_chunk
-                            if not streamed_any and len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
-                                stream_failed_early = True
-                            elif streamed_any:
-                                if finish_reason_holder is not None and not finish_reason_holder.get("value"):
-                                    finish_reason_holder["value"] = "stop"
-                                if in_thought:
-                                    yield "</think>\n\n"
-                                return
-            except Exception:
-                if len(models_to_try) > 1 and candidate_model != models_to_try[-1] and not streamed_any:
-                    stream_failed_early = True
-                else:
-                    raise
-            if stream_failed_early:
-                continue
+                                    return
+                except Exception:
+                    if key_failed_early:
+                        continue
+                    if len(models_to_try) > 1 and candidate_model != models_to_try[-1] and not streamed_any:
+                        stream_failed_early = True
+                    else:
+                        raise
+                if key_failed_early:
+                    continue
+                if stream_failed_early:
+                    break
 
     def _headers(self) -> dict[str, str]:
         headers: dict[str, str] = {

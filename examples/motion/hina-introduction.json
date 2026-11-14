@@ -1,0 +1,12 @@
+{
+  "operation": "TIMELINE_EXPORT",
+  "prompt": "Hina motion studio introduction",
+  "width": 960,
+  "height": 540,
+  "fps": 24,
+  "motion_scenes": [
+    {"title":"Ideas into motion.","subtitle":"An editable story, rendered through code.","label":"01 / HINA MOTION STUDIO","duration":4,"layout":"orbit","accent":"#b49aff"},
+    {"title":"Build the story.","subtitle":"Shape the message. Set the pace. Refine every scene.","label":"02 / DESIGN WITH INTENT","duration":4,"layout":"steps","accent":"#63ddd0"},
+    {"title":"Ready to share.","subtitle":"Local rendering. Validated video. Editable source.","label":"03 / FROM CODE TO VIDEO","duration":4,"layout":"bars","accent":"#ffb881"}
+  ]
+}

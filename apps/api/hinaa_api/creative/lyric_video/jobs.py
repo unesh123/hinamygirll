@@ -118,7 +118,7 @@ class LyricVideoService:
                 out = Path(work) / f"{job.job_id}.mp4"
                 result = await asyncio.to_thread(render_lyric_video, job.spec, out, on_progress, job.cancel_event)
                 job.state = JobState.VALIDATING
-                meta = creative_asset_manager.store_asset(
+                meta = await asyncio.to_thread(creative_asset_manager.store_asset,
                     data=out.read_bytes(), filename=f"lyric_video_{job.job_id}.mp4",
                     operation=CreativeOperation.TIMELINE_EXPORT, provider="lyric_video_html",
                     model_version="html-frame-clock-v1", tenant_id=job.tenant_id, user_id=job.user_id,

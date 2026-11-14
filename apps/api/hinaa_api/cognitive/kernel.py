@@ -49,6 +49,16 @@ def _tool_result_error(result: Any) -> str | None:
     """A returned value is not proof that an external action succeeded."""
     if not isinstance(result, dict):
         return "TOOL_RESULT_INVALID: expected a structured execution result"
+    # Conflicting receipts must fail closed. A boolean success flag cannot
+    # override an explicit failure, cancellation, or unfinished status.
+    if result.get("error") or result.get("error_code"):
+        return "TOOL_EXECUTION_FAILED: execution receipt contains an error"
+    for field in ("status", "state"):
+        status = result.get(field)
+        if status is not None and str(getattr(status, "value", status)).strip().lower() not in {"ok", "success", "completed", "succeeded"}:
+            return "TOOL_EXECUTION_UNVERIFIED: receipt is not a successful terminal result"
+    if "data" in result and not isinstance(result["data"], dict):
+        return "TOOL_RESULT_INVALID: execution data must be structured"
     if result.get("success") is not True:
         return "TOOL_EXECUTION_FAILED: tool did not report success"
     if result.get("verified") is not True:

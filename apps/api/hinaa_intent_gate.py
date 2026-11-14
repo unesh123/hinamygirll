@@ -410,7 +410,7 @@ def decide(
         # Any document mention or non-image deliverable is NEVER an image generation job.
         if (
             DOCUMENT_MENTION.search(requested_subject)
-            or re.search(r"\b(?:code|program|script|summary|essay|text|table|json|csv|website|landing\s+page|decision|reminder|folders?|directories|directory|files?|drives?|disks?|repos?|repository|workspaces?|projects?)\b", requested_subject, re.I)
+            or re.search(r"\b(?:video|videos|animation|animations|anime|motion\s+video|motion\s+graphics|explainer|film|films|movie|movies|clip|clips|code|program|script|summary|essay|text|table|json|csv|website|landing\s+page|decision|reminder|folders?|directories|directory|files?|drives?|disks?|repos?|repository|workspaces?|projects?)\b", requested_subject, re.I)
             or re.search(r"\b(?:folder\s+named|named\s+[\"'].+?[\"']|on\s+(?:the\s+)?(?:local\s*)?[a-z]:?|drive|laptop|computer|desktop)\b", requested_subject, re.I)
         ):
             return Decision(Intent.CHAT)

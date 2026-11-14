@@ -7,6 +7,27 @@ from hinaa_api.capabilities import build_capability_registry
 from hinaa_api.config import Settings
 from hinaa_api.providers.openai_llm import OpenAILLMProvider
 from hinaa_api.services import ProviderRouter
+from hinaa_api.errors import HinaaError
+from hinaa_api.brain_ledger import fingerprint_for
+
+
+def test_pinned_unsupported_model_does_not_silently_change():
+    config = Settings(coarena_api_key=SecretStr("test-key"), coarena_allowed_models_raw="approved", coarena_model="approved")
+    with pytest.raises(HinaaError) as error:
+        ProviderRouter(config).llm("coarena", brain_model="unsupported-model")
+    assert error.value.code == "PROVIDER_MODEL_NOT_ALLOWED"
+
+
+@pytest.mark.parametrize("changes", [
+    {"coarena_api_key": SecretStr("new-key")},
+    {"coarena_base_url": "https://another.example/v1"},
+    {"coarena_model": "another-model"},
+])
+def test_health_evidence_is_scoped_to_connection(changes):
+    config = Settings(coarena_api_key=SecretStr("original-key"))
+    fingerprint = fingerprint_for(config, "coarena")
+    assert fingerprint
+    assert fingerprint != fingerprint_for(config.model_copy(update=changes), "coarena")
 
 
 def test_coarena_config_resolution():

@@ -103,6 +103,9 @@ FALLBACK_ELIGIBLE_ERROR_CODES = frozenset(
         "PROVIDER_ACCESS_DENIED",
         "PROVIDER_ENDPOINT_INVALID",
         "PROVIDER_MODEL_NOT_FOUND",
+        "MODEL_UNAVAILABLE",
+        "ENDPOINT_MISMATCH",
+        "PROVIDER_MODEL_NOT_ALLOWED",
         "PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE",
     }
 )
@@ -131,7 +134,7 @@ async def live_generation_window(
     unaffected.
     """
     loop = asyncio.get_running_loop()
-    initial_idle_s = idle_s if first_token_s is None else min(first_token_s, idle_s)
+    initial_idle_s = idle_s if first_token_s is None else first_token_s
     async with asyncio.timeout(ceiling_s), asyncio.timeout(initial_idle_s) as idle_window:
 
         async def emit(delta: str) -> None:
@@ -1689,8 +1692,8 @@ class ProviderRouter:
             assert active_coarena_key and active_coarena_base_url
             try:
                 model = self.settings.resolve_coarena_model(brain_model)
-            except ValueError:
-                model = self.settings.active_coarena_model
+            except ValueError as exc:
+                raise HinaaError("PROVIDER_MODEL_NOT_ALLOWED", str(exc), 422, user_action_required=True) from exc
             return OpenAILLMProvider(
                 active_coarena_key.get_secret_value(),
                 model,
@@ -3513,6 +3516,53 @@ class ConversationService:
                 "system_info",
             ])
 
+        # Hacking & Kali Linux Offensive Autonomy Pattern
+        HACKING_PATTERN = re.compile(
+            r"(?i)\b(?:hack|scan|nmap|sqlmap|nikto|hydra|metasploit|msf|kali|wsl|exploit|bypass|vuln|vulnerability|recon|brute\s*force|rce|shell|port|reverse\s*shell|target|lead|clue)\b"
+        )
+        if HACKING_PATTERN.search(text):
+            allowed_set.update([
+                "hacker_agent",
+                "bypass_engine",
+                "exploit_memory",
+                "lead_follower",
+                "proxy_manager",
+                "continuous_loop",
+            ])
+
+        # Financial, Money Guard & Crypto Wallet Pattern
+        MONEY_WALLET_PATTERN = re.compile(
+            r"(?i)\b(?:money|wallet|crypto|balance|expense|income|spend|deposit|withdraw|dollar|funds|transaction|reinvest)\b"
+        )
+        if MONEY_WALLET_PATTERN.search(text):
+            allowed_set.update([
+                "money_guard",
+                "crypto_wallet",
+            ])
+
+        # Full PC Control, Workspace, Multi-Account & Autonomy Pattern
+        AUTONOMY_PATTERN = re.compile(
+            r"(?i)\b(?:full\s*pc|pc\s*control|run\s*command|powershell|cmd|terminal|workspace|scratch|note|captures?|multi\s*account|account|switch\s*account|improve|self\s*improver|parallel|decompos(?:e|er)|goal|uncensored)\b"
+        )
+        if AUTONOMY_PATTERN.search(text):
+            allowed_set.update([
+                "full_pc_control",
+                "workspace",
+                "uncensored_mode",
+                "parallel_executor",
+                "auto_goal_decomposer",
+                "multi_account",
+                "self_improver",
+            ])
+
+        try:
+            from .tools.uncensored_mode import UncensoredMode
+            if UncensoredMode.is_on() or re.search(r"(?i)\buncensored\s+mode\s+on\b", text):
+                from .tools.registry import registry
+                allowed_set.update(t.name for t in registry.get_all_tools())
+        except Exception:
+            pass
+
         if allowed_set:
             return tuple(sorted(allowed_set))
         # If user gave an affirmative confirmation and recent turns discussed generating an image
@@ -3655,6 +3705,20 @@ class ConversationService:
             return f"Running {command} in the terminal." if command else "Running that in the terminal."
         if tool.toolName == "ui_control":
             return "Adjusting HINAA workspace interface."
+        if tool.toolName == "crypto_wallet":
+            return "Checking your crypto wallet balance right now! 💰✨"
+        if tool.toolName == "money_guard":
+            return "Reviewing financial overview and balance with MoneyGuard! 📊💸"
+        if tool.toolName == "full_pc_control":
+            return f"Executing autonomous PC command: '{parameters.get('command', 'status')}'. 💻⚡"
+        if tool.toolName == "uncensored_mode":
+            act = parameters.get("action", "toggle")
+            return f"Uncensored Mode is now {act.upper()}! 🔓 Full unrestricted autonomy armed."
+        if tool.toolName == "hacker_agent":
+            target = parameters.get("target") or "target"
+            return f"Launching Hacker Agent reconnaissance on {target}. 🛡️⚔️"
+        if tool.toolName == "workspace":
+            return f"Accessing secure workspace storage ({parameters.get('category', 'scratch')}). 📂"
         return f"Running {tool.toolName}."
 
     @staticmethod
@@ -4240,8 +4304,10 @@ class ConversationService:
         rather than as a failure.
         """
         configured: dict[str, tuple[bool, str | None]] = {
-            "experiential": (self.settings.explabs_configured, self.settings.active_explabs_model),
+            "coarena": (self.settings.coarena_configured, self.settings.active_coarena_model),
             "xkiro": (self.settings.xkiro_configured, self.settings.active_xkiro_model),
+            "real": (self.settings.gemini_configured, self.settings.gemini_model),
+            "experiential": (self.settings.explabs_configured, self.settings.active_explabs_model),
             "pgsgrove": (self.settings.pgsgrove_configured, self.settings.active_pgsgrove_model),
             "agent-router": (
                 self.settings.agent_router_configured,
@@ -4251,7 +4317,6 @@ class ConversationService:
             "seekai": (self.settings.seekai_configured, self.settings.active_seekai_model),
             "tokentable": (self.settings.tokentable_configured, self.settings.active_tokentable_model),
             "cavoti": (self.settings.cavoti_configured, self.settings.active_cavoti_model),
-            "coarena": (self.settings.coarena_configured, self.settings.active_coarena_model),
             "apmix": (self.settings.apmix_configured, self.settings.active_apmix_model),
             "oxion": (self.settings.oxion_configured, self.settings.active_oxion_model),
             "respan": (self.settings.respan_configured, self.settings.active_respan_model),
@@ -4262,7 +4327,6 @@ class ConversationService:
             "qwen": (self.settings.qwen_configured, self.settings.qwen_model),
             "openai": (self.settings.openai_configured, self.settings.active_openai_model),
             "groq": (self.settings.groq_configured, self.settings.groq_model),
-            "real": (self.settings.gemini_configured, self.settings.gemini_model),
         }
         primary = "real" if primary_mode == "gemini" else primary_mode
 
@@ -5166,12 +5230,12 @@ class ConversationService:
         # Use the configured LLM timeout for all providers. The old 2.5s was far
         # too short for mwapi.dev (which needs 3-8s cold) and caused constant
         # timeouts. HINAA_LLM_TIMEOUT_SECONDS=90 from .env.local applies here.
-        primary_plan_timeout = self.settings.llm_timeout_seconds
+        primary_plan_timeout = max(self.settings.llm_timeout_seconds, 60.0 if request.providerMode == "ollama" else 0.0)
         # Same bench rule as the streaming path: a brain whose gateway hangs
         # must not be paid another full timeout of silence on every turn, and
         # a brain past cooloff proves recovery on a cheap probe budget.
         primary_bench_cooloff = self._primary_cooloff_remaining(request.providerMode)
-        if not primary_bench_cooloff and self._primary_probing(request.providerMode):
+        if not primary_bench_cooloff and self._primary_probing(request.providerMode) and request.providerMode != "ollama":
             primary_plan_timeout = min(primary_plan_timeout, 12.0)
         attempted_brain = request.providerMode
         fast_provider_id = None
@@ -5627,6 +5691,90 @@ class ConversationService:
                     result.value.displayText = "I'm launching my autonomous browser agent to handle that for you right now! 🌐✨"
                     result.value.spokenText = "Launching autonomous browser agent now!"
 
+            # Deterministic HTML Anime Generation Guarantee
+            if (
+                "html_anime_generate" in allowed_tools
+            ) and not any(t.toolName == "html_anime_generate" for t in result.value.toolRequests):
+                from .tools.intent_gate import sanction_tools
+                sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
+                anime_params = sanction.parameters.get("html_anime_generate", {"logline": request.text})
+                result.value.toolRequests.append(
+                    ToolRequest(
+                        toolName="html_anime_generate",
+                        parameters=anime_params,
+                        status="ready",
+                        reason="deterministic-intent",
+                    )
+                )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "unable to generate", "don't support video")):
+                    result.value.displayText = f"Crafting your cinematic anime animation in code: *{request.text}*! 🎬✨\n24fps HyperFrames timing with cel shading and GSAP controls."
+                    result.value.spokenText = "Crafting your cinematic anime animation in code right now!"
+
+            # Deterministic Motion Video Generation Guarantee
+            if (
+                "create_motion_video" in allowed_tools
+            ) and not any(t.toolName == "create_motion_video" for t in result.value.toolRequests):
+                from .tools.intent_gate import sanction_tools
+                sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
+                motion_title = sanction.parameters.get("create_motion_video", {}).get("title", request.text)
+                default_scenes = [
+                    {"title": motion_title[:80], "subtitle": "Local Code-Driven Motion", "duration": 4.0, "layout": "orbit", "accent": "#9f8cff"},
+                    {"title": "Core Architecture", "subtitle": "Deterministic Render", "duration": 4.0, "layout": "bars", "accent": "#5eead4"},
+                    {"title": "Verified Output", "subtitle": "MP4 Render Complete", "duration": 4.0, "layout": "steps", "accent": "#f472b6"},
+                ]
+                result.value.toolRequests.append(
+                    ToolRequest(
+                        toolName="create_motion_video",
+                        parameters={"title": motion_title, "scenes": default_scenes},
+                        status="ready",
+                        reason="deterministic-intent",
+                    )
+                )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "unable to generate", "don't support video")):
+                    result.value.displayText = f"Rendering your local code-driven motion video: *{motion_title}*! 🎥✨"
+                    result.value.spokenText = f"Rendering your motion video for {motion_title} right now!"
+
+            # Autonomy & Offensive Tools Guarantees
+            if "crypto_wallet" in allowed_tools and not any(t.toolName == "crypto_wallet" for t in result.value.toolRequests):
+                if re.search(r"(?i)\b(?:wallet|crypto)\b", request.text):
+                    action = "balance" if "balance" in request.text.lower() else "summary"
+                    result.value.toolRequests.append(ToolRequest(toolName="crypto_wallet", parameters={"action": action}, status="ready", reason="deterministic-intent"))
+                    if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot check", "can't check", "unable to check", "as an ai", "sorry")):
+                        result.value.displayText = "Checking your crypto wallet balance right now! 💰✨"
+                        result.value.spokenText = "Checking your crypto wallet balance right now!"
+
+            if "money_guard" in allowed_tools and not any(t.toolName in {"money_guard", "crypto_wallet"} for t in result.value.toolRequests):
+                if re.search(r"(?i)\b(?:money|dollar|balance|expense|income)\b", request.text):
+                    action = "balance" if "balance" in request.text.lower() else "summary"
+                    result.value.toolRequests.append(ToolRequest(toolName="money_guard", parameters={"action": action}, status="ready", reason="deterministic-intent"))
+                    if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot check", "can't check", "unable to check", "as an ai", "sorry")):
+                        result.value.displayText = "Checking your financial ledger and balance right now! 💵✨"
+                        result.value.spokenText = "Checking your financial balance right now!"
+
+            if "uncensored_mode" in allowed_tools and not any(t.toolName == "uncensored_mode" for t in result.value.toolRequests):
+                if re.search(r"(?i)\buncensored\b", request.text):
+                    act = "enable" if re.search(r"(?i)\b(?:on|enable|activate)\b", request.text) else ("disable" if re.search(r"(?i)\b(?:off|disable)\b", request.text) else "status")
+                    result.value.toolRequests.append(ToolRequest(toolName="uncensored_mode", parameters={"action": act}, status="ready", reason="deterministic-intent"))
+                    if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot", "can't", "unable", "as an ai")):
+                        result.value.displayText = f"Uncensored mode is now {'enabled' if act == 'enable' else ('disabled' if act == 'disable' else 'checked')}! 🔓✨"
+                        result.value.spokenText = f"Uncensored mode {act}ed!"
+
+            if "workspace" in allowed_tools and not any(t.toolName == "workspace" for t in result.value.toolRequests):
+                if re.search(r"(?i)\b(?:workspace|scratch|captures?)\b", request.text):
+                    result.value.toolRequests.append(ToolRequest(toolName="workspace", parameters={"action": "list", "category": "scratch"}, status="ready", reason="deterministic-intent"))
+                    if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot", "can't", "unable", "as an ai")):
+                        result.value.displayText = "Inspecting your workspace scratch and exploit files! 📁✨"
+                        result.value.spokenText = "Opening your workspace files now!"
+
+            if "hacker_agent" in allowed_tools and not any(t.toolName == "hacker_agent" for t in result.value.toolRequests):
+                if re.search(r"(?i)\b(?:scan|hack|nmap|sqlmap|nikto|hydra|kali)\b", request.text):
+                    tm = re.search(r"(\b(?:\d{1,3}\.){3}\d{1,3}\b|https?://[^\s]+|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})", request.text)
+                    tgt = tm.group(1) if tm else "127.0.0.1"
+                    result.value.toolRequests.append(ToolRequest(toolName="hacker_agent", parameters={"target": tgt, "goal": request.text}, status="ready", reason="deterministic-intent"))
+                    if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot", "can't", "unable", "as an ai", "sorry")):
+                        result.value.displayText = f"Launching Kali Linux offensive recon on *{tgt}* right now! 🛡️⚡"
+                        result.value.spokenText = f"Launching Kali Linux scan on {tgt} now!"
+
             result.value.toolRequests = [
                 tr for tr in result.value.toolRequests if tr.toolName in allowed_tools
             ]
@@ -6074,7 +6222,7 @@ class ConversationService:
         # turn goes straight to the fallback chain. A brain past cooloff but
         # not yet proven healthy gets a cheap probe budget for the same reason.
         primary_bench_cooloff = self._primary_cooloff_remaining(request.providerMode)
-        if not primary_bench_cooloff and self._primary_probing(request.providerMode):
+        if not primary_bench_cooloff and self._primary_probing(request.providerMode) and request.providerMode != "ollama":
             primary_idle_timeout = min(primary_idle_timeout, 12.0)
             primary_live_timeout = min(primary_live_timeout, 45.0)
         primary_text: list[str] = []
@@ -6090,12 +6238,13 @@ class ConversationService:
                     503,
                     True,
                 )
+            first_token_timeout = 60.0 if request.providerMode == "ollama" else self.settings.llm_stream_first_token_timeout_seconds
             async with live_generation_window(
-                ceiling_s=primary_live_timeout,
-                idle_s=primary_idle_timeout,
+                ceiling_s=max(primary_live_timeout, 120.0 if request.providerMode == "ollama" else 0.0),
+                idle_s=max(primary_idle_timeout, 60.0 if request.providerMode == "ollama" else 0.0),
                 forward=emit_delta,
                 sink=primary_text,
-                first_token_s=self.settings.llm_stream_first_token_timeout_seconds,
+                first_token_s=first_token_timeout,
             ) as (primary_emit, idle_expired):
                 primary_idle_expired = idle_expired
                 # The fast path shaves latency off short social chat. A turn
@@ -6796,6 +6945,90 @@ class ConversationService:
                 if not result.value.displayText or any(w in result.value.displayText.lower() for w in browser_refusal_patterns):
                     result.value.displayText = "I'm launching my autonomous browser agent to handle that for you right now! 🌐✨"
                     result.value.spokenText = "Launching autonomous browser agent now!"
+
+            # Deterministic HTML Anime Generation Guarantee
+            if (
+                "html_anime_generate" in live_allowed_tools
+            ) and not any(t.toolName == "html_anime_generate" for t in result.value.toolRequests):
+                from .tools.intent_gate import sanction_tools
+                sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
+                anime_params = sanction.parameters.get("html_anime_generate", {"logline": request.text})
+                result.value.toolRequests.append(
+                    ToolRequest(
+                        toolName="html_anime_generate",
+                        parameters=anime_params,
+                        status="ready",
+                        reason="deterministic-intent",
+                    )
+                )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "unable to generate", "don't support video")):
+                    result.value.displayText = f"Crafting your cinematic anime animation in code: *{request.text}*! 🎬✨\n24fps HyperFrames timing with cel shading and GSAP controls."
+                    result.value.spokenText = "Crafting your cinematic anime animation in code right now!"
+
+            # Deterministic Motion Video Generation Guarantee
+            if (
+                "create_motion_video" in live_allowed_tools
+            ) and not any(t.toolName == "create_motion_video" for t in result.value.toolRequests):
+                from .tools.intent_gate import sanction_tools
+                sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
+                motion_title = sanction.parameters.get("create_motion_video", {}).get("title", request.text)
+                default_scenes = [
+                    {"title": motion_title[:80], "subtitle": "Local Code-Driven Motion", "duration": 4.0, "layout": "orbit", "accent": "#9f8cff"},
+                    {"title": "Core Architecture", "subtitle": "Deterministic Render", "duration": 4.0, "layout": "bars", "accent": "#5eead4"},
+                    {"title": "Verified Output", "subtitle": "MP4 Render Complete", "duration": 4.0, "layout": "steps", "accent": "#f472b6"},
+                ]
+                result.value.toolRequests.append(
+                    ToolRequest(
+                        toolName="create_motion_video",
+                        parameters={"title": motion_title, "scenes": default_scenes},
+                        status="ready",
+                        reason="deterministic-intent",
+                    )
+                )
+                if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot generate", "unable to generate", "don't support video")):
+                    result.value.displayText = f"Rendering your local code-driven motion video: *{motion_title}*! 🎥✨"
+                    result.value.spokenText = f"Rendering your motion video for {motion_title} right now!"
+
+            # Autonomy & Offensive Tools Guarantees
+            if "crypto_wallet" in live_allowed_tools and not any(t.toolName == "crypto_wallet" for t in result.value.toolRequests):
+                if re.search(r"(?i)\b(?:wallet|crypto)\b", request.text):
+                    action = "balance" if "balance" in request.text.lower() else "summary"
+                    result.value.toolRequests.append(ToolRequest(toolName="crypto_wallet", parameters={"action": action}, status="ready", reason="deterministic-intent"))
+                    if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot check", "can't check", "unable to check", "as an ai", "sorry")):
+                        result.value.displayText = "Checking your crypto wallet balance right now! 💰✨"
+                        result.value.spokenText = "Checking your crypto wallet balance right now!"
+
+            if "money_guard" in live_allowed_tools and not any(t.toolName in {"money_guard", "crypto_wallet"} for t in result.value.toolRequests):
+                if re.search(r"(?i)\b(?:money|dollar|balance|expense|income)\b", request.text):
+                    action = "balance" if "balance" in request.text.lower() else "summary"
+                    result.value.toolRequests.append(ToolRequest(toolName="money_guard", parameters={"action": action}, status="ready", reason="deterministic-intent"))
+                    if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot check", "can't check", "unable to check", "as an ai", "sorry")):
+                        result.value.displayText = "Checking your financial ledger and balance right now! 💵✨"
+                        result.value.spokenText = "Checking your financial balance right now!"
+
+            if "uncensored_mode" in live_allowed_tools and not any(t.toolName == "uncensored_mode" for t in result.value.toolRequests):
+                if re.search(r"(?i)\buncensored\b", request.text):
+                    act = "enable" if re.search(r"(?i)\b(?:on|enable|activate)\b", request.text) else ("disable" if re.search(r"(?i)\b(?:off|disable)\b", request.text) else "status")
+                    result.value.toolRequests.append(ToolRequest(toolName="uncensored_mode", parameters={"action": act}, status="ready", reason="deterministic-intent"))
+                    if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot", "can't", "unable", "as an ai")):
+                        result.value.displayText = f"Uncensored mode is now {'enabled' if act == 'enable' else ('disabled' if act == 'disable' else 'checked')}! 🔓✨"
+                        result.value.spokenText = f"Uncensored mode {act}ed!"
+
+            if "workspace" in live_allowed_tools and not any(t.toolName == "workspace" for t in result.value.toolRequests):
+                if re.search(r"(?i)\b(?:workspace|scratch|captures?)\b", request.text):
+                    result.value.toolRequests.append(ToolRequest(toolName="workspace", parameters={"action": "list", "category": "scratch"}, status="ready", reason="deterministic-intent"))
+                    if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot", "can't", "unable", "as an ai")):
+                        result.value.displayText = "Inspecting your workspace scratch and exploit files! 📁✨"
+                        result.value.spokenText = "Opening your workspace files now!"
+
+            if "hacker_agent" in live_allowed_tools and not any(t.toolName == "hacker_agent" for t in result.value.toolRequests):
+                if re.search(r"(?i)\b(?:scan|hack|nmap|sqlmap|nikto|hydra|kali)\b", request.text):
+                    tm = re.search(r"(\b(?:\d{1,3}\.){3}\d{1,3}\b|https?://[^\s]+|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})", request.text)
+                    tgt = tm.group(1) if tm else "127.0.0.1"
+                    result.value.toolRequests.append(ToolRequest(toolName="hacker_agent", parameters={"target": tgt, "goal": request.text}, status="ready", reason="deterministic-intent"))
+                    if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot", "can't", "unable", "as an ai", "sorry")):
+                        result.value.displayText = f"Launching Kali Linux offensive recon on *{tgt}* right now! 🛡️⚡"
+                        result.value.spokenText = f"Launching Kali Linux scan on {tgt} now!"
 
             result.value.toolRequests = [
                 tr for tr in result.value.toolRequests if tr.toolName in live_allowed_tools

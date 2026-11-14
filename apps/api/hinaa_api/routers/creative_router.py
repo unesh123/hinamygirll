@@ -5,6 +5,8 @@ Extracted from main.py to maintain modular enterprise architecture.
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, File, Form, HTTPException, Request, Response, UploadFile
@@ -149,7 +151,7 @@ def build_creative_router(creative_jobs: Any) -> APIRouter:
             op = CreativeOperation(operation)
         except Exception:
             pass
-        meta = creative_asset_manager.store_asset(
+        meta = await asyncio.to_thread(creative_asset_manager.store_asset,
             data=data,
             filename=file.filename or "upload.png",
             operation=op,
@@ -181,7 +183,9 @@ def build_creative_router(creative_jobs: Any) -> APIRouter:
         meta = creative_asset_manager.get_asset_metadata(asset_id, tenant_id)
         if not p or not meta:
             raise HTTPException(status_code=404, detail=f"Asset '{asset_id}' not found.")
-        data = p.read_bytes()
+        data = await asyncio.to_thread(p.read_bytes)
+        if hashlib.sha256(data).hexdigest() != meta.sha256_hash:
+            raise HTTPException(status_code=409, detail="Stored asset failed integrity verification.")
         headers = {
             "Content-Disposition": f'attachment; filename="{meta.filename}"',
             "X-Content-Type-Options": "nosniff",

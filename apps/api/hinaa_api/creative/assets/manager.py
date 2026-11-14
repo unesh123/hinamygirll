@@ -96,6 +96,11 @@ class CreativeAssetManager:
     ) -> AssetMetadata:
         """Stores media bytes immutably under tenant directory."""
         media_type, mime_type = self._verify_magic_bytes(data)
+        video_info = None
+        if media_type == MediaType.VIDEO:
+            from .video_validation import validate_video
+            video_info = validate_video(data, ".webm" if mime_type == "video/webm" else ".mp4")
+            duration_seconds, fps, codec = (video_info["duration_seconds"], video_info["fps"], video_info["codec"])
         safe_name = self._sanitize_filename(filename)
         sha256 = hashlib.sha256(data).hexdigest()
         asset_id = f"asset-{uuid.uuid4().hex[:12]}"
@@ -117,6 +122,8 @@ class CreativeAssetManager:
         # Inspect dimensions
         width = 0
         height = 0
+        if video_info:
+            width, height = video_info["width"], video_info["height"]
         if media_type == MediaType.IMAGE:
             try:
                 with Image.open(io.BytesIO(data)) as img:

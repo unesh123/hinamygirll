@@ -123,6 +123,9 @@ export const DEFAULT_SETTINGS: HinaaSettings = {
     preferredMode: "auto",
     preferredModelByProvider: {
       "cx-gateway": "cx/gpt-5.6-sol",
+      ollama: "dolphin-mistral:7b",
+      coarena: "gemini-4-argon",
+      xkiro: "mistralai/codestral-2508",
     },
   },
   language: {

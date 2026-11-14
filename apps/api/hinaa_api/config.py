@@ -1525,6 +1525,8 @@ class Settings(BaseSettings):
     @property
     def active_ollama_base_url(self) -> str:
         value = (self.ollama_base_url or "http://localhost:11434").strip().rstrip("/")
+        if not value.endswith("/v1"):
+            value = f"{value}/v1"
         return value
 
     @property
@@ -1734,11 +1736,13 @@ class Settings(BaseSettings):
         return list(dict.fromkeys(models))
 
     def resolve_xkiro_model(self, requested: str | None = None) -> str:
-        model = (requested or "").strip() or self.active_xkiro_model
-        if "*" not in self.xkiro_allowed_models and model not in self.xkiro_allowed_models:
+        req = (requested or "").strip()
+        if not req:
+            return self.active_xkiro_model
+        if "*" not in self.xkiro_allowed_models and req not in self.xkiro_allowed_models:
             allowed = ", ".join(self.xkiro_allowed_models)
-            raise ValueError(f"XKiro model is not in XKIRO_ALLOWED_MODELS: {allowed}")
-        return model
+            raise ValueError(f"XKiro model '{req}' is not in XKIRO_ALLOWED_MODELS: {allowed}")
+        return req
 
     @property
     def fal_configured(self) -> bool:

@@ -172,13 +172,17 @@ class CreativeService:
                     raise FileNotFoundError("Source asset not found for background removal.")
                 out_bytes = local_creative_engine.remove_background(src_bytes)
             elif op == CreativeOperation.TIMELINE_EXPORT:
+                frames = []
+                if job.spec.motion_scenes:
+                    from ..motion import render_motion_frames
+                    frames = await asyncio.to_thread(render_motion_frames, job.spec.motion_scenes, job.spec.width, job.spec.height, job.spec.fps)
                 job.state = JobState.ENCODING
                 await self.store.append_event(
                     self._next_event(job_id, seq, JobState.ENCODING, 60.0, "Encoding video frames via FFmpeg")
                 )
                 seq += 1
                 out_bytes, probe = await timeline_video_exporter.render_timeline_to_mp4(
-                    frame_images=[],
+                    frame_images=frames,
                     width=job.spec.width,
                     height=job.spec.height,
                     fps=job.spec.fps,
@@ -203,7 +207,7 @@ class CreativeService:
             ext = ".mp4" if is_video else ".png"
             filename = f"gen_{job_id}{ext}"
 
-            meta = self.asset_mgr.store_asset(
+            meta = await asyncio.to_thread(self.asset_mgr.store_asset,
                 data=out_bytes,
                 filename=filename,
                 operation=op,
