@@ -32,6 +32,7 @@ CORS_ALLOW_HEADERS = [
     "X-HINAA-Dev-User",
     "X-HINAA-PC-Session",
     "X-HINAA-Alignment",
+    "bypass-tunnel-reminder",
 ]
 
 

@@ -267,7 +267,11 @@ def test_cors_empty_regex_disables_previews(settings: Settings) -> None:
 
 def test_cors_headers_are_explicit(settings: Settings) -> None:
     client = client_for(settings)
-    ok = preflight(client, "https://hinaa-workspace.vercel.app", "authorization,traceparent,x-hinaa-dev-user")
+    ok = preflight(
+        client,
+        "https://hinaa-workspace.vercel.app",
+        "authorization,traceparent,x-hinaa-dev-user,bypass-tunnel-reminder",
+    )
     assert ok["status"] == "200"
     bad = preflight(client, "https://hinaa-workspace.vercel.app", "x-evil-header")
     assert bad["status"] == "400"
