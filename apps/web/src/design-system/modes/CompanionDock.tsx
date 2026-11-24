@@ -85,6 +85,7 @@ export const CompanionDock: React.FC<CompanionDockProps> = React.memo(({
   const modelPickerTriggerRef = useRef<HTMLButtonElement>(null);
 
   const isWalking = propIsWalking !== undefined ? propIsWalking : localIsWalking;
+  const hasSubtitle = Boolean(streamingText || partialTranscript || (!isWalking && lastAssistantText)) && !dismissedSubtitle;
 
   const toggleWalking = () => {
     if (onToggleWalk) {
@@ -420,7 +421,10 @@ export const CompanionDock: React.FC<CompanionDockProps> = React.memo(({
       </div>
 
       {/* Companion Avatar View Container */}
-      <div style={{ flex: 1, position: "relative", minHeight: 240, overflow: "hidden" }}>
+      <div
+        className={hasSubtitle ? "companion-stage-container has-subtitles" : "companion-stage-container"}
+        style={{ flex: 1, position: "relative", minHeight: 240, overflow: "hidden" }}
+      >
         {/* Active Walk / Roam Indicator */}
         {isWalking && (
           <motion.div
