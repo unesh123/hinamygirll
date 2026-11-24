@@ -1295,6 +1295,15 @@ class ProviderRouter:
                 user_action_required=True,
             )
 
+    def _require_cantrust_brain(self) -> None:
+        if not self.settings.cantrust_configured:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "CanTrustAI mode is not configured. Missing backend variable: CANTRUST_API_KEY in apps/api/.env.local.",
+                503,
+                user_action_required=True,
+            )
+
     def stt(self, mode: str) -> STTProvider:
         return self.stt_candidates(mode, "en-US")[0]
 
@@ -1705,6 +1714,21 @@ class ProviderRouter:
                 "PROVIDER_CAPABILITY_MISMATCH",
                 "Bivia returns bounded decisions, not chat text. Select a chat model; use bivia_decide for decisions.",
                 422, user_action_required=True,
+            )
+        if mode in ("cantrustai", "cantrust"):
+            self._require_cantrust_brain()
+            active_cantrust_key = self.settings.active_cantrust_key
+            active_cantrust_base_url = self.settings.active_cantrust_base_url
+            assert active_cantrust_key and active_cantrust_base_url
+            try:
+                model = self.settings.resolve_cantrust_model(brain_model)
+            except ValueError as exc:
+                raise HinaaError("PROVIDER_MODEL_NOT_ALLOWED", str(exc), 422, user_action_required=True) from exc
+            return OpenAILLMProvider(
+                active_cantrust_key.get_secret_value(),
+                model,
+                base_url=active_cantrust_base_url,
+                provider_id="cantrustai",
             )
         if mode == "real":
             # Text generation depends only on the brain credential. Speech has

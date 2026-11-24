@@ -94,10 +94,7 @@ class Settings(BaseSettings):
     gemini_planner_model: str = Field("gemini-3.5-flash", alias="GEMINI_PLANNER_MODEL")
     gemini_allowed_models_raw: str = Field(
         (
-            "gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.8-flash,gemini-flash-latest,gemini-pro-latest,"
-            "gemini-3.1-pro-preview,gemini-3.6-flash,gemini-3-flash-preview,gemini-flash-lite-latest,"
-            "gemini-2.5-flash-lite,gemini-2.5-flash,gemini-2.5-pro,gemini-2.0-flash,gemini-2.0-flash-exp,"
-            "gemini-2.0-flash-lite,gemini-1.5-flash,gemini-1.5-pro,gemini-3.8-flash-high"
+            "gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3-flash-preview,gemini-flash-latest,gemini-pro-latest"
         ),
         alias="GEMINI_ALLOWED_MODELS",
     )
@@ -511,6 +508,23 @@ class Settings(BaseSettings):
     coarena_allowed_models_raw: str = Field(
         "claude-sonnet-5-5,claude-opus-5-5,claude-fable-5,claude-fable-5-1,claude-fable-5-2,claude-haiku-5-5,gemini-4-argon,gemini-4-carbon,gemini-3-8-flash,grok-4-7,deepseek-v4-1-flash-1017,glm-5-3-flash,hy4,kimi-k3,kimi-k3-1-pro,mimo-v2-6-pro,minimax-m3-1-flash,qwen3-8-2-4t-a95b,*",
         validation_alias=AliasChoices("COARENA_ALLOWED_MODELS"),
+    )
+    # CanTrustAI Gateway — high-speed DeepSeek and Claude models
+    cantrust_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("CANTRUST_API_KEY", "CANTRUSTAI_API_KEY", "CANTRUST_AI_API_KEY"),
+    )
+    cantrust_base_url: str = Field(
+        "https://api.cantrustai.xyz/v1",
+        validation_alias=AliasChoices("CANTRUST_BASE_URL", "CANTRUSTAI_BASE_URL", "CANTRUST_AI_BASE_URL"),
+    )
+    cantrust_model: str = Field(
+        "deepseek/deepseek-v4.1-flash",
+        validation_alias=AliasChoices("CANTRUST_MODEL", "CANTRUSTAI_MODEL"),
+    )
+    cantrust_allowed_models_raw: str = Field(
+        "deepseek/deepseek-v4.1-flash,claude-3-7-sonnet,claude-3-5-sonnet,claude-3-5-haiku",
+        validation_alias=AliasChoices("CANTRUST_ALLOWED_MODELS", "CANTRUSTAI_ALLOWED_MODELS"),
     )
     # Articul8 / Bivia ("Ben") Multi-Modal Decision Engine
     articul8_api_key: SecretStr | None = Field(
@@ -1993,6 +2007,46 @@ class Settings(BaseSettings):
         if "*" not in self.coarena_allowed_models and model not in self.coarena_allowed_models:
             allowed = ", ".join(self.coarena_allowed_models)
             raise ValueError(f"Coarena model is not in COARENA_ALLOWED_MODELS: {allowed}")
+        return model
+
+    @property
+    def cantrust_configured(self) -> bool:
+        return bool(
+            self.cantrust_api_key
+            and self.cantrust_api_key.get_secret_value()
+            and self.active_cantrust_base_url
+        )
+
+    @property
+    def active_cantrust_key(self) -> SecretStr | None:
+        if self.cantrust_api_key and self.cantrust_api_key.get_secret_value():
+            return self.cantrust_api_key
+        return None
+
+    @property
+    def active_cantrust_base_url(self) -> str | None:
+        value = (self.cantrust_base_url or "").strip().rstrip("/")
+        if value and not value.endswith("/v1"):
+            value = f"{value}/v1"
+        return value or "https://api.cantrustai.xyz/v1"
+
+    @property
+    def active_cantrust_model(self) -> str:
+        return self.cantrust_model or "deepseek/deepseek-v4.1-flash"
+
+    @property
+    def cantrust_allowed_models(self) -> list[str]:
+        configured = [m.strip() for m in self.cantrust_allowed_models_raw.split(",") if m.strip()]
+        models = configured or [self.active_cantrust_model]
+        if self.active_cantrust_model and self.active_cantrust_model not in models:
+            models.insert(0, self.active_cantrust_model)
+        return list(dict.fromkeys(models))
+
+    def resolve_cantrust_model(self, requested: str | None = None) -> str:
+        model = (requested or "").strip() or self.active_cantrust_model
+        if "*" not in self.cantrust_allowed_models and model not in self.cantrust_allowed_models:
+            allowed = ", ".join(self.cantrust_allowed_models)
+            raise ValueError(f"CanTrustAI model is not in CANTRUST_ALLOWED_MODELS: {allowed}")
         return model
 
     @property

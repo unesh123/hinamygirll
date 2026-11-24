@@ -16,23 +16,25 @@ export function ModelsMode({isDark=false, selectedModelId, selectedProviderId, o
   const {models,providers,runtime,loading,error,refetch} = useCapabilities();
   const [query,setQuery] = useState("");
   const [providerFilter,setProviderFilter] = useState("all");
+  const workingProviders = useMemo(() => providers.filter(p => p.configured && p.health !== "unavailable"), [providers]);
   const visible = useMemo(() => models.filter(model => {
-    const provider = providers.find(item => item.id===model.provider);
+    const provider = workingProviders.find(item => item.id===model.provider);
+    if (!provider) return false;
     return (providerFilter==="all" || model.provider===providerFilter) &&
       `${model.name} ${model.id} ${provider?.name ?? model.provider}`.toLowerCase().includes(query.trim().toLowerCase());
-  }),[models,providers,providerFilter,query]);
-  const configured = providers.filter(provider => provider.configured).length;
-  const verified = providers.filter(provider => provider.health==="healthy").length;
+  }),[models,workingProviders,providerFilter,query]);
+  const configured = workingProviders.length;
+  const verified = workingProviders.filter(provider => provider.health==="healthy").length;
   return <section className={`models-mode${isDark ? " models-mode--dark" : ""}`} aria-label="Models and providers">
     <header className="models-mode__header">
       <div><p className="models-mode__eyebrow"><Cpu size={13}/> INTELLIGENCE LIBRARY</p><h1>Models &amp; providers</h1><p>Choose a brain for your next conversation. Live health comes from actual provider calls.</p></div>
       <button type="button" className="models-mode__refresh" onClick={() => void refetch()} aria-label="Refresh model catalog"><RefreshCw size={15}/><span>Refresh</span></button>
     </header>
-    <div className="models-mode__summary"><span><strong>{models.length}</strong> models</span><span><strong>{configured}</strong> configured providers</span><span><strong>{verified}</strong> verified healthy</span></div>
+    <div className="models-mode__summary"><span><strong>{visible.length}</strong> active models</span><span><strong>{configured}</strong> active providers</span><span><strong>{verified}</strong> verified healthy</span></div>
     <button type="button" className="models-mode__auto" aria-pressed={!selectedModelId} onClick={onSelectAuto}><Sparkles size={18}/><span><strong>Let Hina choose</strong><small>Automatic routing through your available providers</small></span>{!selectedModelId && <Check size={16}/>}</button>
-    <div className="models-mode__filters"><label><Search size={15}/><input aria-label="Search models" placeholder="Search models or providers…" value={query} onChange={event=>setQuery(event.target.value)}/></label><select aria-label="Filter models by provider" value={providerFilter} onChange={event=>setProviderFilter(event.target.value)}><option value="all">All providers</option>{providers.map(provider=><option key={provider.id} value={provider.id}>{provider.name}</option>)}</select></div>
+    <div className="models-mode__filters"><label><Search size={15}/><input aria-label="Search models" placeholder="Search models or providers…" value={query} onChange={event=>setQuery(event.target.value)}/></label><select aria-label="Filter models by provider" value={providerFilter} onChange={event=>setProviderFilter(event.target.value)}><option value="all">All providers</option>{workingProviders.map(provider=><option key={provider.id} value={provider.id}>{provider.name}</option>)}</select></div>
     {error && <p role="alert" className="models-mode__error">{error} <button type="button" onClick={()=>void refetch()}>Retry</button></p>}
-    {loading && models.length===0 ? <p role="status">Loading your model library…</p> : visible.length===0 ? <p className="models-mode__empty">{runtime.backendConnected ? "No models match your search." : "Connect to the workspace to load your models."}</p> : <div className="models-mode__grid">
+    {loading && models.length===0 ? <p role="status">Loading your model library…</p> : visible.length===0 ? <p className="models-mode__empty">{runtime.backendConnected ? "No active models match your search." : "Connect to the workspace to load your models."}</p> : <div className="models-mode__grid">
       {visible.map(model=>{
         const provider = providers.find(item=>item.id===model.provider);
         const health = provider?.health ?? "untested";

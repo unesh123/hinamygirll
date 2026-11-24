@@ -1956,7 +1956,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             omniroute_serving = omniroute_probe.model_count
         omniroute_live = omniroute_serving > 0
 
+        has_cantrust = bool(getattr(active_settings, "cantrust_configured", False))
+
         providers = [
+            {
+                "id": "cantrustai",
+                "name": "CanTrustAI (DeepSeek & Claude)",
+                "configured": has_cantrust,
+                "defaultModel": active_settings.active_cantrust_model,
+                "allowedModels": list(active_settings.cantrust_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "gemini",
+                "name": "Google Gemini",
+                "configured": has_gemini,
+                "defaultModel": "gemini-3-flash-preview",
+                "allowedModels": ["gemini-3-flash-preview", "gemini-3.5-flash", "gemini-3.8-flash"],
+                "protocol": "native-sdk",
+            },
             {
                 "id": "claude",
                 "name": "Anthropic Claude",
@@ -1964,14 +1982,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "defaultModel": active_settings.active_claude_model,
                 "allowedModels": list(active_settings.claude_allowed_models),
                 "protocol": active_settings.active_claude_protocol,
-            },
-            {
-                "id": "gemini",
-                "name": "Google Gemini",
-                "configured": has_gemini,
-                "defaultModel": active_settings.gemini_model,
-                "allowedModels": list(active_settings.gemini_allowed_models),
-                "protocol": "native-sdk",
             },
             {
                 "id": "deepseek",
@@ -1997,183 +2007,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "allowedModels": ["ydc-search"],
                 "protocol": "web-search-api",
             },
-            # These providers report healthy in /v1/providers on this deployment
-            # (agent-router, codecraft, custom, ollama, gemini-live). Omitting
-            # them is what made users correctly report "no brains show live".
             {
-                "id": "agent-router",
-                "name": "Agent Router",
-                "configured": bool(getattr(active_settings, "agent_router_configured", False)),
-                "defaultModel": active_settings.active_agent_router_model,
-                "allowedModels": list(active_settings.agent_router_allowed_models),
-                "protocol": "openai-compatible",
-            },
-            {
-                "id": "cx-gateway",
-                "name": "CX Gateway",
-                "configured": bool(getattr(active_settings, "cx_gateway_configured", False)),
-                "defaultModel": active_settings.cx_gateway_model,
-                "allowedModels": list(active_settings.cx_allowed_models),
-                "protocol": "openai-compatible",
-            },
-            {
-                "id": "codecraft",
-                "name": "CodeCraft AI",
-                "configured": bool(getattr(active_settings, "codecraft_configured", False)),
-                "defaultModel": active_settings.active_codecraft_model,
-                "allowedModels": list(active_settings.codecraft_allowed_models),
-                "protocol": "openai-compatible",
-            },
-            {
-                "id": "custom",
-                "name": "Custom Model Gateway",
-                "configured": bool(getattr(active_settings, "custom_configured", False)),
-                "defaultModel": active_settings.active_custom_model,
-                "allowedModels": list(active_settings.custom_allowed_models),
-                "protocol": "openai-compatible",
-            },
-            {
-                "id": "qwen",
-                "name": "Qwen (DashScope)",
-                "configured": bool(getattr(active_settings, "qwen_configured", False)),
-                "defaultModel": active_settings.qwen_model,
-                "allowedModels": list(active_settings.qwen_allowed_models),
-                "protocol": "openai-compatible",
-            },
-            {
-                "id": "groq",
-                "name": "Groq",
-                "configured": bool(getattr(active_settings, "groq_configured", False)),
-                "defaultModel": active_settings.groq_model,
-                "allowedModels": [active_settings.groq_model],
-                "protocol": "groq-sdk",
-            },
-            {
-                "id": "pgsgrove",
-                "name": "PGSGrove AI",
-                "configured": bool(getattr(active_settings, "pgsgrove_configured", False)),
-                "defaultModel": active_settings.active_pgsgrove_model,
-                "allowedModels": list(active_settings.pgsgrove_allowed_models),
-                "protocol": "openai-compatible",
-            },
-            {
-                "id": "seekai",
-                "name": "SeekAI Gateway",
-                "configured": bool(getattr(active_settings, "seekai_configured", False)),
-                "defaultModel": active_settings.active_seekai_model,
-                "allowedModels": list(active_settings.seekai_allowed_models),
-                "protocol": "openai-compatible",
-            },
-            {
-                "id": "tokentable",
-                "name": "TokenTable Asia",
-                "configured": bool(getattr(active_settings, "tokentable_configured", False)),
-                "defaultModel": active_settings.active_tokentable_model,
-                "allowedModels": list(active_settings.tokentable_allowed_models),
-                "protocol": "openai-compatible",
-            },
-            {
-                "id": "xkiro",
-                "name": "XKiro AI",
-                "configured": bool(getattr(active_settings, "xkiro_configured", False)),
-                "defaultModel": active_settings.active_xkiro_model,
-                "allowedModels": list(active_settings.xkiro_allowed_models),
-                "protocol": "openai-compatible",
-            },
-            {
-                "id": "cavoti",
-                "name": "Cavoti AI",
-                "configured": bool(getattr(active_settings, "cavoti_configured", False)),
-                "defaultModel": active_settings.active_cavoti_model,
-                "allowedModels": list(active_settings.cavoti_allowed_models),
-                "protocol": "openai-compatible",
-            },
-            {
-                "id": "apmix",
-                "name": "APMIX.AI",
-                "configured": bool(getattr(active_settings, "apmix_configured", False)),
-                "defaultModel": active_settings.active_apmix_model,
-                "allowedModels": list(active_settings.apmix_allowed_models),
-                "protocol": "openai-compatible",
-            },
-            {
-                "id": "oxion",
-                "name": "Oxion AI",
-                "configured": bool(getattr(active_settings, "oxion_configured", False)),
-                "defaultModel": active_settings.active_oxion_model,
-                "allowedModels": list(active_settings.oxion_allowed_models),
-                "protocol": "openai-compatible",
-            },
-            {
-                "id": "gmi",
-                "name": "GMI Cloud",
-                "configured": active_settings.gmi_configured,
-                "defaultModel": active_settings.gmi_model,
-                "allowedModels": [active_settings.gmi_model],
-                "protocol": "openai-compatible",
-            },
-            {
-                "id": "respan",
-                "name": "Respan AI Gateway",
-                "configured": bool(getattr(active_settings, "respan_configured", False)),
-                "defaultModel": active_settings.active_respan_model,
-                "allowedModels": list(active_settings.respan_allowed_models),
-                "protocol": "openai-compatible",
-            },
-            {
-                "id": "coarena",
-                "name": "Coarena AI",
-                "configured": bool(getattr(active_settings, "coarena_configured", False)),
-                "defaultModel": active_settings.active_coarena_model,
-                "allowedModels": list(active_settings.coarena_allowed_models),
-                "protocol": "openai-compatible",
-            },
-            {
-                "id": "articul8",
-                "name": "Articul8 Bivia decisions",
-                "configured": active_settings.articul8_configured,
-                "defaultModel": "",
-                "allowedModels": [],
-                "protocol": "bivia-decisions",
-                "role": "decision",
-                "health": "untested" if active_settings.articul8_configured else "unavailable",
-                "healthMessage": "Decision tool, not a text-generating chat model.",
-            },
-            {
-                "id": "experiential",
-                "name": "Experiential Labs",
-                "configured": active_settings.explabs_configured,
-                "defaultModel": active_settings.active_explabs_model,
-                "allowedModels": list(active_settings.explabs_allowed_models),
-                "protocol": "openai-compatible",
-            },
-            # Local fallback gateway, measured rather than assumed. `declared`
-            # says the operator opted in; `configured` says the container is
-            # answering right now, which is the only combination the ladder
-            # will actually route a turn to.
-            {
-                "id": "omniroute",
-                "name": "OmniRoute local fallback",
-                "configured": omniroute_live,
-                "declared": omniroute_declared,
-                "role": "fallback",
-                "endpoint": active_settings.active_omniroute_base_url or None,
-                "defaultModel": active_settings.omniroute_model,
-                "allowedModels": [active_settings.omniroute_model] if omniroute_live else [],
-                "servingModels": omniroute_serving,
-                "protocol": "openai-compatible",
-            },
-            {
-                "id": "ollama",
-                "name": "Ollama (Local Uncensored)",
-                "configured": bool(active_settings.ollama_configured),
-                "defaultModel": active_settings.active_ollama_model,
-                "allowedModels": [
-                    "dolphin-mistral:7b",
-                    "llama2-uncensored:7b",
-                    "SparkLLM/Spark-X2.5-1.7B:latest",
-                ] if active_settings.ollama_allowed_models == ["*"] else list(active_settings.ollama_allowed_models),
-                "protocol": "openai-compatible",
+                "id": "local",
+                "name": "Zero-Credit Local Brain",
+                "configured": True,
+                "defaultModel": "deterministic-v1",
+                "allowedModels": ["deterministic-v1"],
+                "protocol": "local",
             },
         ]
 
@@ -2662,247 +2502,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ),
             ),
             ProviderStatus(
-                id="qwen",
+                id="cantrustai",
                 capabilities=[
                     "llm",
                     "structured-turn-plan",
                     "text-stream",
                     "openai-compatible",
-                    "bearer-auth",
-                    f"default-model:{active_settings.qwen_model}",
-                    *[f"model:{model}" for model in active_settings.qwen_allowed_models],
+                    f"default-model:{active_settings.active_cantrust_model}",
+                    *[f"model:{model}" for model in active_settings.cantrust_allowed_models],
                 ],
-                state="healthy" if active_settings.qwen_configured else "unavailable",
+                state="healthy" if active_settings.cantrust_configured else "unavailable",
                 userMessage=(
-                    "QwenCloud configuration is present; no live call has been made."
-                    if active_settings.qwen_configured
-                    else "Qwen needs HINAA_QWEN_API_KEY (or QWEN_API_KEY) in the backend .env.local file."
-                ),
-            ),
-            ProviderStatus(
-                id="custom",
-                capabilities=[
-                    "llm",
-                    "structured-turn-plan",
-                    "text-stream",
-                    "openai-compatible",
-                    f"default-model:{active_settings.active_custom_model}",
-                    *[f"model:{model}" for model in active_settings.custom_allowed_models],
-                ],
-                state="healthy" if active_settings.custom_configured else "unavailable",
-                userMessage=(
-                    "Custom model gateway configuration is present; no live call has been made."
-                    if active_settings.custom_configured
-                    else (
-                        "Custom model gateway needs OPENAI_CODEX_API_KEY "
-                        "and OPENAI_CODEX_BASE_URL."
-                    )
-                ),
-            ),
-            ProviderStatus(
-                id="agent-router",
-                capabilities=[
-                    "llm",
-                    "structured-turn-plan",
-                    "text-stream",
-                    "openai-compatible",
-                    f"default-model:{active_settings.active_agent_router_model}",
-                    *[f"model:{model}" for model in active_settings.agent_router_allowed_models],
-                ],
-                state="healthy" if active_settings.agent_router_configured else "unavailable",
-                userMessage=(
-                    "Agent router configuration is present; no live call has been made."
-                    if active_settings.agent_router_configured
-                    else (
-                        "Agent router needs AGENT_ROUTER_API_KEY and AGENT_ROUTER_BASE_URL."
-                    )
-                ),
-            ),
-            ProviderStatus(
-                id="cx-gateway",
-                capabilities=[
-                    "llm",
-                    "structured-turn-plan",
-                    "text-stream",
-                    "openai-compatible",
-                    f"default-model:{active_settings.cx_gateway_model}",
-                    *[f"model:{model}" for model in active_settings.cx_allowed_models],
-                ],
-                state=cx_state,
-                userMessage=cx_message,
-            ),
-            ProviderStatus(
-                id="codecraft",
-                capabilities=[
-                    "llm",
-                    "structured-turn-plan",
-                    "text-stream",
-                    "openai-compatible",
-                    f"default-model:{active_settings.active_codecraft_model}",
-                    *[f"model:{model}" for model in active_settings.codecraft_allowed_models],
-                ],
-                state="healthy" if active_settings.codecraft_configured else "unavailable",
-                userMessage=(
-                    f"CodeCraft AI is configured with default model {active_settings.active_codecraft_model}."
-                    if active_settings.codecraft_configured
-                    else "CodeCraft AI needs CODECRAFT_API_KEY and CODECRAFT_BASE_URL."
-                ),
-            ),
-            ProviderStatus(
-                id="pgsgrove",
-                capabilities=[
-                    "llm",
-                    "structured-turn-plan",
-                    "text-stream",
-                    "openai-compatible",
-                    f"default-model:{active_settings.pgsgrove_model}",
-                    *[f"model:{model}" for model in active_settings.pgsgrove_allowed_models],
-                ],
-                state="healthy" if active_settings.pgsgrove_configured else "unavailable",
-                userMessage=(
-                    f"PGSGrove AI is configured with default model {active_settings.pgsgrove_model}."
-                    if active_settings.pgsgrove_configured
-                    else "PGSGrove AI needs PGSGROVE_API_KEY and PGSGROVE_BASE_URL."
-                ),
-            ),
-            ProviderStatus(
-                id="xkiro",
-                capabilities=[
-                    "llm",
-                    "structured-turn-plan",
-                    "text-stream",
-                    "openai-compatible",
-                    f"default-model:{active_settings.xkiro_model}",
-                    *[f"model:{model}" for model in active_settings.xkiro_allowed_models],
-                ],
-                state=xkiro_state,
-                userMessage=xkiro_message,
-            ),
-            ProviderStatus(
-                id="apmix",
-                capabilities=[
-                    "llm",
-                    "structured-turn-plan",
-                    "text-stream",
-                    "openai-compatible",
-                    f"default-model:{active_settings.apmix_model}",
-                    *[f"model:{model}" for model in active_settings.apmix_allowed_models],
-                ],
-                state=apmix_state,
-                userMessage=apmix_message,
-            ),
-            ProviderStatus(
-                id="articul8",
-                capabilities=["decision", "bounded-outcomes", "abstention", "tool:bivia_decide"],
-                state=articul8_state,
-                userMessage=articul8_message,
-            ),
-            ProviderStatus(
-                id="oxion",
-                capabilities=[
-                    "llm",
-                    "structured-turn-plan",
-                    "text-stream",
-                    "openai-compatible",
-                    f"default-model:{active_settings.oxion_model}",
-                    *[f"model:{model}" for model in active_settings.oxion_allowed_models if model != "*"],
-                ],
-                state=oxion_state,
-                userMessage=oxion_message,
-            ),
-            ProviderStatus(
-                id="seekai",
-                capabilities=[
-                    "llm",
-                    "structured-turn-plan",
-                    "text-stream",
-                    "openai-compatible",
-                    f"default-model:{active_settings.seekai_model}",
-                    *[f"model:{model}" for model in active_settings.seekai_allowed_models],
-                ],
-                state="healthy" if active_settings.seekai_configured else "unavailable",
-                userMessage=(
-                    f"SeekAI is configured with default model {active_settings.seekai_model}."
-                    if active_settings.seekai_configured
-                    else "SeekAI needs SEEKAI_API_KEY and SEEKAI_BASE_URL."
-                ),
-            ),
-            ProviderStatus(
-                id="tokentable",
-                capabilities=[
-                    "llm",
-                    "structured-turn-plan",
-                    "text-stream",
-                    "openai-compatible",
-                    f"default-model:{active_settings.tokentable_model}",
-                    *[f"model:{model}" for model in active_settings.tokentable_allowed_models],
-                ],
-                state="healthy" if active_settings.tokentable_configured else "unavailable",
-                userMessage=(
-                    f"TokenTable is configured with default model {active_settings.tokentable_model}."
-                    if active_settings.tokentable_configured
-                    else "TokenTable needs TOKENTABLE_API_KEY and TOKENTABLE_BASE_URL."
-                ),
-            ),
-            ProviderStatus(
-                id="cavoti",
-                capabilities=[
-                    "llm",
-                    "structured-turn-plan",
-                    "text-stream",
-                    "openai-compatible",
-                    f"default-model:{active_settings.cavoti_model}",
-                    *[f"model:{model}" for model in active_settings.cavoti_allowed_models],
-                ],
-                state="healthy" if active_settings.cavoti_configured else "unavailable",
-                userMessage=(
-                    f"Cavoti AI is configured with default model {active_settings.cavoti_model}."
-                    if active_settings.cavoti_configured
-                    else "Cavoti AI needs CAVOTI_AI_API_KEY and CAVOTI_AI_BASE_URL."
-                ),
-            ),
-            ProviderStatus(
-                id="ollama",
-                capabilities=[
-                    "llm",
-                    "structured-turn-plan",
-                    "text-stream",
-                    "local",
-                    "offline",
-                    "zero-credit",
-                    f"default-model:{active_settings.active_ollama_model if active_settings.active_ollama_model in ollama_models else (ollama_models[0] if ollama_models else active_settings.active_ollama_model)}",
-                    *[f"model:{model}" for model in (ollama_models or [active_settings.active_ollama_model])],
-                ],
-                state=ollama_state,
-                userMessage=ollama_message,
-            ),
-            ProviderStatus(
-                id="omniroute",
-                capabilities=[
-                    "llm",
-                    "structured-turn-plan",
-                    "text-stream",
-                    "openai-compatible",
-                    "local",
-                    "fallback-only",
-                    f"default-model:{active_settings.omniroute_model}",
-                ],
-                state=omni_state,
-                userMessage=omni_message,
-            ),
-            ProviderStatus(
-                id="gemini-live",
-                capabilities=[
-                    "s2s",
-                    "native-bidi-audio",
-                    "pcm-24khz",
-                    "barge-in-native",
-                ],
-                state="degraded" if active_settings.gemini_configured else "unavailable",
-                userMessage=(
-                    "Gemini Live audio is configured; session reachability and latency are unverified. This is not chat-brain health."
-                    if active_settings.gemini_configured
-                    else "GEMINI_API_KEY is not configured in backend."
+                    f"CanTrustAI is connected with default model {active_settings.active_cantrust_model}."
+                    if active_settings.cantrust_configured
+                    else "CanTrustAI needs CANTRUST_API_KEY in apps/api/.env.local."
                 ),
             ),
 
@@ -2974,53 +2587,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     if active_settings.fish_audio_configured
                     else "FISH_AUDIO_API_KEY is not configured in backend."
                 ),
-            ),
-            ProviderStatus(
-                id="experiential",
-                capabilities=[
-                    "llm",
-                    "structured-turn-plan",
-                    "text-stream",
-                    "openai-compatible",
-                    f"default-model:{active_settings.active_explabs_model}",
-                    *[f"model:{model}" for model in active_settings.explabs_allowed_models],
-                ],
-                state=explabs_state,
-                userMessage=explabs_message,
-            ),
-            ProviderStatus(
-                id="gmi",
-                capabilities=["llm", "text-stream", "openai-compatible",
-                              f"default-model:{active_settings.gmi_model}", f"model:{active_settings.gmi_model}"],
-                state="untested" if active_settings.gmi_configured else "unavailable",
-                userMessage="GMI Cloud needs a verified chat response." if active_settings.gmi_configured else "GMI Cloud needs GMI_API_KEY.",
-            ),
-            ProviderStatus(
-                id="respan",
-                capabilities=[
-                    "llm",
-                    "structured-turn-plan",
-                    "text-stream",
-                    "openai-compatible",
-                    f"default-model:{active_settings.respan_model}",
-                    *[f"model:{model}" for model in active_settings.respan_allowed_models],
-                ],
-                state=respan_state,
-                userMessage=respan_message,
-            ),
-            ProviderStatus(
-                id="coarena",
-                capabilities=[
-                    "llm",
-                    "fast-brain",
-                    "structured-turn-plan",
-                    "text-stream",
-                    "openai-compatible",
-                    f"default-model:{active_settings.coarena_model}",
-                    *[f"model:{model}" for model in active_settings.coarena_allowed_models],
-                ],
-                state=coarena_state,
-                userMessage=coarena_message,
             ),
             ProviderStatus(
                 id="tinyfish",

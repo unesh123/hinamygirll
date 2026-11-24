@@ -317,6 +317,7 @@ _GATEWAY_PROVIDERS = {
     "custom",
     "cx-gateway",
     "claude",
+    "cantrustai",
     "ollama",
     "omniroute",
     "xkiro",
