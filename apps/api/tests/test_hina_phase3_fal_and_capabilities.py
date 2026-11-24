@@ -184,7 +184,9 @@ def test_registry_reports_the_brain_choice_and_video_status() -> None:
 
     plain = _settings()
     registry = build_capability_registry(plain)
-    assert "not configured" in video_provider_status(plain)
+    # Phase 5: video is configured by default — code rendering via ffmpeg,
+    # no key needed. Generative video is what stays "not configured".
+    assert "code rendering via ffmpeg" in video_provider_status(plain)
     assert registry.primary_brain_reason == ""
 
     asked = _settings(HINAA_PRIMARY_BRAIN="claude")
@@ -201,6 +203,7 @@ def test_self_state_layer_tells_the_truth(monkeypatch) -> None:
     out = _self_state_layer(voice=True)
     assert "fully equipped with advanced capabilities" not in out
     assert "autonomous browser execution" not in out
-    assert "Video generation: not configured" in out
+    # Phase 5: video is code rendering by default, not "not configured".
+    assert "Video generation: configured (code rendering via ffmpeg" in out
     assert "No tools are available on this turn" in out
     assert "Never claim browser execution" in out

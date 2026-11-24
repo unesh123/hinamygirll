@@ -147,6 +147,7 @@ def test_provider_priority_fal_then_hf_then_stub(monkeypatch) -> None:
 def test_video_status_names_the_free_route() -> None:
     from hinaa_api.capabilities import video_provider_status
 
-    assert "HF_TOKEN" in video_provider_status(_settings())
+    # Phase 5: with no keys at all, video is code rendering (no key needed).
+    assert "code rendering" in video_provider_status(_settings())
     assert "Hugging Face" in video_provider_status(_settings(HF_TOKEN="hf_x"))
     assert "fal.ai" in video_provider_status(_settings(FAL_KEY="fal_x"))

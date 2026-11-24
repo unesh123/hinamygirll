@@ -280,18 +280,28 @@ class FalVideoProvider(CreativeProvider):
             return False
 
 
-def get_video_provider() -> CreativeProvider:
+def get_video_provider(job=None) -> CreativeProvider:
     """The video provider, in priority order.
 
-    1. fal.ai when FAL_KEY is set — paid, best quality, fastest.
+    0. CODE FIRST: when the job carries a brain-written timeline, the video
+       is made by code — local ffmpeg renders the timeline into a real MP4.
+       No key, no credits, no generative model. This is the default path,
+       the way Claude creates videos.
+    1. fal.ai when FAL_KEY is set — paid generative video, for footage code
+       cannot make (new cinematic scenes, characters, motion).
     2. Hugging Face Inference Providers when HF_TOKEN is set — free token,
        small monthly credit pool, a handful of clips a month.
-    3. Otherwise the fail-closed stub: video generation is unavailable and
+    3. Otherwise the fail-closed stub: generative video is unavailable and
        Hina must say so, never fake a video.
     """
+    from .code_video_provider import CodeVideoProvider
     from .hf_video_provider import HfVideoProvider
     from .video_generative_provider import GenerativeVideoProvider
 
+    if job is not None and getattr(job.spec, "timeline_json", None):
+        code = CodeVideoProvider()
+        if code.is_available():
+            return code
     fal = FalVideoProvider()
     if fal.is_available():
         return fal

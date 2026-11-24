@@ -22,9 +22,10 @@ from ..models import (
     MediaType,
 )
 from ..policy import CreativeSecurityPolicy
+from ..providers.code_video_provider import code_video_provider
 from ..providers.comfy_provider import comfyui_provider
+from ..providers.fal_video_provider import get_video_provider
 from ..providers.local_engine import local_creative_engine
-from ..providers.timeline_exporter import timeline_video_exporter
 from ..providers.video_generative_provider import generative_video_provider
 from ..registry import creative_registry
 from .store import persistent_creative_job_store
@@ -172,19 +173,27 @@ class CreativeService:
                     raise FileNotFoundError("Source asset not found for background removal.")
                 out_bytes = local_creative_engine.remove_background(src_bytes)
             elif op == CreativeOperation.TIMELINE_EXPORT:
+                # Video by code: the brain writes a timeline, ffmpeg renders it.
+                # No timeline, no video — the old placeholder-frame path is gone;
+                # a video Hina cannot describe is a video she must not fake.
                 job.state = JobState.ENCODING
                 await self.store.append_event(
-                    self._next_event(job_id, seq, JobState.ENCODING, 60.0, "Encoding video frames via FFmpeg")
+                    self._next_event(job_id, seq, JobState.ENCODING, 60.0, "Rendering video from timeline via FFmpeg")
                 )
                 seq += 1
-                out_bytes, probe = await timeline_video_exporter.render_timeline_to_mp4(
-                    frame_images=[],
-                    width=job.spec.width,
-                    height=job.spec.height,
-                    fps=job.spec.fps,
-                    title=job.spec.prompt,
+                out_bytes = await code_video_provider.execute_job(job)
+                job.telemetry["video_provider"] = "code_video"
+            elif op == CreativeOperation.TEXT_TO_VIDEO:
+                # Code first when the brain wrote a timeline; generative
+                # (fal.ai / HF) only for footage code cannot make.
+                job.state = JobState.ENCODING
+                await self.store.append_event(
+                    self._next_event(job_id, seq, JobState.ENCODING, 60.0, "Making video")
                 )
-                job.telemetry["ffmpeg_probe"] = probe
+                seq += 1
+                provider = get_video_provider(job)
+                out_bytes = await provider.execute_job(job)
+                job.telemetry["video_provider"] = provider.provider_id
             else:
                 raise NotImplementedError(f"Operation {op} execution handler not implemented.")
 

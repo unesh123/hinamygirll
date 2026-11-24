@@ -101,6 +101,12 @@ class CreativeJobSpec(BaseModel):
     source_asset_id: Optional[str] = None
     mask_asset_id: Optional[str] = None
     timeline_frames: Optional[List[str]] = None
+    # The brain-written video timeline (see creative/providers/code_video_provider.py
+    # for the contract): scenes with text, timing, transitions and audio. When
+    # present, the video is made BY CODE — ffmpeg renders it locally, no
+    # generative video model, no API key, no credits. This is the default
+    # video path; fal.ai / Hugging Face are only for footage code cannot make.
+    timeline_json: Optional[Dict[str, Any]] = None
     fps: float = Field(24.0, ge=1.0, le=60.0)
     duration_seconds: float = Field(3.0, ge=0.1, le=60.0)
     idempotency_key: Optional[str] = None
