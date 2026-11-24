@@ -916,7 +916,7 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
           <img src={fileUrl} alt={data.filename || 'Screenshot'} style={{ width: '100%', maxHeight: 280, objectFit: 'contain', borderRadius: 8, marginBottom: 8, border: '1px solid var(--border-subtle)' }} />
         )}
         {(data.preview || data.content) && (
-          <pre style={{ margin: '0 0 8px 0', padding: 10, borderRadius: 8, background: 'rgba(0,0,0,0.28)', color: 'var(--text-primary)', fontSize: 12, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: 'monospace' }}>
+          <pre style={{ margin: '0 0 8px 0', padding: 10, borderRadius: 8, background: '#0f172a', backgroundColor: '#0f172a', color: '#f1f5f9', fontSize: 12, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: 'monospace' }}>
             {String(data.preview || data.content).slice(0, 600)}
           </pre>
         )}
@@ -983,8 +983,8 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
     const rawOut = data.stdout || data.output || (typeof result === 'string' ? result : '') || data.stderr || '[No output]';
     const rc = data.returncode ?? data.exit_code ?? (data.ok === false ? 1 : 0);
     return (
-      <div data-testid="artifact-terminal-card" style={{ marginTop: 12, borderRadius: 12, border: '1px solid rgba(56,189,248,0.28)', background: '#0b0e14', color: '#e2e8f0', overflow: 'hidden' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(255,255,255,0.04)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+      <div data-testid="artifact-terminal-card" style={{ marginTop: 12, borderRadius: 12, border: '1px solid rgba(56,189,248,0.28)', background: '#0b0e14', backgroundColor: '#0b0e14', color: '#e2e8f0', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#111827', backgroundColor: '#111827', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontFamily: 'monospace', color: '#38bdf8' }}>
             <Terminal size={13} /> $ {rawCmd || toolName}
           </span>
@@ -992,7 +992,7 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
             exit {rc}
           </span>
         </div>
-        <pre style={{ margin: 0, padding: 12, fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: 'monospace', maxHeight: 260, overflowY: 'auto' }}>
+        <pre style={{ margin: 0, padding: 12, background: '#0b0e14', backgroundColor: '#0b0e14', color: '#e2e8f0', fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: 'monospace', maxHeight: 260, overflowY: 'auto' }}>
           {String(rawOut).trim()}
         </pre>
       </div>
