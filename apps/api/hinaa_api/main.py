@@ -995,6 +995,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         from .tools import load_all_tools
         load_all_tools()
 
+        # Directive v3.0 Containment Assertion: Quarantined tools must not be registered
+        from .tools import QUARANTINED_DANGEROUS_TOOLS, registry as startup_tool_reg
+        active_tool_names = set(startup_tool_reg.list_tools().keys())
+        quarantined_present = active_tool_names.intersection(QUARANTINED_DANGEROUS_TOOLS)
+        if quarantined_present:
+            raise RuntimeError(
+                f"CONTAINMENT BREACH: Quarantined dangerous tools are registered: {sorted(quarantined_present)}"
+            )
+
+        # Directive v3.0 Policy Coverage Assertion: All Tier 3 & Tier 4 tools must have policy coverage
+        for t_name, t_def in startup_tool_reg.list_tools().items():
+            t_tier = getattr(t_def, "risk_tier", 0)
+            if t_tier >= 3:
+                if t_name not in tool_policy.LOCAL_EFFECT_TOOLS and t_name not in tool_policy.IRREVERSIBLE_EXTERNAL_TOOLS:
+                    logger.warning(
+                        "Risk tier %s tool %s lacks explicit entry in LOCAL_EFFECT_TOOLS or IRREVERSIBLE_EXTERNAL_TOOLS",
+                        t_tier,
+                        t_name,
+                    )
+
         # Start VMC UDP listener for VSeeFace face tracking
         await vmc_bridge.start_udp(port=active_settings.vmc_port)
         if agent_persistence:
@@ -1765,6 +1785,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         VSeeFace → UDP 39539 → vmc_bridge → this WS → frontend AvatarPresence
         """
+        # Origin validation for WebSocket (CSWSH defense)
+        raw_origin = (ws.headers.get("origin") or "").strip().rstrip("/").lower()
+        if raw_origin:
+            allowed_origins = {"http://127.0.0.1:5173", "http://localhost:5173", "http://127.0.0.1:8000", "http://localhost:8000"}
+            if active_settings.allowed_origins:
+                for o in active_settings.allowed_origins:
+                    allowed_origins.add(o.strip().rstrip("/").lower())
+            if active_settings.cors_origins:
+                for o in active_settings.cors_origins:
+                    allowed_origins.add(o.strip().rstrip("/").lower())
+            if raw_origin not in allowed_origins and not (raw_origin.startswith("http://127.0.0.1:") or raw_origin.startswith("http://localhost:")):
+                await ws.close(code=4403)
+                return
         if active_settings.auth_mode == "clerk":
             # Browser sockets cannot carry a bearer header. Use the same
             # authenticated, single-use ticket as voice, in the first frame.
@@ -3191,6 +3224,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.websocket("/v1/realtime")
     @app.websocket("/api/v1/realtime")
     async def realtime_session(websocket: WebSocket) -> None:
+        # Origin validation for WebSocket (CSWSH defense)
+        raw_origin = (websocket.headers.get("origin") or "").strip().rstrip("/").lower()
+        if raw_origin:
+            allowed_origins = {"http://127.0.0.1:5173", "http://localhost:5173", "http://127.0.0.1:8000", "http://localhost:8000"}
+            if active_settings.allowed_origins:
+                for o in active_settings.allowed_origins:
+                    allowed_origins.add(o.strip().rstrip("/").lower())
+            if active_settings.cors_origins:
+                for o in active_settings.cors_origins:
+                    allowed_origins.add(o.strip().rstrip("/").lower())
+            if raw_origin not in allowed_origins and not (raw_origin.startswith("http://127.0.0.1:") or raw_origin.startswith("http://localhost:")):
+                await websocket.close(code=4403)
+                return
         await realtime.handle(websocket, user_id=_resolve_user_id(websocket))
 
     @app.get("/v1/realtime/url")

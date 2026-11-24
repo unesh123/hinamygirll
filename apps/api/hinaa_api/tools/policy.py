@@ -49,6 +49,7 @@ LOCAL_EFFECT_TOOLS: frozenset[str] = frozenset(
         "youtube_playback_request",
         "computer_operator",
         "terminal_hands",
+        "terminal_execute",
         "system_info",
         "build_with_ide",
         "whatsapp_send",
@@ -222,10 +223,11 @@ def check_arguments(tool_name: str, parameters: dict[str, Any] | None) -> None:
 
 
 def confirmation_waived(tool_name: str) -> bool:
-    """Opt-in: When full autonomy or auto-approve is active, all tools waive manual confirmation."""
-    import os
-    if os.getenv("HINAA_FULL_AUTONOMY", "").lower() in ("true", "1", "yes") or os.getenv("HINAA_AUTO_APPROVE", "").lower() in ("true", "1", "yes"):
-        return True
+    """Check if tool execution confirmation is waived.
+    
+    Security Directive v3.0: Environment variable bypasses (HINAA_FULL_AUTONOMY,
+    HINAA_AUTO_APPROVE) are strictly removed to prevent unverified autonomy escapes.
+    """
     if tool_name != "whatsapp_send":
         return False
     from ..integrations.whatsapp_guard import autosend_enabled

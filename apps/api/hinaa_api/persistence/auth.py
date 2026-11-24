@@ -65,6 +65,14 @@ class AuthContext:
     def has(self, permission: str) -> bool:
         return permission in self.permissions
 
+    @property
+    def actor_id(self) -> str:
+        return self.user_id
+
+    @property
+    def tenant_id(self) -> str:
+        return self.org_id or self.user_id
+
 
 def resolve_auth(
     request: Request,
@@ -89,7 +97,7 @@ def resolve_auth(
     bearer = (authorization or request.headers.get("Authorization") or "").strip()
     if bearer[:10].lower() == "bearer hk_":
         key = org_service.authenticate_api_key(factory, settings, bearer[7:].strip())
-        return AuthContext(
+        ctx = AuthContext(
             user_id=key.user_id,
             auth_subject=key.auth_subject,
             mode="api_key",
@@ -98,6 +106,11 @@ def resolve_auth(
             permissions=key.scopes,
             api_key_id=key.key_id,
         )
+        from ..ops.context import actor_id_var, tenant_id_var, user_id_var
+        actor_id_var.set(ctx.actor_id)
+        tenant_id_var.set(ctx.tenant_id)
+        user_id_var.set(ctx.user_id)
+        return ctx
     base = _resolve_identity(
         request, settings, memory, authorization, x_hinaa_dev_user, allow_default_subject=allow_default_subject
     )
@@ -109,7 +122,12 @@ def resolve_auth(
         settings,
         {"ip": client.host if client else None},
     )
-    return replace(base, org_id=org_id, role=role, permissions=permissions_for(role))
+    res = replace(base, org_id=org_id, role=role, permissions=permissions_for(role))
+    from ..ops.context import actor_id_var, tenant_id_var, user_id_var
+    actor_id_var.set(res.actor_id)
+    tenant_id_var.set(res.tenant_id)
+    user_id_var.set(res.user_id)
+    return res
 
 
 def _resolve_identity(
@@ -136,6 +154,14 @@ def _resolve_identity(
     if mode == "clerk" and isinstance(cached, AuthContext) and cached.mode == "clerk":
         return cached
     if mode == "dev":
+        is_prod = getattr(settings, "is_production", False) or (getattr(settings, "environment", "") or "").lower() == "production"
+        if is_prod:
+            raise HinaaError(
+                "AUTH_REQUIRED",
+                "Dev authentication mode is forbidden in production environments.",
+                401,
+                True,
+            )
         # The dev header is a self-declared name and its expected value ships in
         # the browser bundle, so it can only be trusted on a request that never
         # left this machine or his LAN - UNLESS allow_tunnel_dev_auth is enabled.
@@ -199,10 +225,11 @@ def _resolve_identity(
         )
 
     if mode == "clerk":
-        # Only a request that never left this machine may use the dev identity.
+        is_prod = getattr(settings, "is_production", False) or (getattr(settings, "environment", "") or "").lower() == "production"
+        # Only a non-production request that never left this machine may use the dev identity.
         # An edge-routed request must present a verified Clerk token: a default
         # owner subject here made every anonymous public request the owner.
-        if not reached_through_edge(request):
+        if not is_prod and not reached_through_edge(request):
             dev_sub = (x_hinaa_dev_user or "").strip()
             if not dev_sub and (allow_default_subject or getattr(settings, "allow_tunnel_dev_auth", False)):
                 dev_sub = settings.dev_auth_subject.strip() if settings.dev_auth_subject else "admin-owner"
