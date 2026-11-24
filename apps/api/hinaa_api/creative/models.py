@@ -8,6 +8,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
+from .motion import MotionScene
 
 
 class JobState(str, Enum):
@@ -101,6 +102,7 @@ class CreativeJobSpec(BaseModel):
     source_asset_id: Optional[str] = None
     mask_asset_id: Optional[str] = None
     timeline_frames: Optional[List[str]] = None
+    motion_scenes: Optional[List[MotionScene]] = Field(default=None, min_length=1, max_length=8)
     # The brain-written video timeline (see creative/providers/code_video_provider.py
     # for the contract): scenes with text, timing, transitions and audio. When
     # present, the video is made BY CODE — ffmpeg renders it locally, no
