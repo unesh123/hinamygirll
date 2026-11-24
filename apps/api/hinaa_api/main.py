@@ -1972,8 +1972,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "id": "gemini",
                 "name": "Google Gemini",
                 "configured": has_gemini,
-                "defaultModel": "gemini-3.5-flash",
-                "allowedModels": ["gemini-3.5-flash", "gemini-3.5-flash-lite"],
+                "defaultModel": (
+                    "gemini-3.5-flash-lite"
+                    if active_settings.gemini_model == "gemini-3.5-flash"
+                    else active_settings.gemini_model
+                ),
+                "allowedModels": [
+                    m
+                    for m in active_settings.gemini_allowed_models
+                    if m != "gemini-3.5-flash"
+                ]
+                or ["gemini-3.5-flash-lite"],
                 "protocol": "native-sdk",
             },
             {

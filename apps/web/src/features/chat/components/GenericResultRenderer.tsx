@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Terminal, Image as ImageIcon, FileJson, ChevronDown, ChevronUp, AlertTriangle, Network, Globe, FileText, Download, ExternalLink } from 'lucide-react';
+import { Terminal, Image as ImageIcon, FileJson, ChevronDown, ChevronUp, AlertTriangle, Network, Globe, FileText, Download, ExternalLink, Film, FolderOpen, Server, Bot, CheckCircle2, FileCode } from 'lucide-react';
 import { ImageGeneration } from '@/components/ui/image-generation';
 import { SourceCard, type SourceItem } from '@/components/ui/SourceCard';
 import { WorkTree } from './WorkTree';
@@ -838,6 +838,185 @@ export function GenericResultRenderer({ toolName, result, conversationId }: Gene
             <div className="hinaa-markdown" style={{ marginTop: 8, fontSize: 12.5, lineHeight: 1.65, color: '#e5d8c5' }} dangerouslySetInnerHTML={{ __html: reportHtml }} />
           </details>
         )}
+      </div>
+    );
+  }
+
+  // VideoCard — inline HTML5 player + direct download for generated MP4s / motion renders
+  if (toolName === 'video_create' || toolName === 'ffmpeg_export' || toolName === 'create_motion_video' || toolName === 'record_frames') {
+    const rawUrl = data.url || data.video_url || data.download_url || (data.filename ? `http://localhost:8765/exports/${data.filename}` : null);
+    const dlUrl = data.download_url || rawUrl;
+    const isMp4 = typeof rawUrl === 'string' && rawUrl.toLowerCase().includes('.mp4');
+    return (
+      <div data-testid="artifact-video-card" style={{ marginTop: 12, borderRadius: 12, border: '1px solid rgba(251,191,36,0.3)', background: 'rgba(14,16,22,0.92)', color: '#f8fafc', padding: 14, boxShadow: '0 8px 24px rgba(0,0,0,0.22)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Film size={16} color="#fbbf24" />
+            <strong style={{ fontSize: 13 }}>{data.filename || 'Generated Animation'}</strong>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#cbd5e1' }}>
+            {data.width && data.height && <span>{data.width}×{data.height}</span>}
+            {data.fps && <span>· {data.fps}fps</span>}
+            {data.duration_seconds && <span>· {data.duration_seconds}s</span>}
+            {data.size_mb !== undefined && <span>· {data.size_mb} MB</span>}
+            {data.captured_frames !== undefined && <span>· {data.captured_frames} frames</span>}
+          </div>
+        </div>
+        {isMp4 && rawUrl && (
+          <video
+            src={rawUrl}
+            controls
+            playsInline
+            preload="metadata"
+            style={{ width: '100%', maxHeight: 360, borderRadius: 8, background: '#000', marginBottom: 10 }}
+          />
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+          <code style={{ fontSize: 11, color: '#94a3b8', overflowWrap: 'anywhere' }}>{data.output || data.frames_dir || ''}</code>
+          {dlUrl && (
+            <a
+              href={dlUrl}
+              target="_blank"
+              rel="noreferrer"
+              download={data.filename || true}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#09090b', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}
+            >
+              <Download size={13} /> Download MP4
+            </a>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // FileCard — created / written / read file preview + download link
+  if (toolName === 'ultra_file_write' || toolName === 'file_write' || toolName === 'file_read' || toolName === 'browser_screenshot') {
+    const fileUrl = data.url || (data.filename && toolName !== 'file_read' ? `http://localhost:8765/exports/${data.filename}` : null);
+    const isScreenshot = toolName === 'browser_screenshot' || (typeof data.filename === 'string' && /\.(png|jpe?g|webp)$/i.test(data.filename));
+    return (
+      <div data-testid="artifact-file-card" style={{ marginTop: 12, borderRadius: 12, border: '1px solid var(--border-subtle, rgba(255,255,255,0.12))', background: 'var(--bg-surface-raised, rgba(16,20,28,0.9))', padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {isScreenshot ? <ImageIcon size={15} color="#38bdf8" /> : <FileCode size={15} color="#10b981" />}
+            <strong style={{ fontSize: 13, color: 'var(--text-primary)' }}>{data.filename || data.path || toolName}</strong>
+            <span style={{ fontSize: 11, color: '#10b981', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              <CheckCircle2 size={12} /> Saved
+            </span>
+          </div>
+          {data.size_bytes !== undefined && (
+            <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{data.size_bytes} bytes</span>
+          )}
+        </div>
+        {data.path && (
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8, overflowWrap: 'anywhere' }}>
+            <code>{data.path}</code>
+          </div>
+        )}
+        {isScreenshot && fileUrl && (
+          <img src={fileUrl} alt={data.filename || 'Screenshot'} style={{ width: '100%', maxHeight: 280, objectFit: 'contain', borderRadius: 8, marginBottom: 8, border: '1px solid var(--border-subtle)' }} />
+        )}
+        {(data.preview || data.content) && (
+          <pre style={{ margin: '0 0 8px 0', padding: 10, borderRadius: 8, background: 'rgba(0,0,0,0.28)', color: 'var(--text-primary)', fontSize: 12, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: 'monospace' }}>
+            {String(data.preview || data.content).slice(0, 600)}
+          </pre>
+        )}
+        {fileUrl && (
+          <a href={fileUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: '#38bdf8', textDecoration: 'none' }}>
+            <ExternalLink size={12} /> Open Artifact ({fileUrl})
+          </a>
+        )}
+      </div>
+    );
+  }
+
+  // WorkspaceFilesCard — directory listing
+  if (toolName === 'file_list') {
+    const items: Array<{ name: string; type: string; size?: number }> = Array.isArray(data.items) ? data.items : [];
+    return (
+      <div data-testid="artifact-workspace-card" style={{ marginTop: 12, borderRadius: 12, border: '1px solid var(--border-subtle)', background: 'var(--bg-surface-raised)', padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+            <FolderOpen size={15} color="#38bdf8" /> Workspace Files ({data.count ?? items.length})
+          </span>
+          <code style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{data.path || '~/hinaa-ultra'}</code>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 6 }}>
+          {items.slice(0, 24).map((item) => (
+            <div key={item.name} style={{ padding: '6px 9px', borderRadius: 8, background: 'rgba(0,0,0,0.18)', border: '1px solid var(--border-subtle)', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-primary)' }}>
+                {item.type === 'dir' ? '📁 ' : '📄 '}{item.name}
+              </span>
+              {item.type !== 'dir' && item.size !== undefined && (
+                <span style={{ fontSize: 10, color: 'var(--text-tertiary)', flexShrink: 0 }}>{item.size}B</span>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // WebsiteCard — live localhost static server launched via server_start
+  if (toolName === 'server_start') {
+    const serverUrl = data.url || `http://localhost:${data.port || 4500}`;
+    return (
+      <div data-testid="artifact-website-card" style={{ marginTop: 12, borderRadius: 12, border: '1px solid rgba(16,185,129,0.35)', background: 'var(--bg-surface-raised)', padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Server size={16} color="#10b981" />
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>Localhost Server Live · :{data.port}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Serving <code>{data.dir}</code></div>
+            </div>
+          </div>
+          <a href={serverUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, background: '#10b981', color: '#052e16', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
+            <ExternalLink size={12} /> Open {serverUrl}
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  // TerminalOutputCard — shell_run / terminal_hands / terminal_execute
+  if (toolName === 'shell_run' || toolName === 'terminal_hands' || toolName === 'terminal_execute') {
+    const rawCmd = data.command || result?.command || '';
+    const rawOut = data.stdout || data.output || (typeof result === 'string' ? result : '') || data.stderr || '[No output]';
+    const rc = data.returncode ?? data.exit_code ?? (data.ok === false ? 1 : 0);
+    return (
+      <div data-testid="artifact-terminal-card" style={{ marginTop: 12, borderRadius: 12, border: '1px solid rgba(56,189,248,0.28)', background: '#0b0e14', color: '#e2e8f0', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(255,255,255,0.04)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontFamily: 'monospace', color: '#38bdf8' }}>
+            <Terminal size={13} /> $ {rawCmd || toolName}
+          </span>
+          <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: rc === 0 ? 'rgba(16,185,129,0.18)' : 'rgba(239,68,68,0.2)', color: rc === 0 ? '#34d399' : '#f87171', fontWeight: 700 }}>
+            exit {rc}
+          </span>
+        </div>
+        <pre style={{ margin: 0, padding: 12, fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: 'monospace', maxHeight: 260, overflowY: 'auto' }}>
+          {String(rawOut).trim()}
+        </pre>
+      </div>
+    );
+  }
+
+  // AgentCard — multi-agent swarm delegation (Kira, Nova, Sage)
+  if (toolName === 'agent_spawn') {
+    return (
+      <div data-testid="artifact-agent-card" style={{ marginTop: 12, borderRadius: 12, border: '1px solid rgba(168,85,247,0.35)', background: 'var(--bg-surface-raised)', padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Bot size={16} color="#a855f7" />
+            <strong style={{ fontSize: 13, color: 'var(--text-primary)' }}>{data.agent || 'Agent'}</strong>
+            {data.role && <span style={{ fontSize: 11, color: '#c084fc' }}>({data.role})</span>}
+          </div>
+          {data.preview_url && (
+            <a href={data.preview_url} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#38bdf8', textDecoration: 'none' }}>
+              <ExternalLink size={12} /> Open Output
+            </a>
+          )}
+        </div>
+        {data.task && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>Task: {data.task}</div>}
+        {data.output && <div style={{ fontSize: 12.5, color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>{data.output}</div>}
       </div>
     );
   }

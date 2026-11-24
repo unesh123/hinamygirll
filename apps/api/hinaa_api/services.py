@@ -3561,6 +3561,24 @@ class ConversationService:
                 "self_improver",
             ])
 
+        ULTRA_PATTERN = re.compile(
+            r"(?i)\b(?:workspace|exports|hinaa-ultra|file\s+called|mp4|bridal|reel|animation|server|port\s+\d+|kira|nova|sage|screenshot|memory|ffmpeg)\b"
+        )
+        if ULTRA_PATTERN.search(text):
+            allowed_set.update([
+                "ultra_file_write",
+                "file_list",
+                "video_create",
+                "record_frames",
+                "ffmpeg_export",
+                "server_start",
+                "shell_run",
+                "agent_spawn",
+                "browser_screenshot",
+                "ultra_memory_save",
+                "ultra_memory_get",
+            ])
+
         try:
             from .tools.uncensored_mode import UncensoredMode
             if UncensoredMode.is_on() or re.search(r"(?i)\buncensored\s+mode\s+on\b", text):
@@ -3725,6 +3743,25 @@ class ConversationService:
             return f"Launching Hacker Agent reconnaissance on {target}. 🛡️⚔️"
         if tool.toolName == "workspace":
             return f"Accessing secure workspace storage ({parameters.get('category', 'scratch')}). 📂"
+        if tool.toolName == "ultra_file_write":
+            return f"Writing `{parameters.get('filename', 'output.txt')}` into the HINAA Ultra workspace."
+        if tool.toolName == "file_list":
+            return f"Listing files inside `{parameters.get('path', '.')}` in HINAA Ultra."
+        if tool.toolName == "server_start":
+            return f"Starting static server for `{parameters.get('dir_path', 'exports')}` on port {parameters.get('port', 4500)}."
+        if tool.toolName == "video_create":
+            dur = parameters.get("duration_seconds", 5)
+            return f"Rendering {dur}s MP4 animation in code via Playwright + FFmpeg."
+        if tool.toolName == "ffmpeg_export":
+            return f"Encoding frames from `{parameters.get('frames_dir', 'frames')}` into MP4."
+        if tool.toolName == "browser_screenshot":
+            return f"Capturing screenshot of {parameters.get('url', 'target page')}."
+        if tool.toolName == "shell_run":
+            cmd_str = (parameters.get("command") or "").strip()
+            return f"Running `{cmd_str}` in HINAA Ultra shell." if cmd_str else "Running command in HINAA Ultra shell."
+        if tool.toolName == "agent_spawn":
+            agent_name = str(parameters.get("name") or "agent").title()
+            return f"Assigning {agent_name} to execute: {parameters.get('task', '')}."
         return f"Running {tool.toolName}."
 
     @staticmethod
@@ -7130,6 +7167,13 @@ class ConversationService:
         _INSTANT_ACTION_TOOLS = frozenset({
             "computer_operator",
             "terminal_hands",
+            "shell_run",
+            "ultra_file_write",
+            "file_list",
+            "server_start",
+            "video_create",
+            "browser_screenshot",
+            "agent_spawn",
             "reminder.create",
             "youtube_playback_request",
             "ui_control",

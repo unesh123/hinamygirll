@@ -606,7 +606,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
         const language = resolveTurnLanguage(text, languagePolicy);
         // Snapshot routing for this turn so it can't change mid-stream
         const isMockAllowed = !import.meta.env.PROD || import.meta.env.VITE_ALLOW_MOCK === "true";
-        let turnMode = routing.activeMode ?? (import.meta.env.PROD ? "claude" : "mock");
+        let turnMode = routing.activeMode ?? "claude";
         if (!isMockAllowed && turnMode === "mock") {
           turnMode = "claude";
         }
@@ -855,6 +855,17 @@ export function useCompanionController({ conversationId, routing, languagePolicy
         // fault. resolveToolOutcome labels it and the result reaches toolResults,
         // where the card can say so out loud. Throwing here buried the refusal in
         // an activity row that only renders while the turn is still thinking.
+        if (response.status === 409 && approvalSource === "standing-consent") {
+          setMessages((current) => current.map((message) => message.id === messageId ? {
+            ...message,
+            toolActivity: (message.toolActivity || []).map((activity) => activity.id === actionId ? {
+              ...activity,
+              status: "pending",
+              label: `Approval required: ${request.toolName}`,
+            } : activity),
+          } : message));
+          return;
+        }
         if (!response.ok) {
           throw new Error(payload.detail || payload.error || `Action failed (${response.status})`);
         }

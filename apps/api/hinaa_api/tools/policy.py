@@ -82,6 +82,13 @@ LOCAL_EFFECT_TOOLS: frozenset[str] = frozenset(
         "server_start",
         "ffmpeg_export",
         "agent_spawn",
+        "ultra_file_write",
+        "file_list",
+        "record_frames",
+        "video_create",
+        "browser_screenshot",
+        "ultra_memory_save",
+        "ultra_memory_get",
         "whatsapp_send",
         "whatsapp_status",
     }

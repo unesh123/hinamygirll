@@ -58,6 +58,8 @@ TOOL_RISK_TIERS: dict[str, int] = {
     "prodcamp_list_features": 0,
     "system_info": 0,
     "memory_consolidate_cycle": 0,
+    "file_list": 0,
+    "ultra_memory_get": 0,
 
     # Tier 1 (Reversible local workspace modification)
     "workspace": 1,
@@ -88,6 +90,11 @@ TOOL_RISK_TIERS: dict[str, int] = {
     "self_improver": 1,
     "server_start": 1,
     "ffmpeg_export": 1,
+    "ultra_file_write": 1,
+    "record_frames": 1,
+    "video_create": 1,
+    "browser_screenshot": 1,
+    "ultra_memory_save": 1,
 
     # Tier 2 (Network & external communication)
     "web_search": 2,

@@ -129,8 +129,10 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
   const getProviderName = (providerId: string) => {
     const p = providers.find((pr) => pr.id === providerId);
     if (p) return p.name;
-    if (providerId === "claude") return "Anthropic Claude";
+    if (providerId === "claude") return "Anthropic Claude (MWAPI)";
+    if (providerId === "cantrustai") return "CanTrustAI (DeepSeek)";
     if (providerId === "gemini") return "Google Gemini";
+    if (providerId === "local") return "Zero-Credit Local Brain";
     if (providerId === "deepseek") return "DeepSeek AI";
     if (providerId === "openai") return "OpenAI / Codex";
     if (providerId === "codecraft") return "CodeCraft AI";
