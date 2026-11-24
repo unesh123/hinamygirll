@@ -530,6 +530,33 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           <span style={{ width:5, height:5, background:"currentColor", borderRadius:"50%" }} />
           <span>{runtime.backendConnected ? "Connected" : loading ? "Connecting" : "Offline"}</span>
         </button>
+        {/* HINAA ULTRA Control Panel shortcut */}
+        <a
+          href="http://localhost:3000"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Open HINAA Ultra Control Panel (:3000)"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            padding: "4px 10px",
+            height: 32,
+            borderRadius: 8,
+            border: isDark ? "1px solid rgba(139, 92, 246, 0.4)" : "1px solid rgba(139, 92, 246, 0.3)",
+            background: isDark ? "rgba(139, 92, 246, 0.15)" : "rgba(139, 92, 246, 0.08)",
+            color: isDark ? "#c4b5fd" : "#7c3aed",
+            fontSize: 11,
+            fontWeight: 700,
+            textDecoration: "none",
+            cursor: "pointer",
+            transition: "all 0.15s ease",
+          }}
+        >
+          <Zap size={13} style={{ fill: "currentColor" }} />
+          <span>Ultra OS</span>
+        </a>
+
         {/* Search */}
         <button
           type="button"
