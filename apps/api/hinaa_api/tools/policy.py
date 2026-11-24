@@ -78,6 +78,10 @@ LOCAL_EFFECT_TOOLS: frozenset[str] = frozenset(
         "git_branch",
         "git_commit",
         "ui_control",
+        "shell_run",
+        "server_start",
+        "ffmpeg_export",
+        "agent_spawn",
         "whatsapp_send",
         "whatsapp_status",
     }

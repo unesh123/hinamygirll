@@ -86,6 +86,8 @@ TOOL_RISK_TIERS: dict[str, int] = {
     "image_relight": 1,
     "auto_goal_decomposer": 1,
     "self_improver": 1,
+    "server_start": 1,
+    "ffmpeg_export": 1,
 
     # Tier 2 (Network & external communication)
     "web_search": 2,
@@ -117,8 +119,10 @@ TOOL_RISK_TIERS: dict[str, int] = {
     "gamma_create": 2,
     "bivia_decide": 2,
     "treg_call": 2,
+    "agent_spawn": 2,
 
     # Tier 3 (Process execution, shell commands, OS input)
+    "shell_run": 3,
     "file_write": 3,
     "edit_file": 3,
     "write_file": 3,

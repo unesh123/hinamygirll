@@ -45,6 +45,7 @@ from . import swarm_tool
 from . import pty_session
 from . import vision_canvas
 from . import vision_pty_bridge
+from . import hinaa_ultra_bridge
 from ..intelligence import sleep_consolidation
 
 # Safe tools
