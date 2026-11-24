@@ -57,6 +57,14 @@ export interface CanonicalProvider {
 
 export const CANONICAL_PROVIDERS: CanonicalProvider[] = [
   {
+    mode: "cantrustai",
+    label: "⚡ CanTrustAI (DeepSeek)",
+    defaultModel: "deepseek/deepseek-v4.1-flash",
+    models: [
+      { id: "deepseek/deepseek-v4.1-flash", label: "DeepSeek V4.1 Flash", isDefault: true },
+    ],
+  },
+  {
     mode: "agent-router",
     label: "🔀 Agent Router (Bynara)",
     defaultModel: "agnes-2.5-flash",

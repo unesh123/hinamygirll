@@ -5232,7 +5232,7 @@ class ConversationService:
             resolved_provider = request.providerMode
             resolved_model = request.brainModel
 
-        is_remote_primary = request.providerMode in ("claude", "agent-router", "cx-gateway", "custom")
+        is_remote_primary = request.providerMode in ("claude", "agent-router", "cx-gateway", "custom", "cantrustai", "cantrust")
         # Use the configured LLM timeout for all providers. The old 2.5s was far
         # too short for mwapi.dev (which needs 3-8s cold) and caused constant
         # timeouts. HINAA_LLM_TIMEOUT_SECONDS=90 from .env.local applies here.
@@ -5241,7 +5241,7 @@ class ConversationService:
         # must not be paid another full timeout of silence on every turn, and
         # a brain past cooloff proves recovery on a cheap probe budget.
         primary_bench_cooloff = self._primary_cooloff_remaining(request.providerMode)
-        if not primary_bench_cooloff and self._primary_probing(request.providerMode) and request.providerMode != "ollama":
+        if not primary_bench_cooloff and self._primary_probing(request.providerMode) and request.providerMode not in ("ollama", "cantrustai", "cantrust", "claude"):
             primary_plan_timeout = min(primary_plan_timeout, 12.0)
         attempted_brain = request.providerMode
         fast_provider_id = None
@@ -6192,7 +6192,7 @@ class ConversationService:
             resolved_provider = request.providerMode
             resolved_model = request.brainModel
 
-        is_remote_primary = request.providerMode in ("claude", "agent-router", "cx-gateway", "custom")
+        is_remote_primary = request.providerMode in ("claude", "agent-router", "cx-gateway", "custom", "cantrustai", "cantrust")
         primary_idle_timeout = self.settings.llm_stream_idle_timeout_seconds
         primary_live_timeout = max(
             self.settings.llm_stream_ceiling_seconds, primary_idle_timeout
@@ -6202,7 +6202,7 @@ class ConversationService:
         # turn goes straight to the fallback chain. A brain past cooloff but
         # not yet proven healthy gets a cheap probe budget for the same reason.
         primary_bench_cooloff = self._primary_cooloff_remaining(request.providerMode)
-        if not primary_bench_cooloff and self._primary_probing(request.providerMode) and request.providerMode != "ollama":
+        if not primary_bench_cooloff and self._primary_probing(request.providerMode) and request.providerMode not in ("ollama", "cantrustai", "cantrust", "claude"):
             primary_idle_timeout = min(primary_idle_timeout, 12.0)
             primary_live_timeout = min(primary_live_timeout, 45.0)
         primary_text: list[str] = []

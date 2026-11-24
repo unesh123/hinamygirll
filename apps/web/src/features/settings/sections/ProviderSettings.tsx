@@ -32,6 +32,7 @@ interface Props {
 
 // User-facing labels — internal keys never shown in UI
 const MODE_LABELS: Record<ProviderPreferenceMode, string> = {
+  cantrustai: "CanTrustAI (DeepSeek)",
   gmi: "GMI Cloud",
   auto:   "Automatic",
   custom: "Custom Gateway",
@@ -60,6 +61,7 @@ const MODE_LABELS: Record<ProviderPreferenceMode, string> = {
 };
 
 const MODE_DESCRIPTIONS: Record<ProviderPreferenceMode, string> = {
+  cantrustai: "CanTrustAI — high-speed DeepSeek V4.1 Flash inference via api.cantrustai.xyz.",
   gmi: "GMI streaming inference. Requires working account quota.",
   auto:   "HINAA picks the best available provider.",
   custom: "Your private backend gateway (hcnsec.cn).",

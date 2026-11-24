@@ -12,6 +12,8 @@ Language = Literal[
     "mixed",
 ]
 ProviderMode = Literal[
+    "cantrustai",
+    "cantrust",
     "gmi",
     "auto",
     "mock",

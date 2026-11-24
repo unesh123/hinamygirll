@@ -1,6 +1,7 @@
 import { hinaaIdentityHeaders } from "../../lib/hinaaIdentity";
 
 export type ProviderMode =
+  | "cantrustai"
   | "gmi"
   | "mock"
   | "local"

@@ -13,6 +13,7 @@ export function providerModeFromId(id: string): ProviderMode | null {
 }
 
 const PROVIDER_LABELS: Record<ProviderMode, { label: string; description: string }> = {
+  cantrustai: { label: "CanTrustAI (DeepSeek)", description: "api.cantrustai.xyz — high-speed DeepSeek V4.1 Flash." },
   gmi: { label: "GMI Cloud", description: "GMI streaming inference; provider and model availability require live checks." },
   mock:   { label: "Demo",           description: "Deterministic responses. No API calls." },
   local:  { label: "Local",          description: "Zero-credit on-device model. Text only." },
