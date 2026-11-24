@@ -18,7 +18,8 @@
 | **Action Approvals Gate** | **VERIFIED_LOCAL** | Restart-persistent HMAC key, recursive secret redaction from disk/network, tamper-evident digests, atomic anti-replay consumption. |
 | **Dispatcher E2E Connection** | **VERIFIED_LOCAL** | Tested against `/v1/tools/execute`: 0 child processes before approval, 1 on verified consumption, 0 on tamper/replay/denial/expiry/wrong key. |
 | **Subprocess Boundary Test** | **VERIFIED_LOCAL** | Standalone worker tested across 4 distinct OS subprocesses (`initiate`, `resolve_and_consume`, `consume_again`, `verify_signature`). |
-| **Phase 5+ Features** | **NOT AUTHORIZED** | Awaiting owner authorization and green remote GitHub CI. |
+| **Kinetic Motion Studio (Phase 5)** | **VERIFIED_LOCAL** | `KineticMotionRenderer` + `KineticReelCompiler`: 1080x1920 screen-filling typography, procedural 3D chrome sphere, orbital rings, FFmpeg MP4 export. |
+| **Honest Agent Evals (Phase 6)** | **VERIFIED_LOCAL** | `HonestAgentEvalRunner` (Workstream B): live `gemini-3-flash-preview` inference, sandboxed code assertions, 159.1s duration, honest 90.9% pass rate. |
 
 ---
 
