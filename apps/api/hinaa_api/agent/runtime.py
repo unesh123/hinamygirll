@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
+
+logger = logging.getLogger("hinaa.agent.runtime")
 
 from .context import ContextBuilder
 from .contracts import (

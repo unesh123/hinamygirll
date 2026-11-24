@@ -5,6 +5,7 @@ import io
 import logging
 import zipfile
 import xml.etree.ElementTree as ET
+from typing import Any
 
 logger = logging.getLogger("hinaa.media.extractors")
 

@@ -62,6 +62,16 @@ class ToolRegistry:
             raise ValueError(f"Tool '{tool_def.name}' must have a non-empty description")
         if not isinstance(tool_def.parameters, dict):
             raise ValueError(f"Tool '{tool_def.name}' parameters must be a dict")
+        try:
+            from hinaa_api.security.action_approvals import TOOL_RISK_TIERS
+            name_lower = tool_def.name.lower().strip()
+            if name_lower in TOOL_RISK_TIERS:
+                tier = TOOL_RISK_TIERS[name_lower]
+                tool_def.risk_tier = tier
+                if tier >= 2:
+                    tool_def.requires_confirmation = True
+        except Exception:
+            pass
         if tool_def.risk_tier not in (0, 1, 2, 3, 4):
             raise ValueError(f"Tool '{tool_def.name}' risk_tier must be between 0 and 4")
         self._tools[tool_def.name] = tool_def

@@ -144,6 +144,8 @@ class ToolRequest(BaseModel):
     status: str | None = None
     confirmed: bool = False
     approvalSource: Literal["none", "standing-consent", "user", "policy-engine"] = "none"
+    challengeId: str | None = Field(default=None, validation_alias=AliasChoices("challengeId", "challenge_id"))
+    tenantId: str | None = Field(default=None, validation_alias=AliasChoices("tenantId", "tenant_id"))
     idempotencyKey: str | None = Field(default=None, max_length=160)
     userId: str | None = None
     conversationId: str | None = None

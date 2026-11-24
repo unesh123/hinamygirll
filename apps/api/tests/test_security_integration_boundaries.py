@@ -104,6 +104,7 @@ async def test_boundary_b_cross_tenant_isolation(tmp_path):
             params,
             tenant_id="tenant_alpha",
             actor_id="alice",
+            device_id="device_a",
             timeout_seconds=30.0,
         )
     )
@@ -120,7 +121,7 @@ async def test_boundary_b_cross_tenant_isolation(tmp_path):
     # 2. Tenant B cannot approve/deny Tenant A's challenge
     denied_resolve = gate.resolve_challenge(cid, approved=True, tenant_id="tenant_bravo")
     assert denied_resolve is False
-    assert gate.get_challenge(cid)["status"] == "PENDING"
+    assert gate.get_challenge(cid, tenant_id="tenant_alpha")["status"] == "PENDING"
 
     # 3. Tenant A approves their challenge
     approved_resolve = gate.resolve_challenge(cid, approved=True, tenant_id="tenant_alpha")
@@ -133,13 +134,13 @@ async def test_boundary_b_cross_tenant_isolation(tmp_path):
     assert "CROSS_TENANT_REPLAY_BLOCKED" in msg_b
 
     # Verify side-effect absence: status in DB remains APPROVED (Tenant B did not consume it)
-    rec = gate.get_challenge(cid)
+    rec = gate.get_challenge(cid, tenant_id="tenant_alpha")
     assert rec["status"] == "APPROVED"
 
     # 5. Tenant A consumes successfully
     ok_a, msg_a = gate.verify_and_consume(cid, params, tenant_id="tenant_alpha")
     assert ok_a is True
-    assert gate.get_challenge(cid)["status"] == "CONSUMED"
+    assert gate.get_challenge(cid, tenant_id="tenant_alpha")["status"] == "CONSUMED"
 
 
 # ============================================================================
@@ -264,25 +265,33 @@ async def test_boundary_i_approval_and_consumption_separation(tmp_path):
     params = {"command": "reboot", "runtime": "powershell"}
 
     task = asyncio.create_task(
-        gate.request_approval("terminal_execute", params, timeout_seconds=10.0)
+        gate.request_approval(
+            "terminal_execute",
+            params,
+            tenant_id="tenant_i",
+            actor_id="actor_i",
+            device_id="device_i",
+            timeout_seconds=10.0,
+        )
     )
     await asyncio.sleep(0.05)
-    cid = gate.list_pending()[0]["challenge_id"]
+    pending = gate.list_pending(tenant_id="tenant_i")
+    cid = pending[0]["challenge_id"]
 
     # Approve challenge
-    gate.resolve_challenge(cid, approved=True, reason="Operator approved")
+    gate.resolve_challenge(cid, approved=True, tenant_id="tenant_i", reason="Operator approved")
     approved, _, _ = await task
     assert approved is True
 
     # Challenge is APPROVED, but NOT yet CONSUMED
-    rec = gate.get_challenge(cid)
+    rec = gate.get_challenge(cid, tenant_id="tenant_i")
     assert rec["status"] == "APPROVED"
     assert rec.get("consumed_at") is None
 
     # Consumption is a separate explicit checked step
-    ok, msg = gate.verify_and_consume(cid, params)
+    ok, msg = gate.verify_and_consume(cid, params, tenant_id="tenant_i")
     assert ok is True
-    rec_after = gate.get_challenge(cid)
+    rec_after = gate.get_challenge(cid, tenant_id="tenant_i")
     assert rec_after["status"] == "CONSUMED"
     assert rec_after["consumed_at"] is not None
 
@@ -299,26 +308,34 @@ async def test_boundary_j_parameter_tampering_defense(tmp_path):
     tampered_params = {"command": "rm -rf /"}
 
     task = asyncio.create_task(
-        gate.request_approval("terminal_execute", authorized_params, timeout_seconds=10.0)
+        gate.request_approval(
+            "terminal_execute",
+            authorized_params,
+            tenant_id="tenant_j",
+            actor_id="actor_j",
+            device_id="device_j",
+            timeout_seconds=10.0,
+        )
     )
     await asyncio.sleep(0.05)
-    cid = gate.list_pending()[0]["challenge_id"]
-    gate.resolve_challenge(cid, approved=True)
+    pending = gate.list_pending(tenant_id="tenant_j")
+    cid = pending[0]["challenge_id"]
+    gate.resolve_challenge(cid, approved=True, tenant_id="tenant_j")
     await task
 
     # Tampered call fails
-    ok_tamper, msg_tamper = gate.verify_and_consume(cid, tampered_params)
+    ok_tamper, msg_tamper = gate.verify_and_consume(cid, tampered_params, tenant_id="tenant_j")
     assert ok_tamper is False
     assert "TAMPER_DETECTED" in msg_tamper
 
     # Absence of side effects: challenge remains unconsumed and ready for authorized parameters
-    rec = gate.get_challenge(cid)
+    rec = gate.get_challenge(cid, tenant_id="tenant_j")
     assert rec["status"] == "APPROVED"
 
     # Authorized parameters succeed
-    ok_valid, _ = gate.verify_and_consume(cid, authorized_params)
+    ok_valid, _ = gate.verify_and_consume(cid, authorized_params, tenant_id="tenant_j")
     assert ok_valid is True
-    assert gate.get_challenge(cid)["status"] == "CONSUMED"
+    assert gate.get_challenge(cid, tenant_id="tenant_j")["status"] == "CONSUMED"
 
 
 # ============================================================================
@@ -332,17 +349,25 @@ async def test_boundary_k_concurrent_consumer_atomic_replay_defense(tmp_path):
     params = {"target": "critical_resource"}
 
     task = asyncio.create_task(
-        gate.request_approval("computer_operator", params, timeout_seconds=10.0)
+        gate.request_approval(
+            "computer_operator",
+            params,
+            tenant_id="tenant_k",
+            actor_id="actor_k",
+            device_id="device_k",
+            timeout_seconds=10.0,
+        )
     )
     await asyncio.sleep(0.05)
-    cid = gate.list_pending()[0]["challenge_id"]
-    gate.resolve_challenge(cid, approved=True)
+    pending = gate.list_pending(tenant_id="tenant_k")
+    cid = pending[0]["challenge_id"]
+    gate.resolve_challenge(cid, approved=True, tenant_id="tenant_k")
     await task
 
     # Run two concurrent consumptions
     results = await asyncio.gather(
-        asyncio.to_thread(gate.verify_and_consume, cid, params),
-        asyncio.to_thread(gate.verify_and_consume, cid, params),
+        asyncio.to_thread(gate.verify_and_consume, cid, params, tenant_id="tenant_k"),
+        asyncio.to_thread(gate.verify_and_consume, cid, params, tenant_id="tenant_k"),
     )
 
     successes = [r for r in results if r[0] is True]
@@ -365,26 +390,41 @@ async def test_boundary_l_expired_and_denied_cannot_execute(tmp_path):
 
     # 1. Denied challenge
     task_deny = asyncio.create_task(
-        gate.request_approval("terminal_execute", params, timeout_seconds=10.0)
+        gate.request_approval(
+            "terminal_execute",
+            params,
+            tenant_id="tenant_l",
+            actor_id="actor_l",
+            device_id="device_l",
+            timeout_seconds=10.0,
+        )
     )
     await asyncio.sleep(0.05)
-    cid_deny = gate.list_pending()[0]["challenge_id"]
-    gate.resolve_challenge(cid_deny, approved=False, reason="User clicked Deny")
+    pending_deny = gate.list_pending(tenant_id="tenant_l")
+    cid_deny = pending_deny[0]["challenge_id"]
+    gate.resolve_challenge(cid_deny, approved=False, tenant_id="tenant_l", reason="User clicked Deny")
     approved, _, _ = await task_deny
     assert approved is False
 
-    ok_deny, msg_deny = gate.verify_and_consume(cid_deny, params)
+    ok_deny, msg_deny = gate.verify_and_consume(cid_deny, params, tenant_id="tenant_l")
     assert ok_deny is False
     assert "not approved" in msg_deny
 
     # 2. Expired challenge
     task_exp = asyncio.create_task(
-        gate.request_approval("terminal_execute", params, timeout_seconds=0.1)
+        gate.request_approval(
+            "terminal_execute",
+            params,
+            tenant_id="tenant_l",
+            actor_id="actor_l",
+            device_id="device_l",
+            timeout_seconds=0.1,
+        )
     )
     approved_exp, _, cid_exp = await task_exp
     assert approved_exp is False
 
-    ok_exp, msg_exp = gate.verify_and_consume(cid_exp, params)
+    ok_exp, msg_exp = gate.verify_and_consume(cid_exp, params, tenant_id="tenant_l")
     assert ok_exp is False
     assert "not approved" in msg_exp or "expired" in msg_exp.lower()
 
@@ -400,14 +440,22 @@ async def test_boundary_m_restart_never_escalates_to_approved(tmp_path):
     params = {"command": "deploy_prod"}
 
     task = asyncio.create_task(
-        gate1.request_approval("terminal_execute", params, timeout_seconds=60.0)
+        gate1.request_approval(
+            "terminal_execute",
+            params,
+            tenant_id="tenant_m",
+            actor_id="actor_m",
+            device_id="device_m",
+            timeout_seconds=60.0,
+        )
     )
     await asyncio.sleep(0.05)
-    cid = gate1.list_pending()[0]["challenge_id"]
+    pending_m = gate1.list_pending(tenant_id="tenant_m")
+    cid = pending_m[0]["challenge_id"]
 
     # Terminate process, start gate2 from the same database
     gate2 = ActionApprovalGate(db_path=db_file)
-    recovered = gate2.get_challenge(cid)
+    recovered = gate2.get_challenge(cid, tenant_id="tenant_m")
 
     # Must remain PENDING (or EXPIRED), NEVER silently promoted to APPROVED
     assert recovered["status"] == "PENDING"
@@ -466,7 +514,7 @@ def test_boundary_o_zero_sensitive_data_in_records(tmp_path):
     assert "sk-secret" not in digest
     assert "SuperSecretPassword" not in digest
 
-    # Verify challenge representation contains parameters digest rather than raw leaked tokens
+    # Verify challenge representation contains parameters digest and redacted parameters rather than raw leaked tokens
     challenge = PendingApprovalChallenge(
         challenge_id="appr_test_o",
         tool_name="test_tool",
@@ -475,9 +523,15 @@ def test_boundary_o_zero_sensitive_data_in_records(tmp_path):
         description="Run test tool",
         created_at=time.time(),
         expires_at=time.time() + 300,
+        tenant_id="tenant_o",
+        actor_id="actor_o",
+        device_id="device_o",
         parameters_digest=digest,
         nonce="nonce_123",
     )
     d = challenge.to_dict()
     assert d["parameters_digest"] == digest
     assert len(d["nonce"]) > 0
+    assert d["parameters"]["token"] == "[REDACTED]"
+    assert d["parameters"]["password"] == "[REDACTED]"
+    assert d["parameters"]["api_key"] == "[REDACTED]"

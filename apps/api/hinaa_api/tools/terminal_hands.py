@@ -359,3 +359,19 @@ terminal_hands_def = ToolDefinition(
 )
 
 registry.register(terminal_hands_def, execute_terminal_hands)
+
+terminal_execute_def = ToolDefinition(
+    name="terminal_execute",
+    display_name="Terminal Execute",
+    description="Executes shell commands in native OS or Kali Linux WSL with security sandbox boundaries.",
+    parameters={
+        "command": {"type": "string", "description": "Command to run"},
+        "cwd": {"type": "string", "description": "Relative working directory"},
+        "timeout_seconds": {"type": "integer", "description": "Max timeout in seconds"},
+        "runtime": {"type": "string", "description": "Target runtime"},
+    },
+    required_parameters=["command"],
+    requires_confirmation=True,
+    risk_tier=3,
+)
+registry.register(terminal_execute_def, execute_terminal_hands)

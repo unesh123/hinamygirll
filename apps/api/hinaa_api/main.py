@@ -3839,6 +3839,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HinaaError(verdict.code, verdict.message, 403, False, True)
         tool_policy.check_arguments(body.toolName, body.parameters)
         is_user_approved = body.confirmed and body.approvalSource == "user"
+
+        # Check if caller supplied challengeId for approval consumption
+        challenge_id = getattr(body, "challengeId", None) or body.parameters.get("challenge_id")
+        if challenge_id:
+            from .security.action_approvals import get_approval_gate
+            gate = get_approval_gate()
+            tenant = getattr(body, "tenantId", None) or getattr(request.state, "tenant_id", None) or "default_tenant"
+            ok, msg = gate.verify_and_consume(challenge_id, body.parameters, tenant_id=tenant)
+            if not ok:
+                raise HinaaError("APPROVAL_VERIFICATION_FAILED", msg, 403, False, True)
+            is_user_approved = True
+
         is_safe_standing_consent = (
             body.confirmed
             and body.approvalSource == "standing-consent"
@@ -3861,31 +3873,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "browser_cloud_agent",
                 "browser_execute_task",
                 "browser_navigate",
-                "browser_click",
-                "browser_type",
                 "browser_extract",
                 "browser_scroll",
-                "browser_press_key",
                 "ui_control",
-                "computer_operator",
-                "app_launch",
                 "system_info",
                 "search_files",
                 "exa_search",
                 "exa_get_contents",
                 "exa_agent_run",
                 "deep_research",
-                "coding_agent",
-                "clean_room_loop",
-                "code_repair",
-                "terminal_execute",
                 "file_read",
                 "directory_list",
                 "customgpt_query",
                 "codebase_search",
-                "subagent_fork",
             )
         )
+        # Directive v3.0: Tier 3 & 4 process execution and destructive tools strictly require user approval
+        is_tier3_or_4 = tool_def.risk_tier >= 3 or body.toolName in (
+            "terminal_execute", "shell_execute", "terminal_hands", "app_launch",
+            "coding_agent", "clean_room_loop", "subagent_fork", "delete_file",
+            "delete_content_post", "delete_project", "send_email", "social_publish",
+            "phone_call_user", "whatsapp_send"
+        )
+        if is_tier3_or_4:
+            is_safe_standing_consent = False
         if tool_def.requires_confirmation and not (
             is_user_approved or is_safe_standing_consent or tool_policy.confirmation_waived(body.toolName)
         ):

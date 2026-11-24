@@ -3516,42 +3516,24 @@ class ConversationService:
                 "system_info",
             ])
 
-        # Hacking & Kali Linux Offensive Autonomy Pattern
-        HACKING_PATTERN = re.compile(
-            r"(?i)\b(?:hack|scan|nmap|sqlmap|nikto|hydra|metasploit|msf|kali|wsl|exploit|bypass|vuln|vulnerability|recon|brute\s*force|rce|shell|port|reverse\s*shell|target|lead|clue)\b"
-        )
-        if HACKING_PATTERN.search(text):
-            allowed_set.update([
-                "hacker_agent",
-                "bypass_engine",
-                "exploit_memory",
-                "lead_follower",
-                "proxy_manager",
-                "continuous_loop",
-            ])
-
-        # Financial, Money Guard & Crypto Wallet Pattern
+        # Financial, Money Guard Pattern
         MONEY_WALLET_PATTERN = re.compile(
-            r"(?i)\b(?:money|wallet|crypto|balance|expense|income|spend|deposit|withdraw|dollar|funds|transaction|reinvest)\b"
+            r"(?i)\b(?:money|balance|expense|income|dollar|funds|transaction)\b"
         )
         if MONEY_WALLET_PATTERN.search(text):
             allowed_set.update([
                 "money_guard",
-                "crypto_wallet",
             ])
 
-        # Full PC Control, Workspace, Multi-Account & Autonomy Pattern
+        # Autonomy & Productivity Pattern
         AUTONOMY_PATTERN = re.compile(
-            r"(?i)\b(?:full\s*pc|pc\s*control|run\s*command|powershell|cmd|terminal|workspace|scratch|note|captures?|multi\s*account|account|switch\s*account|improve|self\s*improver|parallel|decompos(?:e|er)|goal|uncensored)\b"
+            r"(?i)\b(?:run\s*command|powershell|cmd|terminal|workspace|scratch|note|captures?|improve|self\s*improver|parallel|decompos(?:e|er)|goal)\b"
         )
         if AUTONOMY_PATTERN.search(text):
             allowed_set.update([
-                "full_pc_control",
                 "workspace",
-                "uncensored_mode",
                 "parallel_executor",
                 "auto_goal_decomposer",
-                "multi_account",
                 "self_improver",
             ])
 
@@ -5734,16 +5716,7 @@ class ConversationService:
                     result.value.displayText = f"Rendering your local code-driven motion video: *{motion_title}*! 🎥✨"
                     result.value.spokenText = f"Rendering your motion video for {motion_title} right now!"
 
-            # Autonomy & Offensive Tools Guarantees
-            if "crypto_wallet" in allowed_tools and not any(t.toolName == "crypto_wallet" for t in result.value.toolRequests):
-                if re.search(r"(?i)\b(?:wallet|crypto)\b", request.text):
-                    action = "balance" if "balance" in request.text.lower() else "summary"
-                    result.value.toolRequests.append(ToolRequest(toolName="crypto_wallet", parameters={"action": action}, status="ready", reason="deterministic-intent"))
-                    if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot check", "can't check", "unable to check", "as an ai", "sorry")):
-                        result.value.displayText = "Checking your crypto wallet balance right now! 💰✨"
-                        result.value.spokenText = "Checking your crypto wallet balance right now!"
-
-            if "money_guard" in allowed_tools and not any(t.toolName in {"money_guard", "crypto_wallet"} for t in result.value.toolRequests):
+            if "money_guard" in allowed_tools and not any(t.toolName == "money_guard" for t in result.value.toolRequests):
                 if re.search(r"(?i)\b(?:money|dollar|balance|expense|income)\b", request.text):
                     action = "balance" if "balance" in request.text.lower() else "summary"
                     result.value.toolRequests.append(ToolRequest(toolName="money_guard", parameters={"action": action}, status="ready", reason="deterministic-intent"))
@@ -5751,29 +5724,12 @@ class ConversationService:
                         result.value.displayText = "Checking your financial ledger and balance right now! 💵✨"
                         result.value.spokenText = "Checking your financial balance right now!"
 
-            if "uncensored_mode" in allowed_tools and not any(t.toolName == "uncensored_mode" for t in result.value.toolRequests):
-                if re.search(r"(?i)\buncensored\b", request.text):
-                    act = "enable" if re.search(r"(?i)\b(?:on|enable|activate)\b", request.text) else ("disable" if re.search(r"(?i)\b(?:off|disable)\b", request.text) else "status")
-                    result.value.toolRequests.append(ToolRequest(toolName="uncensored_mode", parameters={"action": act}, status="ready", reason="deterministic-intent"))
-                    if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot", "can't", "unable", "as an ai")):
-                        result.value.displayText = f"Uncensored mode is now {'enabled' if act == 'enable' else ('disabled' if act == 'disable' else 'checked')}! 🔓✨"
-                        result.value.spokenText = f"Uncensored mode {act}ed!"
-
             if "workspace" in allowed_tools and not any(t.toolName == "workspace" for t in result.value.toolRequests):
                 if re.search(r"(?i)\b(?:workspace|scratch|captures?)\b", request.text):
                     result.value.toolRequests.append(ToolRequest(toolName="workspace", parameters={"action": "list", "category": "scratch"}, status="ready", reason="deterministic-intent"))
                     if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot", "can't", "unable", "as an ai")):
-                        result.value.displayText = "Inspecting your workspace scratch and exploit files! 📁✨"
+                        result.value.displayText = "Inspecting your workspace files! 📁✨"
                         result.value.spokenText = "Opening your workspace files now!"
-
-            if "hacker_agent" in allowed_tools and not any(t.toolName == "hacker_agent" for t in result.value.toolRequests):
-                if re.search(r"(?i)\b(?:scan|hack|nmap|sqlmap|nikto|hydra|kali)\b", request.text):
-                    tm = re.search(r"(\b(?:\d{1,3}\.){3}\d{1,3}\b|https?://[^\s]+|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})", request.text)
-                    tgt = tm.group(1) if tm else "127.0.0.1"
-                    result.value.toolRequests.append(ToolRequest(toolName="hacker_agent", parameters={"target": tgt, "goal": request.text}, status="ready", reason="deterministic-intent"))
-                    if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot", "can't", "unable", "as an ai", "sorry")):
-                        result.value.displayText = f"Launching Kali Linux offensive recon on *{tgt}* right now! 🛡️⚡"
-                        result.value.spokenText = f"Launching Kali Linux scan on {tgt} now!"
 
             result.value.toolRequests = [
                 tr for tr in result.value.toolRequests if tr.toolName in allowed_tools
@@ -6989,16 +6945,7 @@ class ConversationService:
                     result.value.displayText = f"Rendering your local code-driven motion video: *{motion_title}*! 🎥✨"
                     result.value.spokenText = f"Rendering your motion video for {motion_title} right now!"
 
-            # Autonomy & Offensive Tools Guarantees
-            if "crypto_wallet" in live_allowed_tools and not any(t.toolName == "crypto_wallet" for t in result.value.toolRequests):
-                if re.search(r"(?i)\b(?:wallet|crypto)\b", request.text):
-                    action = "balance" if "balance" in request.text.lower() else "summary"
-                    result.value.toolRequests.append(ToolRequest(toolName="crypto_wallet", parameters={"action": action}, status="ready", reason="deterministic-intent"))
-                    if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot check", "can't check", "unable to check", "as an ai", "sorry")):
-                        result.value.displayText = "Checking your crypto wallet balance right now! 💰✨"
-                        result.value.spokenText = "Checking your crypto wallet balance right now!"
-
-            if "money_guard" in live_allowed_tools and not any(t.toolName in {"money_guard", "crypto_wallet"} for t in result.value.toolRequests):
+            if "money_guard" in live_allowed_tools and not any(t.toolName == "money_guard" for t in result.value.toolRequests):
                 if re.search(r"(?i)\b(?:money|dollar|balance|expense|income)\b", request.text):
                     action = "balance" if "balance" in request.text.lower() else "summary"
                     result.value.toolRequests.append(ToolRequest(toolName="money_guard", parameters={"action": action}, status="ready", reason="deterministic-intent"))
@@ -7006,29 +6953,12 @@ class ConversationService:
                         result.value.displayText = "Checking your financial ledger and balance right now! 💵✨"
                         result.value.spokenText = "Checking your financial balance right now!"
 
-            if "uncensored_mode" in live_allowed_tools and not any(t.toolName == "uncensored_mode" for t in result.value.toolRequests):
-                if re.search(r"(?i)\buncensored\b", request.text):
-                    act = "enable" if re.search(r"(?i)\b(?:on|enable|activate)\b", request.text) else ("disable" if re.search(r"(?i)\b(?:off|disable)\b", request.text) else "status")
-                    result.value.toolRequests.append(ToolRequest(toolName="uncensored_mode", parameters={"action": act}, status="ready", reason="deterministic-intent"))
-                    if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot", "can't", "unable", "as an ai")):
-                        result.value.displayText = f"Uncensored mode is now {'enabled' if act == 'enable' else ('disabled' if act == 'disable' else 'checked')}! 🔓✨"
-                        result.value.spokenText = f"Uncensored mode {act}ed!"
-
             if "workspace" in live_allowed_tools and not any(t.toolName == "workspace" for t in result.value.toolRequests):
                 if re.search(r"(?i)\b(?:workspace|scratch|captures?)\b", request.text):
                     result.value.toolRequests.append(ToolRequest(toolName="workspace", parameters={"action": "list", "category": "scratch"}, status="ready", reason="deterministic-intent"))
                     if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot", "can't", "unable", "as an ai")):
-                        result.value.displayText = "Inspecting your workspace scratch and exploit files! 📁✨"
+                        result.value.displayText = "Inspecting your workspace files! 📁✨"
                         result.value.spokenText = "Opening your workspace files now!"
-
-            if "hacker_agent" in live_allowed_tools and not any(t.toolName == "hacker_agent" for t in result.value.toolRequests):
-                if re.search(r"(?i)\b(?:scan|hack|nmap|sqlmap|nikto|hydra|kali)\b", request.text):
-                    tm = re.search(r"(\b(?:\d{1,3}\.){3}\d{1,3}\b|https?://[^\s]+|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})", request.text)
-                    tgt = tm.group(1) if tm else "127.0.0.1"
-                    result.value.toolRequests.append(ToolRequest(toolName="hacker_agent", parameters={"target": tgt, "goal": request.text}, status="ready", reason="deterministic-intent"))
-                    if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot", "can't", "unable", "as an ai", "sorry")):
-                        result.value.displayText = f"Launching Kali Linux offensive recon on *{tgt}* right now! 🛡️⚡"
-                        result.value.spokenText = f"Launching Kali Linux scan on {tgt} now!"
 
             result.value.toolRequests = [
                 tr for tr in result.value.toolRequests if tr.toolName in live_allowed_tools
