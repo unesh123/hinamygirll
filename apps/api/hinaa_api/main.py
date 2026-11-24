@@ -322,6 +322,7 @@ def _correlation_id(value: str | None) -> str:
 # providers are not brains, so neither gets a live-call verdict.
 _BRAIN_PROVIDER_IDS = frozenset(
     {
+        "cantrustai",
         "gmi",
         "agent-router",
         "cavoti",
@@ -1961,7 +1962,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         providers = [
             {
                 "id": "cantrustai",
-                "name": "CanTrustAI (DeepSeek & Claude)",
+                "name": "CanTrustAI (DeepSeek)",
                 "configured": has_cantrust,
                 "defaultModel": active_settings.active_cantrust_model,
                 "allowedModels": list(active_settings.cantrust_allowed_models),
@@ -1971,17 +1972,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "id": "gemini",
                 "name": "Google Gemini",
                 "configured": has_gemini,
-                "defaultModel": "gemini-3-flash-preview",
-                "allowedModels": ["gemini-3-flash-preview", "gemini-3.5-flash", "gemini-3.8-flash"],
+                "defaultModel": "gemini-3.5-flash",
+                "allowedModels": ["gemini-3.5-flash", "gemini-3.5-flash-lite"],
                 "protocol": "native-sdk",
             },
             {
                 "id": "claude",
-                "name": "Anthropic Claude",
+                "name": "Anthropic Claude (MWAPI)",
                 "configured": has_claude,
                 "defaultModel": active_settings.active_claude_model,
                 "allowedModels": list(active_settings.claude_allowed_models),
                 "protocol": active_settings.active_claude_protocol,
+            },
+            {
+                "id": "xkiro",
+                "name": "XKiro Multi-Model (Mistral & Cohere)",
+                "configured": bool(active_settings.xkiro_configured),
+                "defaultModel": active_settings.active_xkiro_model,
+                "allowedModels": list(active_settings.xkiro_allowed_models),
+                "protocol": "openai-compatible",
             },
             {
                 "id": "deepseek",
@@ -2586,6 +2595,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "Fish Audio TTS configured; Nepali/English auto-switches by text script."
                     if active_settings.fish_audio_configured
                     else "FISH_AUDIO_API_KEY is not configured in backend."
+                ),
+            ),
+            ProviderStatus(
+                id="xkiro",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.active_xkiro_model}",
+                    *[f"model:{model}" for model in active_settings.xkiro_allowed_models],
+                ],
+                state="healthy" if active_settings.xkiro_configured else "unavailable",
+                userMessage=(
+                    f"XKiro AI Gateway is connected (1M daily free tokens; default: {active_settings.active_xkiro_model})."
+                    if active_settings.xkiro_configured
+                    else "XKiro needs XKIRO_API_KEY in apps/api/.env.local."
                 ),
             ),
             ProviderStatus(

@@ -84,7 +84,7 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
-    provider_mode: Literal["gmi", "mock", "local", "groq", "openai", "custom", "real", "claude", "qwen", "agent-router", "cx-gateway", "gemini-live", "codecraft", "experiential", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "oxion", "articul8", "respan"] = Field(
+    provider_mode: Literal["gmi", "mock", "local", "groq", "openai", "custom", "real", "claude", "cantrustai", "cantrust", "qwen", "agent-router", "cx-gateway", "gemini-live", "codecraft", "experiential", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "oxion", "articul8", "respan"] = Field(
         "gemini-live", alias="HINAA_PROVIDER_MODE"
     )
     azure_speech_key: SecretStr | None = Field(None, alias="AZURE_SPEECH_KEY")
@@ -385,16 +385,11 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("XKIRO_BASE_URL", "XK_IRO_BASE_URL"),
     )
     xkiro_model: str = Field(
-        "qwen/qwen3.8-max:free",
+        "mistralai/mistral-medium-3.5",
         validation_alias=AliasChoices("XKIRO_MODEL", "XK_IRO_MODEL"),
     )
-    # Pinned to the Qwen family only. The previous list ended in ",*" and
-    # mixed DeepSeek / MiniMax / Muse Spark / stealth models in, so any
-    # model ID was accepted and a fallback could silently switch families
-    # mid-conversation. No wildcard here: resolve_xkiro_model() must reject
-    # anything not in this list.
     xkiro_allowed_models_raw: str = Field(
-        "qwen/qwen3.8-max:free,qwen/qwen3.8-omni-flash:free,qwen/qwen3.7-flash:free,qwen/qwen3.7-max:free,qwen/qwen3.6-max-preview:free,qwen/qwen3.5-flash:free",
+        "mistralai/mistral-medium-3.5,mistralai/mistral-small-2603,mistralai/codestral-2508,cohere/command-a,cohere/command-a-reasoning,sensenova/sensenova-6.8-flash-lite,stealth/big-pickle",
         validation_alias=AliasChoices("XKIRO_ALLOWED_MODELS", "XK_IRO_ALLOWED_MODELS"),
     )
     # Video generation (fal.ai) — the paid MP4 path. The key is never in
@@ -523,7 +518,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("CANTRUST_MODEL", "CANTRUSTAI_MODEL"),
     )
     cantrust_allowed_models_raw: str = Field(
-        "deepseek/deepseek-v4.1-flash,claude-3-7-sonnet,claude-3-5-sonnet,claude-3-5-haiku",
+        "deepseek/deepseek-v4.1-flash",
         validation_alias=AliasChoices("CANTRUST_ALLOWED_MODELS", "CANTRUSTAI_ALLOWED_MODELS"),
     )
     # Articul8 / Bivia ("Ben") Multi-Modal Decision Engine
