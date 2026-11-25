@@ -773,12 +773,14 @@ def _extract_video_create_params(raw: str) -> dict[str, Any]:
     res_m = re.search(r"(\d{3,4})\s*[xX×]\s*(\d{3,4})", raw)
     if res_m:
         width, height = int(res_m.group(1)), int(res_m.group(2))
+    overlay_mode = "green" if re.search(r"(?i)\bgreen\s*screen|chroma\s*key\b", raw) else ("black" if re.search(r"(?i)\bblack\s*screen|black\s*overlay\b", raw) else "full")
     return {
         "prompt": raw,
         "duration_seconds": dur,
         "fps": fps,
         "width": width,
         "height": height,
+        "overlay_mode": overlay_mode,
     }
 
 

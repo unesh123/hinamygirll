@@ -497,9 +497,26 @@ def _clean_natural_speech_and_display(text: str) -> tuple[str, bool]:
         "",
         cleaned,
     )
-    # Strip <svg>...</svg> blocks and standalone svg lines
-    cleaned = re.sub(r"<svg[\s\S]*?</svg>", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"(?im)^\s*svg\s*$\n?", "", cleaned)
+    # Strip <svg>...</svg> blocks and standalone svg lines, but only
+    # outside fenced code blocks (``` … ```) so user-requested SVG examples
+    # survive in displayText.
+    def _strip_svg_outside_fences(src: str) -> str:
+        fence_re = re.compile(r"(```[\w-]*|```|~~~[\w-]*|~~~)")
+        segments = fence_re.split(src)
+        inside = False
+        out: list[str] = []
+        for seg in segments:
+            if seg.startswith("```") or seg.startswith("~~~"):
+                inside = not inside
+                out.append(seg)
+            elif inside:
+                out.append(seg)
+            else:
+                seg = re.sub(r"<svg[\s\S]*?</svg>", "", seg, flags=re.IGNORECASE)
+                seg = re.sub(r"(?im)^\s*svg\s*$\n?", "", seg)
+                out.append(seg)
+        return "".join(out)
+    cleaned = _strip_svg_outside_fences(cleaned)
     # Strip internal workflow tokens
     cleaned = re.sub(r"\b(?:workflow_mode|generation_set_id)\b\s*", "", cleaned)
     # Strip emojis, hearts, and decorative symbols
@@ -3658,8 +3675,17 @@ class ConversationService:
         added = [tool for tool in kept if tool.reason == "deterministic-intent"]
         if added:
             confirmation = " ".join(self._action_confirmation(tool) for tool in added)
-            plan.displayText = confirmation
-            plan.spokenText = confirmation
+            existing = (plan.displayText or "").strip()
+            # If the LLM already produced substantial prose or code fences,
+            # prepend the tool confirmation instead of overwriting it.
+            has_code = "```" in existing
+            has_substance = len(existing) > 120 and not denies_capability(existing)
+            if has_code or has_substance:
+                plan.displayText = f"{confirmation}\n\n{existing}"
+                plan.spokenText = confirmation
+            else:
+                plan.displayText = confirmation
+                plan.spokenText = confirmation
             _apply_response_quality_guard(plan, user_text=request.text, response_mode=getattr(request, "responseMode", None))
             return
 
@@ -4348,9 +4374,8 @@ class ConversationService:
         """
         configured: dict[str, tuple[bool, str | None]] = {
             "coarena": (self.settings.coarena_configured, self.settings.active_coarena_model),
-            "xkiro": (self.settings.xkiro_configured, self.settings.active_xkiro_model),
-            "real": (self.settings.gemini_configured, self.settings.gemini_model),
             "experiential": (self.settings.explabs_configured, self.settings.active_explabs_model),
+            "xkiro": (self.settings.xkiro_configured, self.settings.active_xkiro_model),
             "pgsgrove": (self.settings.pgsgrove_configured, self.settings.active_pgsgrove_model),
             "agent-router": (
                 self.settings.agent_router_configured,
@@ -4368,6 +4393,7 @@ class ConversationService:
             "custom": (self.settings.custom_configured, self.settings.active_custom_model),
             "cx-gateway": (self.settings.cx_gateway_configured, self.settings.cx_gateway_model),
             "qwen": (self.settings.qwen_configured, self.settings.qwen_model),
+            "real": (self.settings.gemini_configured, self.settings.gemini_model),
             "openai": (self.settings.openai_configured, self.settings.active_openai_model),
             "groq": (self.settings.groq_configured, self.settings.groq_model),
         }
@@ -7191,6 +7217,10 @@ class ConversationService:
             and "?" not in request.text
             and all(getattr(req, "reason", None) == "deterministic-intent" for req in instant_requests)
             and all(req.toolName in _INSTANT_ACTION_TOOLS for req in instant_requests)
+            and not re.search(
+                r"(?i)\b(?:show|write|explain|give|display|print|output|generate)\b[^.?!]*\b(?:code|script|program|function|class|snippet|example|html|css|js|python|svg)\b",
+                request.text,
+            )
         ):
             confirmation = " ".join(self._action_confirmation(req) for req in instant_requests)
             instant_plan = build_plan_from_text(
@@ -7312,7 +7342,10 @@ class ConversationService:
             full_text = result.value.displayText or ""
             if page_guard is not None and page_guard.closed:
                 from .providers.display_stream_decoder import drop_inlined_page_source, drop_inlined_document_code
-                full_text = drop_inlined_document_code(drop_inlined_page_source(full_text))
+                if page_active:
+                    full_text = drop_inlined_page_source(full_text)
+                if doc_active:
+                    full_text = drop_inlined_document_code(full_text)
             streamed_so_far = "".join(emitted)
             if not streamed_so_far and full_text:
                 # Provider emitted no deltas at all during execution; yield full text once

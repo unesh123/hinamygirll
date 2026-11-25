@@ -20,11 +20,25 @@ def e2e_test_env(tmp_path, monkeypatch):
     gate = ActionApprovalGate(db_path=db_path, signing_key=key)
     monkeypatch.setattr("hinaa_api.security.action_approvals._gate_instance", gate)
 
+    from hinaa_api.config import Settings
     from hinaa_api.tools import load_all_tools
     load_all_tools()
 
-    app = create_app()
-    client = TestClient(app)
+    app = create_app(
+        Settings(
+            HINAA_DATABASE_URL=f"sqlite+pysqlite:///{tmp_path / 'e2e_app.db'}",
+            HINAA_AUTH_MODE="dev",
+            HINAA_PERSISTENCE_ENABLED=False,
+            HINAA_ALLOW_REMOTE_LOCAL_TOOLS=True,
+            HINAA_VMC_PORT=0,
+            _env_file=None,
+        )
+    )
+    client = TestClient(
+        app,
+        base_url="http://127.0.0.1:8000",
+        headers={"X-HINAA-Dev-User": "test-local-user"},
+    )
     return client, gate, "tenant_e2e_prod", key, db_path
 
 

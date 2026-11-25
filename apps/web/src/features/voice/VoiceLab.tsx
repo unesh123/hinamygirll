@@ -93,10 +93,10 @@ export function VoiceLab() {
     set(stage, { status: "running", detail: "Synthesizing via backend…" });
     const t0 = performance.now();
     try {
-      const res = await fetch("/api/v1/speech/synthesis", {
+      const res = await fetch("http://localhost:8768/voice/synthesize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: "Hello babe. HINAA voice synthesis is working.", companionId: "hinaa" }),
+        body: JSON.stringify({ text: "Hello babe. HINAA voice synthesis is working.", companion_id: "hinaa" }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();

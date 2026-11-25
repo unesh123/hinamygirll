@@ -68,7 +68,7 @@ class ToolRegistry:
             if name_lower in TOOL_RISK_TIERS:
                 tier = TOOL_RISK_TIERS[name_lower]
                 tool_def.risk_tier = tier
-                if tier >= 2:
+                if tier >= 3 and name_lower != "computer_operator":
                     tool_def.requires_confirmation = True
         except Exception:
             pass

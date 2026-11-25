@@ -50,8 +50,12 @@ export interface PlaybackController {
  * Gapless, stall-proof speech playback with viseme-based lip-sync.
  */
 export function useAudioPlayback(): PlaybackController {
+  const initialMuted =
+    typeof window !== "undefined" &&
+    typeof window.localStorage !== "undefined" &&
+    window.localStorage.getItem("hinaa_voice_autoplay") === "false";
   const [playing, setPlaying] = useState(false);
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(initialMuted);
   const [hasReplay, setHasReplay] = useState(false);
   
   // Use refs instead of state for 60fps high-frequency updates
@@ -75,7 +79,7 @@ export function useAudioPlayback(): PlaybackController {
   // message. Browser speech paths below let the engine settle first.
   const lastBrowserCancelAtRef = useRef(0);
   const frameRef = useRef<number | undefined>(undefined);
-  const mutedRef = useRef(false);
+  const mutedRef = useRef(initialMuted);
   const playingRef = useRef(false);
   const browserSpeechActiveRef = useRef(false);
   const streamChunkQueueRef = useRef<SpeechSynthesisUtterance[]>([]);
@@ -1010,6 +1014,11 @@ export function useAudioPlayback(): PlaybackController {
   const toggleMute = useCallback(() => {
     mutedRef.current = !mutedRef.current;
     setMuted(mutedRef.current);
+    try {
+      if (typeof window !== "undefined" && typeof window.localStorage !== "undefined") {
+        window.localStorage.setItem("hinaa_voice_autoplay", mutedRef.current ? "false" : "true");
+      }
+    } catch {}
     if (masterRef.current)
       masterRef.current.gain.value = mutedRef.current ? 0 : 1;
     // The browser speech engine bypasses the AudioContext gain graph

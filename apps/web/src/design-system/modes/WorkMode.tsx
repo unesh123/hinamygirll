@@ -328,6 +328,7 @@ export function WorkMode({
   onExecutiveModeChange,
 }: WorkModeProps) {
   const { scrollRef, endRef, showJump, scrollToBottom } = useAutoScroll([messages, streamingText, partialTranscript]);
+  const [visibleWindowCount, setVisibleWindowCount] = useState(80);
   const deduplicatedMessages = useMemo(() => {
     const seen = new Set<string>();
     const deduped: TranscriptMessage[] = [];
@@ -1440,9 +1441,34 @@ export function WorkMode({
           {/* Welcome */}
           {showWelcome && <WorkWelcome isDark={isDark} onAction={onWelcomeAction} />}
 
-          {/* Messages (Deduplicated & memoized for butter-smooth 120fps streaming) */}
+          {/* Virtual scroll windowing when conversation exceeds 100 messages */}
+          {!showWelcome && deduplicatedMessages.length > 100 && deduplicatedMessages.length > visibleWindowCount && (
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
+              <button
+                type="button"
+                onClick={() => setVisibleWindowCount((n) => n + 80)}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 999,
+                  border: "1px solid var(--border-default)",
+                  background: "var(--bg-surface-raised)",
+                  color: "var(--text-secondary)",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Show earlier messages ({deduplicatedMessages.length - visibleWindowCount} hidden)
+              </button>
+            </div>
+          )}
+
+          {/* Messages (Deduplicated, windowed above 100 items & memoized) */}
           {!showWelcome &&
-            deduplicatedMessages.map((msg) => (
+            (deduplicatedMessages.length > 100
+              ? deduplicatedMessages.slice(-visibleWindowCount)
+              : deduplicatedMessages
+            ).map((msg) => (
               <WorkMessage
                 key={msg.id}
                 message={msg}

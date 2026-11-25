@@ -163,6 +163,8 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
   const [dismissedShapeshiftInput, setDismissedShapeshiftInput] = useState<string>("");
   const [attachedDocuments, setAttachedDocuments] = useState<Array<{ name: string; text: string; kind: string; charCount: number }>>([]);
   const [isExtractingDoc, setIsExtractingDoc] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [sendHovered, setSendHovered] = useState(false);
 
   const voiceTyping = useVoiceTyping({
     onTranscript: useCallback((text: string, isFinal: boolean) => {
@@ -211,12 +213,12 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 label: `${measuredBrains.length - untestedBrains} brains failed their last call`,
               };
 
-  // Auto-grow textarea
+  // Auto-grow textarea up to 6 lines (~144px)
   const adjustHeight = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 200) + "px";
+    el.style.height = Math.min(el.scrollHeight, 144) + "px";
   }, []);
 
   useEffect(() => {
@@ -299,17 +301,13 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
     }
   };
 
-  const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const ingestFile = async (file: File) => {
     if (file.type.startsWith("image/")) {
       const reader = new FileReader();
       reader.onload = () => {
         onImageAttach?.(reader.result as string, selectedRole);
       };
       reader.readAsDataURL(file);
-      e.target.value = "";
       return;
     }
 
@@ -350,7 +348,34 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
       console.error("Document extraction error:", err);
     } finally {
       setIsExtractingDoc(false);
-      e.target.value = "";
+    }
+  };
+
+  const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await ingestFile(file);
+    e.target.value = "";
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    if (disabled) return;
+    e.preventDefault();
+    if (!isDragOver) setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDragOver(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    if (disabled) return;
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    for (const file of files.slice(0, 4)) {
+      await ingestFile(file);
     }
   };
 
@@ -441,17 +466,26 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
     <div
       ref={containerRef}
       className="composer-v6"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={(e) => void handleDrop(e)}
       style={{
         display: "flex",
         flexDirection: "column",
         gap: 8,
         padding: "12px 14px",
         background: isDark ? "rgba(255, 255, 255, 0.05)" : "var(--surface-card, #ffffff)",
-        border: isDark ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid var(--border-default, rgba(0, 0, 0, 0.1))",
+        border: isDragOver
+          ? "1.5px dashed #8b5cf6"
+          : isDark
+            ? "1px solid rgba(255, 255, 255, 0.12)"
+            : "1px solid var(--border-default, rgba(0, 0, 0, 0.1))",
         backdropFilter: isDark ? "blur(20px)" : "none",
         WebkitBackdropFilter: isDark ? "blur(20px)" : "none",
         borderRadius: "var(--radius-lg, 16px)",
-        boxShadow: isDark ? "0 10px 40px -10px rgba(0, 0, 0, 0.5)" : "var(--shadow-card, 0 2px 8px -2px rgba(0,0,0,0.05))",
+        boxShadow: isDragOver
+          ? "0 0 24px rgba(139, 92, 246, 0.25)"
+          : isDark ? "0 10px 40px -10px rgba(0, 0, 0, 0.5)" : "var(--shadow-card, 0 2px 8px -2px rgba(0,0,0,0.05))",
         transition: "border-color 0.15s ease, box-shadow 0.15s ease",
         position: "relative",
       }}
@@ -739,10 +773,24 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
           lineHeight: "1.5",
           color: isDark ? "#ffffff" : "var(--text-primary, #1e191d)",
           minHeight: 38,
-          maxHeight: 200,
+          maxHeight: 144,
           padding: "2px 0",
         }}
       />
+      {value.length > 500 && (
+        <div
+          data-testid="composer-char-counter"
+          style={{
+            alignSelf: "flex-end",
+            fontSize: 11,
+            fontFamily: "ui-monospace, monospace",
+            color: value.length > 4000 ? "#f43f5e" : (isDark ? "#94a3b8" : "#64748b"),
+            marginTop: -4,
+          }}
+        >
+          {value.length.toLocaleString()} chars
+        </div>
+      )}
 
       {/* ── Bottom Controls: Signature Executive Layout ───────────────── */}
       <div
@@ -1348,7 +1396,9 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                   isGoalMode,
                 });
               }}
-              disabled={disabled || (!value.trim() && !attachedImage)}
+              disabled={disabled || (!value.trim() && !attachedImage && attachedDocuments.length === 0)}
+              onMouseEnter={() => setSendHovered(true)}
+              onMouseLeave={() => setSendHovered(false)}
               title="Send Message (Enter)"
               style={{
                 display: "flex",
@@ -1358,19 +1408,25 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 height: 32,
                 borderRadius: "50%",
                 background:
-                  !value.trim() && !attachedImage
+                  !value.trim() && !attachedImage && attachedDocuments.length === 0
                     ? (isDark ? "rgba(255, 255, 255, 0.08)" : "#f1f5f9")
-                    : (isDark ? "#f5f5f5" : "#1a232b"),
+                    : sendHovered
+                      ? "linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%)"
+                      : (isDark ? "#f5f5f5" : "#1a232b"),
                 color:
-                  !value.trim() && !attachedImage
+                  !value.trim() && !attachedImage && attachedDocuments.length === 0
                     ? (isDark ? "rgba(255, 255, 255, 0.3)" : "var(--text-muted, #a198a0)")
-                    : (isDark ? "#1b1b1b" : "#ffffff"),
+                    : sendHovered
+                      ? "#ffffff"
+                      : (isDark ? "#1b1b1b" : "#ffffff"),
                 border: "none",
-                cursor: !value.trim() && !attachedImage ? "not-allowed" : "pointer",
+                cursor: !value.trim() && !attachedImage && attachedDocuments.length === 0 ? "not-allowed" : "pointer",
                 boxShadow:
-                  !value.trim() && !attachedImage
+                  !value.trim() && !attachedImage && attachedDocuments.length === 0
                     ? "none"
-                    : (isDark ? "0 2px 10px rgba(255, 255, 255, 0.25)" : "var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.1))"),
+                    : sendHovered
+                      ? "0 0 18px rgba(139, 92, 246, 0.6), 0 0 8px rgba(236, 72, 153, 0.45)"
+                      : (isDark ? "0 2px 10px rgba(255, 255, 255, 0.25)" : "var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.1))"),
                 transition: "all 0.15s ease",
               }}
             >

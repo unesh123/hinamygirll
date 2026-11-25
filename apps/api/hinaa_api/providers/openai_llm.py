@@ -106,9 +106,9 @@ def _llm_budget_tokens(prompt: Any = None) -> int:
     # Conversational & supportive turns require full expressive capacity so
     # reasoning models and thorough answers never break or truncate mid-sentence.
     if depth in {"conversational", "supportive"}:
-        return min(default_budget, 4096)
-    if depth in {"explanatory", "procedural"}:
         return min(default_budget, 8192)
+    if depth in {"explanatory", "procedural"}:
+        return default_budget
     if depth == "report":
         return default_budget
 
@@ -706,7 +706,7 @@ class OpenAILLMProvider:
                 {"role": "user", "content": "\n\n".join(schema_repair_contents(invalid_raw))},
             ],
             "temperature": self._effective_temperature(0.0),
-            ("max_tokens" if self._provider_id in {"qwen", "agent-router", "codecraft"} | _GATEWAY_PROVIDERS else "max_completion_tokens"): 4096,
+            ("max_tokens" if self._provider_id in {"qwen", "agent-router", "codecraft"} | _GATEWAY_PROVIDERS else "max_completion_tokens"): _llm_budget_tokens(),
             "response_format": {"type": "json_object"},
         }
         last_resp: httpx.Response | None = None

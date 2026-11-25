@@ -1995,7 +1995,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
             {
                 "id": "xkiro",
-                "name": "XKiro Multi-Model (Mistral & Cohere)",
+                "name": "XKiro Pro (Claude, Grok, Gemini, Mistral & DeepSeek)",
                 "configured": bool(active_settings.xkiro_configured),
                 "defaultModel": active_settings.active_xkiro_model,
                 "allowedModels": list(active_settings.xkiro_allowed_models),
@@ -2024,6 +2024,169 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "defaultModel": "ydc-search",
                 "allowedModels": ["ydc-search"],
                 "protocol": "web-search-api",
+            },
+            {
+                "id": "agent-router",
+                "name": "Agent Router",
+                "configured": bool(getattr(active_settings, "agent_router_configured", False)),
+                "defaultModel": active_settings.active_agent_router_model,
+                "allowedModels": list(active_settings.agent_router_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "cx-gateway",
+                "name": "CX Gateway",
+                "configured": bool(getattr(active_settings, "cx_gateway_configured", False)),
+                "defaultModel": active_settings.cx_gateway_model,
+                "allowedModels": list(active_settings.cx_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "codecraft",
+                "name": "CodeCraft AI",
+                "configured": bool(getattr(active_settings, "codecraft_configured", False)),
+                "defaultModel": active_settings.active_codecraft_model,
+                "allowedModels": list(active_settings.codecraft_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "custom",
+                "name": "Custom Model Gateway",
+                "configured": bool(getattr(active_settings, "custom_configured", False)),
+                "defaultModel": active_settings.active_custom_model,
+                "allowedModels": list(active_settings.custom_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "qwen",
+                "name": "Qwen (DashScope)",
+                "configured": bool(getattr(active_settings, "qwen_configured", False)),
+                "defaultModel": active_settings.qwen_model,
+                "allowedModels": list(active_settings.qwen_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "groq",
+                "name": "Groq",
+                "configured": bool(getattr(active_settings, "groq_configured", False)),
+                "defaultModel": active_settings.groq_model,
+                "allowedModels": [active_settings.groq_model],
+                "protocol": "groq-sdk",
+            },
+            {
+                "id": "pgsgrove",
+                "name": "PGSGrove AI",
+                "configured": bool(getattr(active_settings, "pgsgrove_configured", False)),
+                "defaultModel": active_settings.active_pgsgrove_model,
+                "allowedModels": list(active_settings.pgsgrove_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "seekai",
+                "name": "SeekAI Gateway",
+                "configured": bool(getattr(active_settings, "seekai_configured", False)),
+                "defaultModel": active_settings.active_seekai_model,
+                "allowedModels": list(active_settings.seekai_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "tokentable",
+                "name": "TokenTable Asia",
+                "configured": bool(getattr(active_settings, "tokentable_configured", False)),
+                "defaultModel": active_settings.active_tokentable_model,
+                "allowedModels": list(active_settings.tokentable_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "cavoti",
+                "name": "Cavoti AI",
+                "configured": bool(getattr(active_settings, "cavoti_configured", False)),
+                "defaultModel": active_settings.active_cavoti_model,
+                "allowedModels": list(active_settings.cavoti_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "apmix",
+                "name": "APMIX.AI",
+                "configured": bool(getattr(active_settings, "apmix_configured", False)),
+                "defaultModel": active_settings.active_apmix_model,
+                "allowedModels": list(active_settings.apmix_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "oxion",
+                "name": "Oxion AI",
+                "configured": bool(getattr(active_settings, "oxion_configured", False)),
+                "defaultModel": active_settings.active_oxion_model,
+                "allowedModels": list(active_settings.oxion_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "gmi",
+                "name": "GMI Cloud",
+                "configured": active_settings.gmi_configured,
+                "defaultModel": active_settings.gmi_model,
+                "allowedModels": [active_settings.gmi_model],
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "respan",
+                "name": "Respan AI Gateway",
+                "configured": bool(getattr(active_settings, "respan_configured", False)),
+                "defaultModel": active_settings.active_respan_model,
+                "allowedModels": list(active_settings.respan_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "coarena",
+                "name": "Coarena AI",
+                "configured": bool(getattr(active_settings, "coarena_configured", False)),
+                "defaultModel": active_settings.active_coarena_model,
+                "allowedModels": list(active_settings.coarena_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "articul8",
+                "name": "Articul8 Bivia decisions",
+                "configured": active_settings.articul8_configured,
+                "defaultModel": "",
+                "allowedModels": [],
+                "protocol": "bivia-decisions",
+                "role": "decision",
+                "health": "untested" if active_settings.articul8_configured else "unavailable",
+                "healthMessage": "Decision tool, not a text-generating chat model.",
+            },
+            {
+                "id": "experiential",
+                "name": "Experiential Labs",
+                "configured": active_settings.explabs_configured,
+                "defaultModel": active_settings.active_explabs_model,
+                "allowedModels": list(active_settings.explabs_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "omniroute",
+                "name": "OmniRoute local fallback",
+                "configured": omniroute_live,
+                "declared": omniroute_declared,
+                "role": "fallback",
+                "endpoint": active_settings.active_omniroute_base_url or None,
+                "defaultModel": active_settings.omniroute_model,
+                "allowedModels": [active_settings.omniroute_model] if omniroute_live else [],
+                "servingModels": omniroute_serving,
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "ollama",
+                "name": "Ollama (Local Uncensored)",
+                "configured": bool(active_settings.ollama_configured),
+                "defaultModel": active_settings.active_ollama_model,
+                "allowedModels": [
+                    "dolphin-mistral:7b",
+                    "llama2-uncensored:7b",
+                    "SparkLLM/Spark-X2.5-1.7B:latest",
+                ] if active_settings.ollama_allowed_models == ["*"] else list(active_settings.ollama_allowed_models),
+                "protocol": "openai-compatible",
             },
             {
                 "id": "local",
@@ -2086,10 +2249,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     return tier
             return "standard"
 
+        visible_set = set(active_settings.visible_providers)
         for provider in providers:
             provider_id = provider["id"]
             if provider_id in {"you", "omniroute", "articul8"}:
                 continue  # research lane and last-resort gateway, not pickable brains
+            if visible_set and provider_id not in visible_set:
+                continue
             if not provider.get("configured"):
                 # An unconfigured brain cannot answer; listing it would be the
                 # same "fake model list" defect the audit flagged.
@@ -2622,6 +2788,293 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     if active_settings.xkiro_configured
                     else "XKiro needs XKIRO_API_KEY in apps/api/.env.local."
                 ),
+            ),
+            ProviderStatus(
+                id="qwen",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    "bearer-auth",
+                    f"default-model:{active_settings.qwen_model}",
+                    *[f"model:{model}" for model in active_settings.qwen_allowed_models],
+                ],
+                state="healthy" if active_settings.qwen_configured else "unavailable",
+                userMessage=(
+                    "QwenCloud configuration is present; no live call has been made."
+                    if active_settings.qwen_configured
+                    else "Qwen needs HINAA_QWEN_API_KEY (or QWEN_API_KEY) in the backend .env.local file."
+                ),
+            ),
+            ProviderStatus(
+                id="custom",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.active_custom_model}",
+                    *[f"model:{model}" for model in active_settings.custom_allowed_models],
+                ],
+                state="healthy" if active_settings.custom_configured else "unavailable",
+                userMessage=(
+                    "Custom model gateway configuration is present; no live call has been made."
+                    if active_settings.custom_configured
+                    else (
+                        "Custom model gateway needs OPENAI_CODEX_API_KEY "
+                        "and OPENAI_CODEX_BASE_URL."
+                    )
+                ),
+            ),
+            ProviderStatus(
+                id="agent-router",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.active_agent_router_model}",
+                    *[f"model:{model}" for model in active_settings.agent_router_allowed_models],
+                ],
+                state="healthy" if active_settings.agent_router_configured else "unavailable",
+                userMessage=(
+                    "Agent router configuration is present; no live call has been made."
+                    if active_settings.agent_router_configured
+                    else (
+                        "Agent router needs AGENT_ROUTER_API_KEY and AGENT_ROUTER_BASE_URL."
+                    )
+                ),
+            ),
+            ProviderStatus(
+                id="cx-gateway",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.cx_gateway_model}",
+                    *[f"model:{model}" for model in active_settings.cx_allowed_models],
+                ],
+                state=cx_state,
+                userMessage=cx_message,
+            ),
+            ProviderStatus(
+                id="codecraft",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.active_codecraft_model}",
+                    *[f"model:{model}" for model in active_settings.codecraft_allowed_models],
+                ],
+                state="healthy" if active_settings.codecraft_configured else "unavailable",
+                userMessage=(
+                    f"CodeCraft AI is configured with default model {active_settings.active_codecraft_model}."
+                    if active_settings.codecraft_configured
+                    else "CodeCraft AI needs CODECRAFT_API_KEY and CODECRAFT_BASE_URL."
+                ),
+            ),
+            ProviderStatus(
+                id="pgsgrove",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.pgsgrove_model}",
+                    *[f"model:{model}" for model in active_settings.pgsgrove_allowed_models],
+                ],
+                state="healthy" if active_settings.pgsgrove_configured else "unavailable",
+                userMessage=(
+                    f"PGSGrove AI is configured with default model {active_settings.pgsgrove_model}."
+                    if active_settings.pgsgrove_configured
+                    else "PGSGrove AI needs PGSGROVE_API_KEY and PGSGROVE_BASE_URL."
+                ),
+            ),
+            ProviderStatus(
+                id="apmix",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.apmix_model}",
+                    *[f"model:{model}" for model in active_settings.apmix_allowed_models],
+                ],
+                state=apmix_state,
+                userMessage=apmix_message,
+            ),
+            ProviderStatus(
+                id="articul8",
+                capabilities=["decision", "bounded-outcomes", "abstention", "tool:bivia_decide"],
+                state=articul8_state,
+                userMessage=articul8_message,
+            ),
+            ProviderStatus(
+                id="oxion",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.oxion_model}",
+                    *[f"model:{model}" for model in active_settings.oxion_allowed_models if model != "*"],
+                ],
+                state=oxion_state,
+                userMessage=oxion_message,
+            ),
+            ProviderStatus(
+                id="seekai",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.seekai_model}",
+                    *[f"model:{model}" for model in active_settings.seekai_allowed_models],
+                ],
+                state="healthy" if active_settings.seekai_configured else "unavailable",
+                userMessage=(
+                    f"SeekAI is configured with default model {active_settings.seekai_model}."
+                    if active_settings.seekai_configured
+                    else "SeekAI needs SEEKAI_API_KEY and SEEKAI_BASE_URL."
+                ),
+            ),
+            ProviderStatus(
+                id="tokentable",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.tokentable_model}",
+                    *[f"model:{model}" for model in active_settings.tokentable_allowed_models],
+                ],
+                state="healthy" if active_settings.tokentable_configured else "unavailable",
+                userMessage=(
+                    f"TokenTable is configured with default model {active_settings.tokentable_model}."
+                    if active_settings.tokentable_configured
+                    else "TokenTable needs TOKENTABLE_API_KEY and TOKENTABLE_BASE_URL."
+                ),
+            ),
+            ProviderStatus(
+                id="cavoti",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.cavoti_model}",
+                    *[f"model:{model}" for model in active_settings.cavoti_allowed_models],
+                ],
+                state="healthy" if active_settings.cavoti_configured else "unavailable",
+                userMessage=(
+                    f"Cavoti AI is configured with default model {active_settings.cavoti_model}."
+                    if active_settings.cavoti_configured
+                    else "Cavoti AI needs CAVOTI_AI_API_KEY and CAVOTI_AI_BASE_URL."
+                ),
+            ),
+            ProviderStatus(
+                id="ollama",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "local",
+                    "offline",
+                    "zero-credit",
+                    f"default-model:{active_settings.active_ollama_model if active_settings.active_ollama_model in ollama_models else (ollama_models[0] if ollama_models else active_settings.active_ollama_model)}",
+                    *[f"model:{model}" for model in (ollama_models or [active_settings.active_ollama_model])],
+                ],
+                state=ollama_state,
+                userMessage=ollama_message,
+            ),
+            ProviderStatus(
+                id="omniroute",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    "local",
+                    "fallback-only",
+                    f"default-model:{active_settings.omniroute_model}",
+                ],
+                state=omni_state,
+                userMessage=omni_message,
+            ),
+            ProviderStatus(
+                id="gemini-live",
+                capabilities=[
+                    "s2s",
+                    "native-bidi-audio",
+                    "pcm-24khz",
+                    "barge-in-native",
+                ],
+                state="degraded" if active_settings.gemini_configured else "unavailable",
+                userMessage=(
+                    "Gemini Live audio is configured; session reachability and latency are unverified. This is not chat-brain health."
+                    if active_settings.gemini_configured
+                    else "GEMINI_API_KEY is not configured in backend."
+                ),
+            ),
+            ProviderStatus(
+                id="experiential",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.active_explabs_model}",
+                    *[f"model:{model}" for model in active_settings.explabs_allowed_models],
+                ],
+                state=explabs_state,
+                userMessage=explabs_message,
+            ),
+            ProviderStatus(
+                id="gmi",
+                capabilities=[
+                    "llm",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.gmi_model}",
+                    f"model:{active_settings.gmi_model}",
+                ],
+                state="untested" if active_settings.gmi_configured else "unavailable",
+                userMessage=(
+                    "GMI Cloud needs a verified chat response."
+                    if active_settings.gmi_configured
+                    else "GMI Cloud needs GMI_API_KEY."
+                ),
+            ),
+            ProviderStatus(
+                id="respan",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.respan_model}",
+                    *[f"model:{model}" for model in active_settings.respan_allowed_models],
+                ],
+                state=respan_state,
+                userMessage=respan_message,
+            ),
+            ProviderStatus(
+                id="coarena",
+                capabilities=[
+                    "llm",
+                    "fast-brain",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.coarena_model}",
+                    *[f"model:{model}" for model in active_settings.coarena_allowed_models],
+                ],
+                state=coarena_state,
+                userMessage=coarena_message,
             ),
             ProviderStatus(
                 id="tinyfish",
@@ -5246,6 +5699,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             reviewIdeas=review_ideas
         )
 
+    async def _synthesize_via_local_voice_server(body: SpeechRequest) -> tuple[bytes, str, str] | None:
+        if body.providerMode == "local" or os.getenv("PYTEST_CURRENT_TEST"):
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=25.0) as voice_client:
+                vresp = await voice_client.post(
+                    "http://127.0.0.1:8768/voice/synthesize",
+                    json={
+                        "text": body.text,
+                        "voice": body.voiceEngine or body.companionId,
+                        "companion_id": body.companionId,
+                        "language": body.language,
+                    },
+                )
+        except Exception as exc:
+            logger.warning("Local voice server :8768 fallback unreachable: %s", exc)
+            return None
+        if vresp.status_code != 200 or len(vresp.content) <= 44:
+            return None
+        return (
+            vresp.content,
+            vresp.headers.get("content-type", "audio/wav").split(";")[0],
+            vresp.headers.get("X-Engine-Used", "voice-server-8768"),
+        )
+
     @app.post("/v1/speech/synthesis/timed")
     @app.post("/api/v1/speech/synthesis/timed")
     async def synthesize_timed(body: SpeechRequest) -> Response:
@@ -5262,43 +5740,49 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         from .voice_performance import speech_text_for_tts
 
         started = perf_counter()
-        provider = service.router.tts(body.providerMode, body.companionId, body.voiceEngine)
-        if not isinstance(provider, ElevenLabsHTTPStreamingProvider):
-            result = await service.synthesize(body)
-            final_audio, media_type = ensure_wav_or_mp3(result.value, sample_rate=24_000)
-            alignment: list[dict] | None = None
-            provider_name = result.provider
-        else:
-            text = speech_text_for_tts(body.text) or body.text
-            voice_id = (
-                service.settings.elevenlabs_hiro_voice_id
-                if body.companionId == "hiro"
-                else service.settings.elevenlabs_hinaa_voice_id
-            )
-            try:
-                audio_bytes, speech_alignment, _ms = await provider.synthesize_timed(
-                    text, voice=voice_id
-                )
-                final_audio, media_type = ensure_wav_or_mp3(audio_bytes, sample_rate=24_000)
-                alignment = (
-                    [
-                        {"char": c, "startMs": s, "durationMs": d}
-                        for c, s, d in zip(
-                            speech_alignment.characters,
-                            speech_alignment.start_times_ms,
-                            speech_alignment.durations_ms,
-                            strict=True,
-                        )
-                    ]
-                    if speech_alignment is not None
-                    else None
-                )
-                provider_name = "elevenlabs"
-            except Exception:
+        alignment: list[dict] | None = None
+        try:
+            provider = service.router.tts(body.providerMode, body.companionId, body.voiceEngine)
+            if not isinstance(provider, ElevenLabsHTTPStreamingProvider):
                 result = await service.synthesize(body)
                 final_audio, media_type = ensure_wav_or_mp3(result.value, sample_rate=24_000)
-                alignment = None
                 provider_name = result.provider
+            else:
+                text = speech_text_for_tts(body.text) or body.text
+                voice_id = (
+                    service.settings.elevenlabs_hiro_voice_id
+                    if body.companionId == "hiro"
+                    else service.settings.elevenlabs_hinaa_voice_id
+                )
+                try:
+                    audio_bytes, speech_alignment, _ms = await provider.synthesize_timed(
+                        text, voice=voice_id
+                    )
+                    final_audio, media_type = ensure_wav_or_mp3(audio_bytes, sample_rate=24_000)
+                    alignment = (
+                        [
+                            {"char": c, "startMs": s, "durationMs": d}
+                            for c, s, d in zip(
+                                speech_alignment.characters,
+                                speech_alignment.start_times_ms,
+                                speech_alignment.durations_ms,
+                                strict=True,
+                            )
+                        ]
+                        if speech_alignment is not None
+                        else None
+                    )
+                    provider_name = "elevenlabs"
+                except Exception:
+                    result = await service.synthesize(body)
+                    final_audio, media_type = ensure_wav_or_mp3(result.value, sample_rate=24_000)
+                    alignment = None
+                    provider_name = result.provider
+        except HinaaError:
+            local_fb = await _synthesize_via_local_voice_server(body)
+            if local_fb is None:
+                raise
+            final_audio, media_type, provider_name = local_fb
         filename = "hinaa-turn.mp3" if media_type == "audio/mpeg" else "hinaa-turn.wav"
         alignment_header = base64.b64encode(
             _json.dumps(alignment or []).encode("utf-8")
@@ -5318,15 +5802,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/api/v1/speech/synthesis")
     async def synthesize(body: SpeechRequest) -> Response:
         started = perf_counter()
-        result = await service.synthesize(body)
-        final_audio, media_type = ensure_wav_or_mp3(result.value, sample_rate=24_000)
+        try:
+            result = await service.synthesize(body)
+            final_audio, media_type = ensure_wav_or_mp3(result.value, sample_rate=24_000)
+            provider_used = result.provider
+            latency_ms = result.latency_ms
+        except HinaaError:
+            local_fb = await _synthesize_via_local_voice_server(body)
+            if local_fb is None:
+                raise
+            final_audio, media_type, provider_used = local_fb
+            latency_ms = int((perf_counter() - started) * 1000)
         filename = "hinaa-turn.mp3" if media_type == "audio/mpeg" else "hinaa-turn.wav"
         return Response(
             final_audio,
             media_type=media_type,
             headers={
-                "X-HINAA-Provider": result.provider,
-                "X-HINAA-Latency-Ms": str(result.latency_ms),
+                "X-HINAA-Provider": provider_used,
+                "X-HINAA-Latency-Ms": str(latency_ms),
                 "X-HINAA-Total-Ms": str(int((perf_counter() - started) * 1000)),
                 "Content-Disposition": f'inline; filename="{filename}"',
             },

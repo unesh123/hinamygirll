@@ -473,6 +473,7 @@ export function ImageJobCard({ data, onCommit, compact = false }: ImageJobCardPr
                 style={{
                   position: "relative",
                   width: "100%",
+                  maxWidth: 400,
                   borderRadius: 14,
                   overflow: "hidden",
                   border: "1px solid var(--border-subtle, rgba(0,0,0,0.08))",

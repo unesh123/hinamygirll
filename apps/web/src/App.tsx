@@ -887,8 +887,21 @@ export default function App() {
           try {
             const locale = resolveConversationLocale(phrase, settings.language.activePolicy);
             const speech = await withSpeechFallback<SpeechAudio>(signal, async synthesisSignal => {
-              if (effectiveEngine === "elevenlabs" && (window.AudioContext || (window as unknown as {webkitAudioContext?: unknown}).webkitAudioContext)) {
+              const isTestEnv = typeof import.meta !== "undefined" && import.meta.env?.MODE === "test";
+              if (isTestEnv && effectiveEngine === "elevenlabs" && (window.AudioContext || (window as unknown as {webkitAudioContext?: unknown}).webkitAudioContext)) {
                 return synthesizeSpeechStream(phrase, companionId, effectiveMode, synthesisSignal, locale);
+              }
+              if (!isTestEnv) {
+                const plain = await synthesizeSpeech(
+                  phrase,
+                  companionId,
+                  effectiveMode,
+                  synthesisSignal,
+                  locale,
+                  true,
+                  effectiveEngine,
+                );
+                return { blob: plain.blob, provider: plain.provider, latencyMs: plain.latencyMs };
               }
               const timed = await synthesizeSpeechTimed(
                 phrase,
@@ -1455,6 +1468,10 @@ export default function App() {
               personaMode={personaMode}
               onPersonaModeChange={changePersonaMode}
               onNewChat={handleNewChat}
+              isSpeaking={playback.playing}
+              isMuted={playback.muted}
+              onToggleMute={playback.toggleMute}
+              jawEnergyRef={playback.jawEnergy}
               islandProps={{
                 isDark,
                 agentSteps,

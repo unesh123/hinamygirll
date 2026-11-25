@@ -23,7 +23,7 @@ def project_root() -> Path:
     if override:
         return Path(override).resolve()
     for candidate in PACKAGE_DIR.parents:
-        if (candidate / "apps" / "api").is_dir():
+        if (candidate / "apps" / "api" / "hinaa_api").is_dir():
             return candidate
     return PACKAGE_DIR.parent
 

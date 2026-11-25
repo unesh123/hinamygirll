@@ -26,6 +26,19 @@ os.environ["HINAA_VMC_PORT"] = "0"
 os.environ["HINAA_AUTH_MODE"] = "dev"
 os.environ["HINAA_PERSISTENCE_ENABLED"] = "false"
 os.environ["HINAA_ALLOW_TUNNEL_DEV_AUTH"] = "false"
+# Clear ambient shell proxy/gateway overrides so isolated unit tests using
+# Settings(..., _env_file=None) observe deterministic defaults unless explicitly set.
+for _ambient_var in (
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_AUTH_TOKEN",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+    "HINAA_CLAUDE_BASE_URL",
+    "HINAA_CLAUDE_API_KEY",
+    "HINAA_CLAUDE_MODEL",
+    "HINAA_CLAUDE_ALLOWED_MODELS",
+    "HINAA_CLAUDE_PROTOCOL",
+):
+    os.environ.pop(_ambient_var, None)
 
 import pytest
 from fastapi.testclient import TestClient

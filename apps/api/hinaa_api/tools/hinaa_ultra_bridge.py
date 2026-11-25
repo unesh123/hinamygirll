@@ -550,30 +550,152 @@ ffmpeg_export_def = ToolDefinition(
 registry.register(ffmpeg_export_def, ffmpeg_export_handler)
 
 
+_STYLE_MAP: Dict[str, str] = {
+    "01": "01-luxury-bridal-gold.html",
+    "luxury-bridal-gold": "01-luxury-bridal-gold.html",
+    "bridal": "01-luxury-bridal-gold.html",
+    "02": "02-hoplite-dark.html",
+    "hoplite-dark": "02-hoplite-dark.html",
+    "hoplite": "02-hoplite-dark.html",
+    "katana": "02-hoplite-dark.html",
+    "03": "03-viral-motivational.html",
+    "viral-motivational": "03-viral-motivational.html",
+    "viral": "03-viral-motivational.html",
+    "04": "04-cinematic-film-title.html",
+    "cinematic-film-title": "04-cinematic-film-title.html",
+    "film": "04-cinematic-film-title.html",
+    "05": "05-soft-editorial.html",
+    "soft-editorial": "05-soft-editorial.html",
+    "editorial": "05-soft-editorial.html",
+    "06": "06-neon-cyber.html",
+    "neon-cyber": "06-neon-cyber.html",
+    "cyber": "06-neon-cyber.html",
+    "07": "07-golden-hour.html",
+    "golden-hour": "07-golden-hour.html",
+    "08": "08-minimal-white.html",
+    "minimal-white": "08-minimal-white.html",
+    "09": "09-dark-luxury-rose.html",
+    "dark-luxury-rose": "09-dark-luxury-rose.html",
+    "rose": "09-dark-luxury-rose.html",
+    "10": "10-split-screen-kinetic.html",
+    "split-screen-kinetic": "10-split-screen-kinetic.html",
+    "split": "10-split-screen-kinetic.html",
+    "11": "11-typewriter-terminal.html",
+    "typewriter-terminal": "11-typewriter-terminal.html",
+    "terminal": "11-typewriter-terminal.html",
+    "12": "12-soft-cinematic-fade.html",
+    "soft-cinematic-fade": "12-soft-cinematic-fade.html",
+    "fade": "12-soft-cinematic-fade.html",
+}
+
+
+def _resolve_style_file(style: Optional[str], prompt: str) -> tuple[str, Optional[str]]:
+    raw = (style or "").strip().lower()
+    if raw:
+        if raw.endswith(".html") and os.path.exists(os.path.join(WORKSPACE, "video", "styles", raw)):
+            return raw[:-5], os.path.join(WORKSPACE, "video", "styles", raw)
+        if raw in _STYLE_MAP:
+            fn = _STYLE_MAP[raw]
+            return fn[:-5], os.path.join(WORKSPACE, "video", "styles", fn)
+        for slug, fn in _STYLE_MAP.items():
+            if slug in raw:
+                return fn[:-5], os.path.join(WORKSPACE, "video", "styles", fn)
+    lp = (prompt or "").lower()
+    for kw, fn in (
+        ("bridal", "01-luxury-bridal-gold.html"),
+        ("wedding", "01-luxury-bridal-gold.html"),
+        ("hoplite", "02-hoplite-dark.html"),
+        ("katana", "02-hoplite-dark.html"),
+        ("viral", "03-viral-motivational.html"),
+        ("motivat", "03-viral-motivational.html"),
+        ("neon", "06-neon-cyber.html"),
+        ("cyber", "06-neon-cyber.html"),
+        ("terminal", "11-typewriter-terminal.html"),
+        ("editorial", "05-soft-editorial.html"),
+        ("golden", "07-golden-hour.html"),
+        ("rose", "09-dark-luxury-rose.html"),
+        ("minimal", "08-minimal-white.html"),
+        ("split", "10-split-screen-kinetic.html"),
+    ):
+        if kw in lp:
+            return fn[:-5], os.path.join(WORKSPACE, "video", "styles", fn)
+    return "02-hoplite-dark", os.path.join(WORKSPACE, "video", "styles", "02-hoplite-dark.html")
+
+
+def _prompt_to_scenes(prompt: str, total_dur_s: int) -> List[Dict[str, Any]]:
+    raw = (prompt or "HINAA Kinetic Reel").strip()
+    parts = [p.strip() for p in re.split(r"[\n.;|]+", raw) if p.strip()]
+    if len(parts) < 2:
+        words = raw.split()
+        if len(words) > 6:
+            mid = max(2, len(words) // 2)
+            parts = [" ".join(words[:mid]), " ".join(words[mid:])]
+        else:
+            parts = [raw, "Engineered by HINAA Ultra"]
+    parts = parts[:8]
+    per_dur = max(2.0, round(total_dur_s / max(1, len(parts)), 2))
+    scenes: List[Dict[str, Any]] = []
+    for idx, line in enumerate(parts, 1):
+        sub_words = line.split()
+        headline = " ".join(sub_words[:5])
+        subline = " ".join(sub_words[5:12]) or f"SCENE {idx:02d}"
+        scenes.append({
+            "eyebrow": f"ACT {idx:02d}",
+            "headline": headline,
+            "subline": subline,
+            "duration": per_dur,
+            "durationMs": int(per_dur * 1000),
+            "watermark": f"{idx:02d}",
+        })
+    return scenes
+
+
 class VideoCreateParams(BaseModel):
-    prompt: str = Field(..., description="Visual theme, title, or bridal/motion animation description.")
-    duration_seconds: int = Field(5, description="Duration in seconds (default 5 for fast chat preview).")
-    fps: int = Field(24, description="Frames per second (default 24).")
-    width: int = Field(540, description="Video width in pixels (default 540 vertical Reels).")
-    height: int = Field(960, description="Video height in pixels (default 960 vertical Reels).")
+    prompt: str = Field(..., description="Visual theme, multi-scene script, or motion animation description.")
+    duration_seconds: int = Field(5, description="Duration in seconds (1-30).")
+    fps: int = Field(24, description="Frames per second (12-60).")
+    width: int = Field(540, description="Video width in pixels (default 540 vertical Reels; 1080 for full HD).")
+    height: int = Field(960, description="Video height in pixels (default 960 vertical Reels; 1920 for full HD).")
     output: Optional[str] = Field(None, description="Optional target filename in exports/.")
+    style: Optional[str] = Field(None, description="One of 12 kinetic styles (e.g. '02-hoplite-dark', '01-luxury-bridal-gold').")
+    scenes: Optional[List[Dict[str, Any]]] = Field(None, description="Sequential multi-scene array [{eyebrow, headline, subline, duration}].")
+    overlay_mode: str = Field("full", description="Background mode: 'full', 'black' (#000000 overlay), or 'green' (#00ff00 chroma-key).")
 
 
 async def video_create_handler(params: VideoCreateParams) -> Dict[str, Any]:
+    import json as _json
+
     dur = max(1, min(30, int(params.duration_seconds or 5)))
     fps = max(12, min(60, int(params.fps or 24)))
     w = max(320, min(1920, int(params.width or 540)))
     h = max(320, min(1920, int(params.height or 960)))
     ts = int(time.time())
+    overlay = (params.overlay_mode or "full").strip().lower()
+    if overlay not in ("full", "black", "green"):
+        overlay = "full"
 
     is_bridal = "bridal" in params.prompt.lower()
     bridal_template = os.path.join(WORKSPACE, "video", "bridal_reel.html")
-    if is_bridal and dur >= 25 and w == 1080 and h == 1920 and os.path.exists(bridal_template):
+    style_name, style_path = _resolve_style_file(params.style, params.prompt)
+
+    if is_bridal and dur >= 25 and w == 1080 and h == 1920 and not params.scenes and overlay == "full" and os.path.exists(bridal_template):
         html_path = bridal_template
         out_name = params.output or "exports/bridal_reel.mp4"
+    elif style_path and os.path.exists(style_path):
+        with open(style_path, "r", encoding="utf-8") as sf:
+            tpl = sf.read()
+        scenes = params.scenes if (params.scenes and len(params.scenes) > 0) else _prompt_to_scenes(params.prompt, dur)
+        scene_payload = {"scenes": scenes, "mode": overlay, "bg": overlay, "overlay": overlay}
+        inject = f"<script>window.HINAA_SCENE_DATA = {_json.dumps(scene_payload, ensure_ascii=False)};</script>"
+        html_content = tpl.replace("</head>", f"{inject}\n</head>", 1) if "</head>" in tpl else (inject + "\n" + tpl)
+        html_path = os.path.join(WORKSPACE, "video", f"clip_{_slugify(params.prompt)}_{ts}.html")
+        os.makedirs(os.path.dirname(html_path), exist_ok=True)
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(html_content)
+        out_name = params.output or f"exports/{_slugify(params.prompt)}_{ts}.mp4"
     else:
         title = "Aisha & Aryan" if is_bridal else params.prompt[:42].strip().title()
-        subtitle = "Save the Date · Gold Sparkle Edition" if is_bridal else "Generated by HINAA Ultra"
+        subtitle = "Save the Date" if is_bridal else "Generated by HINAA Ultra"
         html_content = _build_sparkle_video_html(title, subtitle, dur, w, h)
         html_path = os.path.join(WORKSPACE, "video", f"clip_{_slugify(params.prompt)}_{ts}.html")
         os.makedirs(os.path.dirname(html_path), exist_ok=True)
@@ -597,6 +719,8 @@ async def video_create_handler(params: VideoCreateParams) -> Dict[str, Any]:
     )
     exported["tool"] = "video_create"
     exported["duration_seconds"] = dur
+    exported["style"] = style_name
+    exported["overlay_mode"] = overlay
     exported["prompt"] = params.prompt
     exported["download_url"] = f"http://localhost:8765/tool/video/download?file=exports/{exported['filename']}"
     return exported
@@ -613,6 +737,9 @@ video_create_def = ToolDefinition(
         "width": {"type": "integer", "description": "Pixel width."},
         "height": {"type": "integer", "description": "Pixel height."},
         "output": {"type": "string", "description": "Optional MP4 path inside exports/."},
+        "style": {"type": "string", "description": "Style slug or ID (e.g. '02-hoplite-dark', '01-luxury-bridal-gold', '06-neon-cyber')."},
+        "scenes": {"type": "array", "description": "Sequential scenes [{eyebrow, headline, subline, duration}]."},
+        "overlay_mode": {"type": "string", "description": "'full', 'black' (#000000 overlay), or 'green' (#00ff00 chroma-key)."},
     },
     required_parameters=["prompt"],
     voice_aliases=["create video", "make animation mp4", "bridal reel"],

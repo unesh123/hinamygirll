@@ -524,27 +524,35 @@ async def run_image_job(generation_set_id: str, params: ImageGenerateParams):
                                 if reference_url or reference_b64:
                                     raise
                                 if stability and stability.available():
-                                    st_res = await stability.generate_image(
-                                        final_prompt,
-                                        negative_prompt=negative,
-                                        seed=job.seed,
-                                        style_preset=params.style,
-                                    )
-                                    blob = st_res.image_bytes
-                                    provider_tag = st_res.provider
+                                    try:
+                                        st_res = await stability.generate_image(
+                                            final_prompt,
+                                            negative_prompt=negative,
+                                            seed=job.seed,
+                                            style_preset=params.style,
+                                        )
+                                        blob = st_res.image_bytes
+                                        provider_tag = st_res.provider
+                                    except Exception as s_err:
+                                        logger.warning("Stability AI fallback failed: %s", s_err)
+                                        raise RuntimeError(f"All cloud image generators failed ({m_err}; Stability: {s_err})") from s_err
                                 else:
                                     raise
                         elif blob is None and stability and stability.available():
-                            st_res = await stability.generate_image(
-                                final_prompt,
-                                negative_prompt=negative,
-                                seed=job.seed,
-                                style_preset=params.style,
-                            )
-                            blob = st_res.image_bytes
-                            provider_tag = st_res.provider
-                        elif blob is None:
-                            raise RuntimeError("No cloud image provider is configured or succeeded.")
+                            try:
+                                st_res = await stability.generate_image(
+                                    final_prompt,
+                                    negative_prompt=negative,
+                                    seed=job.seed,
+                                    style_preset=params.style,
+                                )
+                                blob = st_res.image_bytes
+                                provider_tag = st_res.provider
+                            except Exception as s_err:
+                                logger.warning("Stability AI render failed: %s", s_err)
+                                raise RuntimeError(f"Stability AI image generation failed: {s_err}") from s_err
+                        if not blob:
+                            raise RuntimeError("No cloud image provider returned valid image bytes.")
 
                         file_path = store / f"HINAA_{job.id}_{job.seed}.png"
                         file_path.write_bytes(blob)

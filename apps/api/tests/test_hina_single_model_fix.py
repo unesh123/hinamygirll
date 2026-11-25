@@ -29,23 +29,30 @@ def test_auto_fallback_is_off_by_default() -> None:
     assert _settings().auto_fallback_enabled is False
 
 
-def test_xkiro_allow_list_has_no_wildcard_and_is_qwen_only() -> None:
+def test_xkiro_allow_list_has_no_wildcard_and_pins_verified_families() -> None:
     settings = _settings()
     models = settings.xkiro_allowed_models
     assert "*" not in models
     assert models, "allow-list must not be empty"
-    assert all(m.startswith("qwen/") for m in models), models
+    allowed_prefixes = ("mistralai/", "cohere/", "sensenova/", "stealth/")
+    assert all(m.startswith(allowed_prefixes) for m in models), models
+    assert "mistralai/ministral-14b" in models
+    assert "cohere/command-a" in models
+    assert "qwen/qwen3.8-max:free" not in models
 
 
 def test_resolve_xkiro_model_rejects_other_families() -> None:
     settings = _settings()
-    assert settings.resolve_xkiro_model("qwen/qwen3.8-max:free") == "qwen/qwen3.8-max:free"
+    assert settings.resolve_xkiro_model("mistralai/mistral-medium-3.5") == "mistralai/mistral-medium-3.5"
+    assert settings.resolve_xkiro_model("mistralai/ministral-14b") == "mistralai/ministral-14b"
+    assert settings.resolve_xkiro_model("cohere/command-a") == "cohere/command-a"
     for bad in (
-        "mistralai/codestral-2508",
-        "mistralai/ministral-14b",
-        "cohere/command-a-reasoning",
+        "qwen/qwen3.8-max:free",
+        "openai/gpt-4o",
+        "anthropic/claude-3-7-sonnet",
         "gemini-3.5-flash",
         "deepseek/deepseek-v4.1-flash:free",
+        "mistralai/unlisted-model",
     ):
         with pytest.raises(ValueError):
             settings.resolve_xkiro_model(bad)

@@ -54,7 +54,7 @@ def omniroute_settings(**overrides) -> Settings:
 
 
 BASE_SETTINGS = omniroute_settings()
-ENABLED = {"HINAA_OMNIROUTE_ENABLED": True}
+ENABLED = {"HINAA_OMNIROUTE_ENABLED": True, "HINAA_AUTO_FALLBACK_ENABLED": True}
 
 
 @dataclass

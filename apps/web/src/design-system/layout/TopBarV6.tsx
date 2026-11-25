@@ -15,12 +15,15 @@ import {
   Plus,
   Mic,
   Zap,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { ModelSelectorV7 } from "../chat/ModelSelectorV7";
 import { useCapabilities } from "../../features/providers/hooks/useCapabilities";
 import { DynamicIslandCompanion, type DynamicIslandCompanionProps } from "./DynamicIslandCompanion";
 import { VOICE_ENGINES } from "./ModelControlBar";
 import { PersonaControlDrawer } from "../../features/persona/PersonaControlDrawer";
+import { VoiceWaveBars } from "../../features/audio/VoiceWaveBars";
 
 export type WorkspaceMode = "talk" | "work" | "operate" | "showroom" | "vault" | "models" | "companion";
 export type ExecutiveMode = "chat" | "deep-reasoning" | "report" | "research";
@@ -47,6 +50,10 @@ export interface TopBarV6Props {
   islandProps?: DynamicIslandCompanionProps;
   voiceEngine?: string;
   onSelectVoiceEngine?: (engine: string) => void;
+  isSpeaking?: boolean;
+  isMuted?: boolean;
+  onToggleMute?: () => void;
+  jawEnergyRef?: React.MutableRefObject<number>;
 }
 
 export const TopBarV6: React.FC<TopBarV6Props> = ({
@@ -68,6 +75,10 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
   islandProps,
   voiceEngine = "elevenlabs",
   onSelectVoiceEngine,
+  isSpeaking = false,
+  isMuted = false,
+  onToggleMute,
+  jawEnergyRef,
 }) => {
   const { models, providers, runtime, loading, refetch } = useCapabilities();
   const isAuto = isAutoRouter ?? !selectedModelId;
@@ -556,6 +567,48 @@ export const TopBarV6: React.FC<TopBarV6Props> = ({
           <Zap size={13} style={{ fill: "currentColor" }} />
           <span>Ultra OS</span>
         </a>
+
+        {/* Voice Wave Bars + Speaker Autoplay Toggle */}
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "2px 6px",
+            borderRadius: 8,
+            border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
+            background: isDark ? "rgba(255, 255, 255, 0.04)" : "#ffffff",
+            height: 32,
+          }}
+        >
+          <VoiceWaveBars active={Boolean(isSpeaking && !isMuted)} energyRef={jawEnergyRef} compact />
+          {onToggleMute && (
+            <button
+              type="button"
+              data-testid="topbar-speaker-toggle"
+              aria-pressed={!isMuted}
+              onClick={onToggleMute}
+              title={isMuted ? "Voice autoplay muted — click to enable" : "Voice autoplay on — click to mute"}
+              aria-label={isMuted ? "Unmute voice autoplay" : "Mute voice autoplay"}
+              style={{
+                width: 24,
+                height: 24,
+                borderRadius: 6,
+                border: "none",
+                background: !isMuted
+                  ? (isDark ? "rgba(139, 92, 246, 0.18)" : "rgba(139, 92, 246, 0.1)")
+                  : "transparent",
+                color: !isMuted ? "#8b5cf6" : (isDark ? "#64748b" : "#94a3b8"),
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+              }}
+            >
+              {isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+            </button>
+          )}
+        </div>
 
         {/* Search */}
         <button

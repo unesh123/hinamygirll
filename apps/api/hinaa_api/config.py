@@ -94,7 +94,7 @@ class Settings(BaseSettings):
     gemini_planner_model: str = Field("gemini-3.5-flash", alias="GEMINI_PLANNER_MODEL")
     gemini_allowed_models_raw: str = Field(
         (
-            "gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3-flash-preview,gemini-flash-latest,gemini-pro-latest"
+            "gemini-3.5-flash,gemini-3.5-flash-lite,gemini-2.5-flash-lite,gemini-3.8-flash,gemini-3-flash-preview,gemini-flash-latest,gemini-pro-latest"
         ),
         alias="GEMINI_ALLOWED_MODELS",
     )
@@ -156,6 +156,15 @@ class Settings(BaseSettings):
     groq_model: str = Field("llama-3.1-8b-instant", alias="GROQ_MODEL")
     openai_api_key: SecretStr | None = Field(None, alias="OPENAI_API_KEY")
     openai_model: str = Field("gpt-5-mini", alias="OPENAI_MODEL")
+    openai_image_api_key: SecretStr | None = Field(
+        None, validation_alias=AliasChoices("OPENAI_IMAGE_API_KEY", "IMAGE_PROXY_API_KEY")
+    )
+    openai_image_base_url: str | None = Field(
+        None, validation_alias=AliasChoices("OPENAI_IMAGE_BASE_URL", "IMAGE_PROXY_BASE_URL")
+    )
+    openai_image_model: str | None = Field(
+        None, validation_alias=AliasChoices("OPENAI_IMAGE_MODEL", "IMAGE_MODEL")
+    )
     # Fast brain for casual chat: reasoning models (cx/gpt-5.6-sol, agent
     # router) burn hidden tokens before the first visible one, which makes
     # small talk feel slow. Short social turns route to this non-reasoning
@@ -371,7 +380,7 @@ class Settings(BaseSettings):
         "auto,claude-fable-5-1,claude-fable-5,claude-opus-5-5,claude-opus-5,claude-sonnet-5,gpt-6-astra,gpt-6-sol,deepseek-ai/DeepSeek-V4.1-Flash,qwen3.8-max",
         validation_alias=AliasChoices("TOKENTABLE_ALLOWED_MODELS", "TOKEN_TABLE_ALLOWED_MODELS"),
     )
-    # XKiro Multi-Model AI Gateway — fast free Qwen 3.8 Max, Qwen 3.7 Flash, coder models
+    # XKiro Multi-Model AI Gateway — verified Mistral & Cohere models (no wildcard)
     xkiro_api_key: SecretStr | None = Field(
         None,
         validation_alias=AliasChoices("XKIRO_API_KEY", "XK_IRO_API_KEY"),
@@ -389,7 +398,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("XKIRO_MODEL", "XK_IRO_MODEL"),
     )
     xkiro_allowed_models_raw: str = Field(
-        "mistralai/mistral-medium-3.5,mistralai/mistral-small-2603,mistralai/codestral-2508,cohere/command-a,cohere/command-a-reasoning,sensenova/sensenova-6.8-flash-lite,stealth/big-pickle",
+        "mistralai/mistral-medium-3.5,mistralai/mistral-small-2603,mistralai/codestral-2508,mistralai/ministral-14b,cohere/command-a,cohere/command-a-reasoning,sensenova/sensenova-6.8-flash-lite,stealth/big-pickle",
         validation_alias=AliasChoices("XKIRO_ALLOWED_MODELS", "XK_IRO_ALLOWED_MODELS"),
     )
     # Video generation (fal.ai) — the paid MP4 path. The key is never in
@@ -419,6 +428,7 @@ class Settings(BaseSettings):
     # pinned Qwen model and says so (see resolve_primary_brain). A frontier
     # model is a key + a paid account away, not a code change away.
     primary_brain: str | None = Field(None, alias="HINAA_PRIMARY_BRAIN")
+    visible_providers_raw: str = Field("", alias="HINAA_VISIBLE_PROVIDERS")
     # Cavoti AI Gateway — frontier models (claude-fable-5, claude-opus-5, claude-haiku-4-5)
     cavoti_api_key: SecretStr | None = Field(
         None,
@@ -1733,8 +1743,12 @@ class Settings(BaseSettings):
         return value or None
 
     @property
+    def visible_providers(self) -> list[str]:
+        return [p.strip() for p in self.visible_providers_raw.split(",") if p.strip()]
+
+    @property
     def active_xkiro_model(self) -> str:
-        return self.xkiro_model or "qwen/qwen3.8-max:free"
+        return self.xkiro_model or "mistralai/mistral-medium-3.5"
 
     @property
     def xkiro_allowed_models(self) -> list[str]:
