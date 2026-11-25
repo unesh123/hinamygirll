@@ -174,7 +174,7 @@ class AgenticLoopRunner:
     """Executes bounded multi-step tool loops with server-side policy gates."""
 
     max_steps: int = 8
-    wall_clock_seconds: float = 150.0
+    wall_clock_seconds: float = 210.0
     max_consecutive_failures: int = 2
     per_tool_timeout_seconds: float = 120.0
     workspace_root: str | None = None
@@ -521,7 +521,13 @@ class AgenticLoopRunner:
             try:
                 raw_obs = await self._invoke_tool(tdef, args)
             except Exception as exec_exc:
-                raw_obs = {"status": "error", "code": "TOOL_EXEC_FAILED", "error": safe_error_text(exec_exc, [])}
+                err_msg = safe_error_text(exec_exc, [])
+                if not err_msg:
+                    err_msg = (
+                        f"Tool '{tool_name}' timed out or aborted after {int(self.per_tool_timeout_seconds)}s "
+                        "(reduce duration_seconds, resolution/fps, or heavy CSS/SVG filters)."
+                    )
+                raw_obs = {"status": "error", "code": "TOOL_EXEC_FAILED", "error": err_msg}
             step_ms = round((time.perf_counter() - step_t0) * 1000, 2)
             safe_obs = _sanitize_value(raw_obs)
 

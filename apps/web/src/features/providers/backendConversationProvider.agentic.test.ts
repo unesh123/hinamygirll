@@ -77,4 +77,52 @@ describe("BackendConversationProvider agentic SSE events", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it("aborts cleanly with TurnFailure when a stream stalls past the idle timeout", async () => {
+    const encoder = new TextEncoder();
+    let cancelled = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(encoder.encode(`${JSON.stringify({ type: "agentic.started", correlationId: "run-stall" })}\n`));
+              // Intentionally never enqueue more chunks or close
+            },
+            cancel() {
+              cancelled = true;
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
+        ),
+      ),
+    );
+
+    try {
+      const prov = new BackendConversationProvider("real", { streamIdleTimeoutMs: 40 });
+      const seen = [];
+      let caught: any;
+      try {
+        for await (const ev of prov.streamTurn({
+          text: "Render typography MP4",
+          companionId: "hinaa",
+          language: "en-US",
+          agenticMode: true,
+          signal: new AbortController().signal,
+        })) {
+          seen.push(ev);
+        }
+      } catch (err) {
+        caught = err;
+      }
+      expect(seen.map((e) => e.type)).toEqual(["agent.event"]);
+      expect(caught).toBeDefined();
+      expect(caught.code).toBe("PROVIDER_UNAVAILABLE");
+      expect(caught.retryable).toBe(true);
+      expect(cancelled).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

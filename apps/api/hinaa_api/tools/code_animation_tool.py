@@ -202,8 +202,8 @@ def _render_html_sync(
                         }""",
                         [t_sec, t_ms],
                     )
-                    frame_path = frames_dir / f"frame_{idx:05d}.png"
-                    page.screenshot(path=str(frame_path), type="png")
+                    frame_path = frames_dir / f"frame_{idx:05d}.jpg"
+                    page.screenshot(path=str(frame_path), type="jpeg", quality=92)
             finally:
                 browser.close()
 
@@ -212,7 +212,7 @@ def _render_html_sync(
         enc_cmd = [
             ffmpeg, "-y",
             "-framerate", str(fps),
-            "-i", str(frames_dir / "frame_%05d.png"),
+            "-i", str(frames_dir / "frame_%05d.jpg"),
             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
             str(raw_mp4),
         ]

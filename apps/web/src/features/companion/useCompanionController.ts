@@ -504,6 +504,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
         method: "POST",
       }).catch(() => undefined);
     }
+    pendingAgenticApprovalRef.current = null;
     setCurrentAgentRunId(undefined);
     setCurrentAgentConfirmationStepId(undefined);
     setAgentSteps([]);

@@ -465,3 +465,54 @@ def test_format_agentic_markdown_handles_string_output_without_crashing() -> Non
     )
     md = format_agentic_markdown(res)
     assert "/v1/creative/assets/asset-xyz/download" in md
+
+
+@pytest.mark.asyncio
+async def test_agentic_runner_timeout_error_has_descriptive_message(monkeypatch) -> None:
+    from hinaa_api.agent.agentic_runner import AgenticLoopRunner
+
+    runner = AgenticLoopRunner(max_steps=2, per_tool_timeout_seconds=1.0)
+
+    async def _raise_empty_timeout(*_args, **_kwargs):
+        raise asyncio.TimeoutError()
+
+    monkeypatch.setattr(runner, "_invoke_tool", _raise_empty_timeout)
+
+    step_calls = {"n": 0}
+
+    async def _planner(_transcript, step_num: int) -> str:
+        step_calls["n"] = step_num
+        if step_num == 1:
+            return json.dumps({
+                "action": "call_tool",
+                "tool": "workspace_list_dir",
+                "arguments": {},
+                "rationale": "Test timeout recovery",
+            })
+        return json.dumps({"action": "final", "summary": "Recovered after timeout"})
+
+    res = await runner.run(goal="Test timeout", planner=_planner, allowed_tools={"workspace_list_dir"})
+    assert res.status == "completed"
+    assert len(res.steps) == 1
+    assert res.steps[0].status == "failed"
+    assert res.steps[0].error and "timed out" in res.steps[0].error.lower()
+
+
+def test_build_compact_tool_prompt_marks_final_render_ready() -> None:
+    from hinaa_api.agent.live_agentic_service import build_compact_tool_prompt
+
+    preview_prompt = build_compact_tool_prompt(
+        {"render_code_animation"},
+        [{"role": "tool_observation", "tool": "render_code_animation", "observation": {"status": "success", "stage": "preview_render", "download_url": "/v1/creative/assets/a1/download"}}],
+        2,
+        6,
+    )
+    assert "Verified Asset Ready" not in preview_prompt
+
+    final_prompt = build_compact_tool_prompt(
+        {"render_code_animation"},
+        [{"role": "tool_observation", "tool": "render_code_animation", "observation": {"status": "success", "stage": "final_render", "download_url": "/v1/creative/assets/a2/download"}}],
+        2,
+        6,
+    )
+    assert "Verified Asset Ready: /v1/creative/assets/a2/download" in final_prompt

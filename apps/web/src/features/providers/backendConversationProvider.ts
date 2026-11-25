@@ -96,14 +96,77 @@ function normalizeAgentEvent(event: StreamEvent): AgentRuntimeEvent | null {
   };
 }
 
+const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 185_000;
+
+async function awaitStreamStep<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  signal: AbortSignal | undefined,
+  onTimeout: () => void,
+): Promise<T> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return await promise;
+  }
+  let timerId: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  let watchdogError: unknown;
+  try {
+    const result = await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timerId = setTimeout(() => {
+          const err = new TurnFailure(
+            "HINAA stream stalled before completing. Your prompt is preserved.",
+            { code: "PROVIDER_UNAVAILABLE", retryable: true },
+          );
+          watchdogError = err;
+          reject(err);
+          try {
+            onTimeout();
+          } catch {
+            // Best-effort cleanup of stalled stream/controller
+          }
+        }, timeoutMs);
+        if (signal) {
+          onAbort = () => {
+            const abortErr =
+              signal.reason instanceof DOMException && signal.reason.name === "AbortError"
+                ? signal.reason
+                : new DOMException("Aborted", "AbortError");
+            watchdogError = abortErr;
+            reject(abortErr);
+            try {
+              onTimeout();
+            } catch {
+              // Best-effort cleanup on caller abort
+            }
+          };
+          if (signal.aborted) {
+            onAbort();
+          } else {
+            signal.addEventListener("abort", onAbort, { once: true });
+          }
+        }
+      }),
+    ]);
+    if (watchdogError) throw watchdogError;
+    return result;
+  } finally {
+    if (timerId !== undefined) clearTimeout(timerId);
+    if (signal && onAbort) signal.removeEventListener("abort", onAbort);
+  }
+}
+
 export class BackendConversationProvider implements ConversationProvider {
   private readonly fallbackSessionId = globalThis.crypto.randomUUID();
   readonly id: string;
   readonly mode: ProviderMode;
+  private readonly streamIdleTimeoutMs: number;
 
-  constructor(mode: ProviderMode) {
+  constructor(mode: ProviderMode, options?: { streamIdleTimeoutMs?: number }) {
     this.mode = mode;
     this.id = `hinaa-api-${mode}`;
+    this.streamIdleTimeoutMs = options?.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS;
   }
 
   async *streamTurn(
@@ -159,47 +222,72 @@ export class BackendConversationProvider implements ConversationProvider {
       : "";
     const streamUrl = `${apiBase}/api/v1/conversations/turns:stream`;
 
-    let response: Response;
-    try {
-      response = await fetch(streamUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "bypass-tunnel-reminder": "true",
-          ...hinaaIdentityHeaders(),
-        },
-        body: JSON.stringify(payload),
-        signal: request.signal,
-      });
-    } catch (netErr: any) {
-      if (request.signal?.aborted) throw netErr;
-      throw new TurnFailure(
-        describeThrownFailure(netErr, "HINAA's API never answered"),
-      );
+    const streamAbort = new AbortController();
+    const forwardAbort = () => streamAbort.abort(request.signal?.reason);
+    if (request.signal) {
+      if (request.signal.aborted) {
+        streamAbort.abort(request.signal.reason);
+      } else {
+        request.signal.addEventListener("abort", forwardAbort, { once: true });
+      }
     }
 
-    const contentType = response.headers.get("content-type");
-    // A 200 whose body is HTML is an edge error page: the tunnel or a proxy
-    // answered, not HINAA, and only the content type proves it.
-    if (!response.ok || !response.body || (contentType ?? "").toLowerCase().includes("text/html")) {
-      const errText = response.body ? await response.text().catch(() => "") : "";
-      throw new TurnFailure(
-        describeResponseFailure({
-          status: response.status,
-          body: errText,
-          contentType,
-        }),
-        { status: response.status },
-      );
-    }
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let lastSeenSequence = -1;
     try {
-      while (true) {
-        const { done, value } = await reader.read();
-        buffer += decoder.decode(value, { stream: !done });
+      let response: Response;
+      try {
+        response = await awaitStreamStep(
+          fetch(streamUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "bypass-tunnel-reminder": "true",
+              ...hinaaIdentityHeaders(),
+            },
+            body: JSON.stringify(payload),
+            signal: streamAbort.signal,
+          }),
+          this.streamIdleTimeoutMs,
+          request.signal,
+          () => streamAbort.abort(),
+        );
+      } catch (netErr: any) {
+        if (request.signal?.aborted) throw netErr;
+        if (netErr instanceof TurnFailure) throw netErr;
+        throw new TurnFailure(
+          describeThrownFailure(netErr, "HINAA's API never answered"),
+        );
+      }
+
+      const contentType = response.headers.get("content-type");
+      // A 200 whose body is HTML is an edge error page: the tunnel or a proxy
+      // answered, not HINAA, and only the content type proves it.
+      if (!response.ok || !response.body || (contentType ?? "").toLowerCase().includes("text/html")) {
+        const errText = response.body ? await response.text().catch(() => "") : "";
+        throw new TurnFailure(
+          describeResponseFailure({
+            status: response.status,
+            body: errText,
+            contentType,
+          }),
+          { status: response.status },
+        );
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let lastSeenSequence = -1;
+      try {
+        while (true) {
+          const { done, value } = await awaitStreamStep(
+            reader.read(),
+            this.streamIdleTimeoutMs,
+            request.signal,
+            () => {
+              void reader.cancel().catch(() => undefined);
+              streamAbort.abort();
+            },
+          );
+          buffer += decoder.decode(value, { stream: !done });
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
         for (const line of lines) {
@@ -305,9 +393,12 @@ export class BackendConversationProvider implements ConversationProvider {
           }
         }
         if (done) break;
+        }
+      } finally {
+        reader.releaseLock();
       }
     } finally {
-      reader.releaseLock();
+      request.signal?.removeEventListener("abort", forwardAbort);
     }
   }
 }
