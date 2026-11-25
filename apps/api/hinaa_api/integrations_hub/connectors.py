@@ -81,6 +81,11 @@ CONNECTORS: tuple[Connector, ...] = (
     Connector("anthropic", "Anthropic", "llm", "api_key", (("HINAA_CLAUDE_API_KEY", "ANTHROPIC_API_KEY"),),
               ("claude_api_key",), (), "LLM provider."),
     Connector("groq", "Groq", "llm", "api_key", (("GROQ_API_KEY",),), ("groq_api_key",), (), "LLM provider."),
+    Connector("mlai_code", "ML AI Code", "developer", "api_key", (("MLAI_CODE_API_KEY",),), ("mlai_code_api_key",),
+              ("mlai_list_routines", "mlai_run_routine"), "Cloud coding routines on code.ml.ai (API trigger & status)."),
+    Connector("local_video_studio", "Local Video Studio (Playwright + FFmpeg)", "creative", "none", (), (),
+              ("render_code_animation", "create_lyric_video", "create_motion_video", "video_create"),
+              "Local deterministic HTML/timeline to H.264 MP4 rendering verified with ffprobe ($0 API cost)."),
 )
 
 _BY_ID = {c.id: c for c in CONNECTORS}

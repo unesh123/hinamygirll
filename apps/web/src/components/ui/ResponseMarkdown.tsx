@@ -101,7 +101,40 @@ const components: Components = {
     return <code className={className} {...props}>{children}</code>;
   },
   table: ({ children }) => <div className="response-table-scroll" role="region" aria-label="Response table" tabIndex={0}><table>{children}</table></div>,
-  a: ({ href, children }) => href ? <a href={href} target={href.startsWith("#") ? undefined : "_blank"} rel="noopener noreferrer">{children}</a> : <span>{children}</span>,
+  a: ({ href, children }) => {
+    if (!href) return <span>{children}</span>;
+    const labelText = Array.isArray(children)
+      ? children.map((c) => (typeof c === "string" ? c : "")).join("")
+      : typeof children === "string"
+        ? children
+        : "";
+    const isVideoAsset =
+      /^\/(?:api\/)?v1\/creative\/assets\/[^/\s]+\/download/.test(href) &&
+      (/mp4|video|animation|play/i.test(labelText) || /\bmp4\b/i.test(href));
+    if (isVideoAsset) {
+      return (
+        <span className="my-2 block overflow-hidden rounded-xl border border-black/10 bg-black/90 p-2 dark:border-white/15">
+          <video
+            src={href}
+            controls
+            playsInline
+            preload="metadata"
+            className="block max-h-96 w-full rounded-lg bg-black"
+          />
+          <span className="mt-1.5 flex items-center justify-between px-1 text-xs">
+            <a href={href} target="_blank" rel="noopener noreferrer">
+              {children}
+            </a>
+          </span>
+        </span>
+      );
+    }
+    return (
+      <a href={href} target={href.startsWith("#") ? undefined : "_blank"} rel="noopener noreferrer">
+        {children}
+      </a>
+    );
+  },
   // Model-authored image URLs remain explicit links; artifacts use the protected artifact UI.
   img: ({ src, alt }) => typeof src === "string" && src ? <a href={src} target="_blank" rel="noopener noreferrer">{alt || "View image"}</a> : <span>{alt}</span>,
 };

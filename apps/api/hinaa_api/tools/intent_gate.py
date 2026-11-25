@@ -50,6 +50,7 @@ GATED_TOOLS = {
     "clean_room_loop",
     "terminal_hands",
     "html_anime_generate",
+    "render_code_animation",
     "create_motion_video",
     "mobile_run_task",
     "customgpt_query",
@@ -71,6 +72,7 @@ SELF_SPECIFIED = {
     "reminder.create": ("title", "at"),
     "design_website": ("brief",),
     "html_anime_generate": ("logline",),
+    "render_code_animation": ("title",),
     "mobile_run_task": ("task",),
     "ultra_file_write": ("filename", "content"),
     "file_list": ("path",),
@@ -214,6 +216,12 @@ _VIDEO_CREATE_ASK = re.compile(
     r"""(?ix) \b (?: build | create | design | make | generate | render | export ) \b [^.?!]*
         \b (?: mp4 | bridal\s+reel | video\s+reel | animation\s+mp4 |
                (?: gold | sparkle | bridal | neon | confetti ) \s+ (?: \w+\s+ ){0,3} (?: animation | video | reel | mp4 ) ) \b"""
+)
+_CODE_ANIMATION_ASK = re.compile(
+    r"""(?ix) \b (?: build | create | design | make | generate | render | export ) \b [^.?!]*
+        (?: \b via\s+playwright\b | \b playwright\b[^.?!]*\bffmpeg\b | \bkinetic[\s-]+typography\b[^.?!]*\b(?:mp4|video|animation|preview)\b |
+            \b (?: in\s+code | by\s+code | html\s+animation | canvas\s+animation ) \b[^.?!]*\b(?:mp4|video|render)\b |
+            \b render\s+(?: a\s+|an\s+ )?(?:\d+\s*(?:s|sec|second|seconds)\s+)?mp4\b )"""
 )
 _ULTRA_FILE_WRITE_ASK = re.compile(
     r"""(?ix) \b (?: write | create | save ) \b [^.?!]*?
@@ -784,6 +792,22 @@ def _extract_video_create_params(raw: str) -> dict[str, Any]:
     }
 
 
+def _extract_code_animation_params(raw: str) -> dict[str, Any]:
+    """Parse duration, FPS, resolution, preview flag, and title for Playwright+FFmpeg code renders."""
+    base = _extract_video_create_params(raw)
+    lowered = raw.lower()
+    preview = bool(re.search(r"(?i)\b(?:preview|draft|480p)\b", lowered))
+    return {
+        "title": raw[:120].strip(),
+        "subtitle": "Playwright + FFmpeg Code Studio",
+        "duration_seconds": float(base["duration_seconds"]),
+        "fps": int(base["fps"]),
+        "width": int(base["width"]),
+        "height": int(base["height"]),
+        "preview": preview,
+    }
+
+
 def _sanction_single(
     text: str,
     *,
@@ -934,6 +958,17 @@ def _sanction_single(
     if _HTML_ANIME.search(lowered) and not META_FRAMING.search(lowered):
         sanction.allowed.add("html_anime_generate")
         sanction.parameters["html_anime_generate"] = {"logline": raw}
+        return sanction
+
+    if (
+        _CODE_ANIMATION_ASK.search(lowered)
+        and not re.search(r"(?i)\b(?:bridal|gold\s+sparkle)\b", lowered)
+        and not META_FRAMING.search(lowered)
+        and not _CAPABILITY_INQUIRY.search(lowered)
+        and not re.search(r"(?i)\b(?:veo|sora|runway|kling|pika|luma)\b", lowered)
+    ):
+        sanction.allowed.add("render_code_animation")
+        sanction.parameters["render_code_animation"] = _extract_code_animation_params(raw)
         return sanction
 
     if (

@@ -55,6 +55,7 @@ export interface ConversationRequest {
   reference_images?: string[];
   attachments?: import("../companion/types").MessageAttachment[];
   persona_mode?: string;
+  agenticMode?: boolean;
   history?: Array<{ role: string; content: string }>;
 }
 

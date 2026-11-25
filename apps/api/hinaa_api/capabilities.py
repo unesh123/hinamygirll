@@ -42,19 +42,38 @@ class CapabilitiesRegistry(BaseModel):
 def video_provider_status(settings: Settings) -> str:
     """The one-line truth about video generation for the prompt layer.
 
-    A real MP4 exists only when a provider is configured; otherwise the
-    honest answer is "unavailable", never a claimed capability.
+    Video is made BY CODE by default: the model writes a timeline or
+    HTML animation and ffmpeg (+ Playwright when needed) renders a real
+    MP4 locally — no key, no credits. Generative providers (fal.ai /
+    Hugging Face) are only for footage code cannot make, and are named
+    only when configured.
     """
+    import shutil
+
+    code = (
+        "code rendering via ffmpeg (timeline + Playwright HTML animation, no key or credits needed)"
+        if shutil.which("ffmpeg")
+        else None
+    )
     if settings.fal_configured:
-        return f"configured (fal.ai, endpoint {settings.fal_video_endpoint})"
+        return (
+            f"configured (fal.ai, endpoint {settings.fal_video_endpoint}); "
+            f"code-first: {code}"
+            if code
+            else "configured (fal.ai)"
+        )
     if settings.hf_configured:
         return (
             f"configured (Hugging Face Inference Providers, free token, "
-            f"model {settings.hf_video_model})"
+            f"model {settings.hf_video_model}); code-first: {code}"
+            if code
+            else "configured (Hugging Face Inference Providers, free token)"
         )
+    if code:
+        return f"configured ({code})"
     return (
         "not configured — video generation is unavailable "
-        "(set HF_TOKEN for the free Hugging Face route, or FAL_KEY for paid fal.ai)"
+        "(install ffmpeg for code rendering, or set HF_TOKEN / FAL_KEY for generative video)"
     )
 
 

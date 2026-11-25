@@ -392,6 +392,60 @@ class OpenAILLMProvider:
         diagnostics must name this rather than the model the client asked for."""
         return self._model
 
+    async def complete_raw_agentic(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int = 8192,
+    ) -> str:
+        """Direct raw completion for bounded coding/studio agent loops without companion persona schema."""
+        can_exec, reason, _ = self._circuit_breaker.can_execute()
+        if not can_exec:
+            code = "PROVIDER_RATE_LIMIT" if "rate_limited" in (reason or "") else "PROVIDER_UNAVAILABLE"
+            status_code = 429 if code == "PROVIDER_RATE_LIMIT" else 503
+            raise HinaaError(code, reason or f"{self._provider_label()} is currently in cooldown.", status_code, True)
+        started = perf_counter()
+        use_max_tokens = self._provider_id in {"qwen", "agent-router", "codecraft"} | _GATEWAY_PROVIDERS
+        payload: dict[str, object] = {
+            "model": self._model_for_payload(),
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": self._effective_temperature(0.2),
+            ("max_tokens" if use_max_tokens else "max_completion_tokens"): max_tokens,
+        }
+        last_resp: httpx.Response | None = None
+        num_keys = max(1, len(self._keys))
+        try:
+            for key_idx in range(num_keys):
+                async with _pooled_client() as client:
+                    response = await client.post(
+                        self._chat_url(),
+                        headers=self._headers(),
+                        json=payload,
+                    )
+                last_resp = response
+                if response.status_code in {401, 403, 429} and key_idx < num_keys - 1:
+                    self._rotate_key()
+                    continue
+                self._raise_for_status(response)
+                data = response.json()
+                choices = data.get("choices") or []
+                msg = choices[0].get("message", {}) if choices else {}
+                content = msg.get("content") or msg.get("reasoning") or msg.get("reasoning_content")
+                text_out = content if isinstance(content, str) else ""
+                self._circuit_breaker.record_success(int((perf_counter() - started) * 1000))
+                return text_out
+            if last_resp is not None:
+                self._raise_for_status(last_resp)
+            return ""
+        except HinaaError:
+            raise
+        except Exception as error:
+            raise self._map_provider_error(error) from error
+
     async def create_plan(
         self,
         text: str,

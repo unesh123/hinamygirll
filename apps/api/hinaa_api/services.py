@@ -2872,25 +2872,28 @@ class ConversationService:
                 plan.language = "en-US"
             plan.emotion = Emotion(primary="happy", intensity=0.7, valence=0.7, arousal=0.5)
 
-        image_command = bool(
-            re.search(r"\b(?:generate|create|make|draw|paint|render|बनाओ|बनाऊ|बनाइदेऊ|गर)\b.*\b(?:image|images|picture|pictures|photo|photos|portrait|artwork|wallpaper|चित्र|तस्वीर)\b", unquoted, re.I)
-            or re.search(r"\b(?:image|images|picture|pictures|photo|photos|चित्र|तस्वीर)\s+(?:generate|create|make|draw|करो|गर)\b", unquoted, re.I)
-            or re.search(r"^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?(?:please\s+)?(?:draw|paint)\s+[a-z0-9]", unquoted, re.I)
-            or (
-                re.search(r"^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?(?:please\s+)?(?:generate|draw|paint|render|create)\s+", unquoted, re.I)
-                and any(k in unquoted.lower() for k in ("hina", "hinaa", *CHARACTER_ENTITY_MAP))
-            )
-            or (
-                bool(re.search(r"\b(?:same\s+one|use\s+this|use\s+that|use\s+this\s+image)\b", unquoted, re.I))
-                and bool(re.search(r"\b(?:darker|brighter|better|variation|different|in\s+|with\s+|wearing\s+|sitting\s+|standing\s+|looking\s+|smiling)\b", unquoted, re.I))
-            )
-            or is_command(
-                [
-                    r"^\s*(please\s+)?(generate|create|make|draw|paint|render|बनाओ|बनाऊ|बनाइदेऊ)\b",
-                    r"^\s*(?:\d+|one|two|three|four|चार|एक|दुई|एउटा)?\s*(?:fast\s+|quality\s+)?(?:images?|pictures?|photos?|चित्र|तस्वीर)\s+(?:generate|create|make|करो|गर)\b",
-                    r"^\s*(?:generate|create|make|बनाओ|बनाऊ|बनाइदेऊ)\b.*(?:image|picture|photo|चित्र|तस्वीर)",
-                ],
-                target=r"\b(image|images|picture|pictures|photo|photos|portrait|artwork|variation|variations)\b|चित्र|तस्वीर",
+        image_command = (
+            not re.search(r"\b(?:mp4|video|reel|animation|ffmpeg|playwright|kinetic)\b", unquoted, re.I)
+            and bool(
+                re.search(r"\b(?:generate|create|make|draw|paint|render|बनाओ|बनाऊ|बनाइदेऊ|गर)\b.*\b(?:image|images|picture|pictures|photo|photos|portrait|artwork|wallpaper|चित्र|तस्वीर)\b", unquoted, re.I)
+                or re.search(r"\b(?:image|images|picture|pictures|photo|photos|चित्र|तस्वीर)\s+(?:generate|create|make|draw|करो|गर)\b", unquoted, re.I)
+                or re.search(r"^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?(?:please\s+)?(?:draw|paint)\s+[a-z0-9]", unquoted, re.I)
+                or (
+                    re.search(r"^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?(?:please\s+)?(?:generate|draw|paint|render|create)\s+", unquoted, re.I)
+                    and any(k in unquoted.lower() for k in ("hina", "hinaa", *CHARACTER_ENTITY_MAP))
+                )
+                or (
+                    bool(re.search(r"\b(?:same\s+one|use\s+this|use\s+that|use\s+this\s+image)\b", unquoted, re.I))
+                    and bool(re.search(r"\b(?:darker|brighter|better|variation|different|in\s+|with\s+|wearing\s+|sitting\s+|standing\s+|looking\s+|smiling)\b", unquoted, re.I))
+                )
+                or is_command(
+                    [
+                        r"^\s*(please\s+)?(generate|create|make|draw|paint|render|बनाओ|बनाऊ|बनाइदेऊ)\b",
+                        r"^\s*(?:\d+|one|two|three|four|चार|एक|दुई|एउटा)?\s*(?:fast\s+|quality\s+)?(?:images?|pictures?|photos?|चित्र|तस्वीर)\s+(?:generate|create|make|करो|गर)\b",
+                        r"^\s*(?:generate|create|make|बनाओ|बनाऊ|बनाइदेऊ)\b.*(?:image|picture|photo|चित्र|तस्वीर)",
+                    ],
+                    target=r"\b(image|images|picture|pictures|photo|photos|portrait|artwork|variation|variations)\b|चित्र|तस्वीर",
+                )
             )
         )
         if image_command and not any(t.toolName == "image_generate" for t in plan.toolRequests):
@@ -3544,7 +3547,7 @@ class ConversationService:
 
         # Autonomous Coding, Shell Execution, File Mutation & Agentic Workbench Pattern
         CODING_AUTONOMY_PATTERN = re.compile(
-            r"(?i)\b(?:code|coding|build|fix|debug|refactor|test|terminal|powershell|bash|cmd|shell|script|python|git|commit|push|clean[- ]room|subagent|fork|patch|edit\s+file|write\s+file|read\s+file|create\s+file)\b"
+            r"(?i)\b(?:code|coding|build|fix|debug|refactor|test|terminal|powershell|bash|cmd|shell|script|python|git|commit|push|clean[- ]room|subagent|fork|patch|inspect|search\s+code|grep|glob|edit\s+file|write\s+file|read\s+file|create\s+file|ml\s*ai|routine)\b"
         )
         if CODING_AUTONOMY_PATTERN.search(text):
             allowed_set.update([
@@ -3554,6 +3557,16 @@ class ConversationService:
                 "subagent_fork",
                 "file_read",
                 "file_write",
+                "workspace_list_dir",
+                "workspace_read_file",
+                "workspace_write_file",
+                "workspace_edit_file",
+                "workspace_glob",
+                "workspace_grep",
+                "workspace_run_command",
+                "render_code_animation",
+                "mlai_list_routines",
+                "mlai_run_routine",
                 "system_info",
             ])
 
@@ -3573,19 +3586,25 @@ class ConversationService:
         if AUTONOMY_PATTERN.search(text):
             allowed_set.update([
                 "workspace",
+                "workspace_read_file",
+                "workspace_glob",
+                "workspace_grep",
                 "parallel_executor",
                 "auto_goal_decomposer",
                 "self_improver",
             ])
 
         ULTRA_PATTERN = re.compile(
-            r"(?i)\b(?:workspace|exports|hinaa-ultra|file\s+called|mp4|bridal|reel|animation|server|port\s+\d+|kira|nova|sage|screenshot|memory|ffmpeg)\b"
+            r"(?i)\b(?:workspace|exports|hinaa-ultra|file\s+called|mp4|bridal|reel|animation|kinetic|playwright|server|port\s+\d+|kira|nova|sage|screenshot|memory|ffmpeg)\b"
         )
         if ULTRA_PATTERN.search(text):
             allowed_set.update([
                 "ultra_file_write",
                 "file_list",
                 "video_create",
+                "render_code_animation",
+                "create_lyric_video",
+                "create_motion_video",
                 "record_frames",
                 "ffmpeg_export",
                 "server_start",
@@ -3778,6 +3797,9 @@ class ConversationService:
         if tool.toolName == "video_create":
             dur = parameters.get("duration_seconds", 5)
             return f"Rendering {dur}s MP4 animation in code via Playwright + FFmpeg."
+        if tool.toolName == "render_code_animation":
+            dur = parameters.get("duration_seconds", 5)
+            return f"Rendering {dur}s code animation MP4 via Playwright + FFmpeg with ffprobe verification."
         if tool.toolName == "ffmpeg_export":
             return f"Encoding frames from `{parameters.get('frames_dir', 'frames')}` into MP4."
         if tool.toolName == "browser_screenshot":
@@ -7157,9 +7179,6 @@ class ConversationService:
         async def emit_event(name: str, payload: dict[str, Any]) -> None:
             await queue.put(("event", (name, payload)))
 
-        turn_task = asyncio.create_task(
-            self.create_live_plan(request, emit_delta, user_id=user_id, emit_event=emit_event)
-        )
         emitted: list[str] = []
         delta_sequence = 0
 
@@ -7177,18 +7196,114 @@ class ConversationService:
             delta_sequence += 1
             return ev
 
-        # Instant-action path: when his sentence fully specifies the work --
-        # "open netflix", "run X in the terminal", "remind me at 6", "build a
-        # site for my gym" -- the gate files the same call the slow path would
-        # and then replaces the brain's 20-45 second monologue with the action
-        # confirmation anyway. Acting immediately turns that wait into an
-        # instant answer, and she speaks while the tool runs. A question mark
-        # keeps the brain: he asked something, so action alone is not the reply.
-        # State-bound tools stay on the slow path: image_generate binds its
-        # reference asset from conversation state inside create_live_plan, and
-        # an instant filing would lose the picture he pointed at.
         from .prompts.performance import build_plan_from_text
         from .tools.intent_gate import gate_tool_requests
+
+        # Multi-step server-side Agentic Runtime mode (`think -> tool -> observe -> iterate`)
+        _req_agentic = getattr(request, "agenticMode", None)
+        _text_clean = (request.text or "").strip()
+        _AUTO_AGENTIC_RE = re.compile(
+            r"(?i)(?:^/(?:code|agent)\b|\b(?:workspace|repository|repo\b|codebase|pytest|vitest|py_compile|"
+            r"tsc\b|playwright|ffmpeg|render_code_animation|full[- ]?page\s+html|html\s+(?:file|page|app|site|landing)|"
+            r"(?:create|write|build|make|scaffold|generate|edit|fix|debug|refactor)\s+(?:a|an|the|full[- ]?page)?\s*"
+            r"(?:html|python|script|app|file|module|component|project|site|landing\s+page|game|dashboard|mp4|video|animation)|"
+            r"run\s+(?:the\s+)?(?:tests?|pytest|build|linter|typecheck|command))\b)"
+        )
+        _NON_AGENTIC_GUARD_RE = re.compile(
+            r"(?i)(?:^/(?:image|search|pdf|walk|roam)\b|\b(?:song|music|spotify|youtube|lofi|remind\s+me)\b)"
+        )
+        _has_visual_attachment = bool(
+            getattr(request, "imageUrl", None)
+            or getattr(request, "attachment_ids", None)
+            or getattr(request, "attachments", None)
+            or getattr(request, "reference_images", None)
+        )
+        _use_agentic = (
+            _req_agentic is True
+            or (
+                _req_agentic is None
+                and not _has_visual_attachment
+                and bool(_AUTO_AGENTIC_RE.search(_text_clean))
+                and not bool(_NON_AGENTIC_GUARD_RE.search(_text_clean))
+            )
+        )
+        if _use_agentic:
+            import os as _os
+            from .agent.live_agentic_service import format_agentic_markdown, run_agentic_job
+            from .runtime_paths import project_root
+
+            goal_text = re.sub(r"(?i)^/(?:code|agent|goal)\s+", "", _text_clean).strip() or _text_clean
+            allowed_for_agentic = set(
+                self._builtin_turn_tool_whitelist(goal_text, None, history=request.history) or ()
+            )
+            allowed_for_agentic.update({
+                "workspace_list_dir",
+                "workspace_read_file",
+                "workspace_write_file",
+                "workspace_edit_file",
+                "workspace_glob",
+                "workspace_grep",
+                "workspace_run_command",
+                "render_code_animation",
+                "mlai_list_routines",
+                "mlai_run_routine",
+            })
+            ws_dir = _os.environ.get("HINAA_LOCAL_WORKSPACE_DIR") or str(project_root())
+            ev_queue: asyncio.Queue[tuple[str, dict[str, Any]] | None] = asyncio.Queue()
+
+            async def _on_agentic_event(evt_name: str, evt_payload: dict[str, Any]) -> None:
+                await ev_queue.put((evt_name, evt_payload))
+
+            agentic_task = asyncio.create_task(
+                run_agentic_job(
+                    goal=goal_text,
+                    router=self.router,
+                    settings=self.settings,
+                    provider_mode=request.providerMode,
+                    brain_model=request.brainModel,
+                    user_id=user_id or "default_user",
+                    allowed_tools=allowed_for_agentic,
+                    workspace_root=ws_dir,
+                    run_id=correlation_id,
+                    on_event=_on_agentic_event,
+                )
+            )
+            while not agentic_task.done() or not ev_queue.empty():
+                try:
+                    item = await asyncio.wait_for(ev_queue.get(), timeout=0.25)
+                    if item is not None:
+                        ev_name, ev_payload = item
+                        yield self._event(ev_name, {"correlationId": correlation_id, **ev_payload})
+                except asyncio.TimeoutError:
+                    continue
+            persisted = await agentic_task
+            res = persisted.result
+            report_md = format_agentic_markdown(res)
+            agentic_plan = build_plan_from_text(
+                text=report_md,
+                companion_id=request.companionId or "hinaa",
+                language=getattr(request, "language", None) or "en-US",
+                depth="report",
+            )
+            agentic_plan.requestedProvider = request.providerMode
+            agentic_plan.requestedModel = request.brainModel
+            agentic_plan.resolvedProvider = request.providerMode
+            agentic_plan.resolvedModel = request.brainModel
+            yield _make_delta_event(report_md)
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            yield self._event("planning.completed", {"step": res.steps_executed or 1, "durationMs": elapsed_ms, "correlationId": correlation_id})
+            yield self._event("plan", {"plan": agentic_plan.model_dump(), "provider": f"{request.providerMode}:agentic"})
+            yield self._event("usage", {"latencyMs": elapsed_ms, "stepsExecuted": res.steps_executed})
+            yield self._event("run.completed", {
+                "runId": correlation_id,
+                "status": res.status,
+                "stepsExecuted": res.steps_executed,
+                "artifacts": res.artifacts,
+                "filesChanged": res.files_changed,
+                "latencyMs": elapsed_ms,
+                "totalDurationMs": elapsed_ms,
+            })
+            return
 
         _INSTANT_ACTION_TOOLS = frozenset({
             "computer_operator",
@@ -7198,6 +7313,7 @@ class ConversationService:
             "file_list",
             "server_start",
             "video_create",
+            "render_code_animation",
             "browser_screenshot",
             "agent_spawn",
             "reminder.create",
@@ -7222,6 +7338,82 @@ class ConversationService:
                 request.text,
             )
         ):
+            # Server-executed local deterministic code animation (Playwright + FFmpeg + ffprobe QC)
+            if any(req.toolName == "render_code_animation" for req in instant_requests):
+                from .tools.code_animation_tool import RenderCodeAnimationParams, render_code_animation_handler
+
+                req_anim = next(r for r in instant_requests if r.toolName == "render_code_animation")
+                tool_run_id = str(uuid.uuid4())
+                yield self._event("planning.completed", {
+                    "step": 1,
+                    "durationMs": int((time.time() - start_time) * 1000),
+                    "correlationId": correlation_id,
+                })
+                yield self._event("tool.started", {
+                    "toolRunId": tool_run_id,
+                    "toolName": "render_code_animation",
+                    "step": 1,
+                    "totalSteps": 1,
+                    "parameters": req_anim.parameters,
+                    "correlationId": correlation_id,
+                })
+                yield self._event("tool.progress", {
+                    "toolRunId": tool_run_id,
+                    "toolName": "render_code_animation",
+                    "message": "Rendering animation frames in Playwright + FFmpeg & running ffprobe QC...",
+                })
+                try:
+                    render_res = await render_code_animation_handler(
+                        RenderCodeAnimationParams(**(req_anim.parameters or {}))
+                    )
+                    out_meta = render_res.get("output") or {}
+                    dl_url = render_res.get("download_url") or ""
+                    reply_text = (
+                        f"Rendered **{out_meta.get('resolution', '')}** MP4 "
+                        f"({out_meta.get('duration_sec', '')}s @ {out_meta.get('fps', '')} fps, "
+                        f"codec `{out_meta.get('video_codec', 'h264')}`, "
+                        f"{out_meta.get('size_bytes', 0):,} bytes, `sha256:{str(out_meta.get('checksum_sha256', ''))[:12]}`).\n\n"
+                        f"[Download / Play MP4]({dl_url})"
+                    )
+                    yield self._event("tool.completed", {
+                        "toolRunId": tool_run_id,
+                        "toolName": "render_code_animation",
+                        "status": "completed",
+                        "output": render_res,
+                    })
+                    yield self._event("artifact.ready", {
+                        "toolRunId": tool_run_id,
+                        "kind": "video",
+                        "assetId": render_res.get("asset_id"),
+                        "downloadUrl": dl_url,
+                        "output": out_meta,
+                    })
+                except Exception as render_exc:
+                    reply_text = f"Render failed cleanly: {render_exc}"
+                    yield self._event("tool.failed", {
+                        "toolRunId": tool_run_id,
+                        "toolName": "render_code_animation",
+                        "error": str(render_exc),
+                    })
+                anim_plan = build_plan_from_text(
+                    text=reply_text,
+                    companion_id=request.companionId or "hinaa",
+                    language=getattr(request, "language", None) or "en-US",
+                    depth="detailed",
+                )
+                anim_plan.toolRequests = list(instant_requests)
+                yield _make_delta_event(reply_text)
+                elapsed_ms = int((time.time() - start_time) * 1000)
+                yield self._event("plan", {"plan": anim_plan.model_dump(), "provider": "local:playwright-ffmpeg"})
+                yield self._event("usage", {"latencyMs": elapsed_ms})
+                yield self._event("run.completed", {
+                    "runId": correlation_id,
+                    "status": "completed",
+                    "latencyMs": elapsed_ms,
+                    "totalDurationMs": elapsed_ms,
+                })
+                return
+
             confirmation = " ".join(self._action_confirmation(req) for req in instant_requests)
             instant_plan = build_plan_from_text(
                 text=confirmation,
@@ -7276,6 +7468,10 @@ class ConversationService:
                 "totalDurationMs": int((time.time() - start_time) * 1000),
             })
             return
+
+        turn_task = asyncio.create_task(
+            self.create_live_plan(request, emit_delta, user_id=user_id, emit_event=emit_event)
+        )
 
         # Slow providers report transport status only. Synthetic acknowledgements
         # must never enter the assistant text or trigger speech synthesis.

@@ -175,6 +175,33 @@ class GeminiLLMProvider:
         """The model id this instance sends, for whoever has to report it honestly."""
         return self._model
 
+    async def complete_raw_agentic(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int = 8192,
+    ) -> str:
+        """Direct raw completion for bounded coding/studio agent loops without companion persona schema."""
+        client = genai.Client(api_key=self._key)
+        try:
+            response = await client.aio.models.generate_content(
+                model=self._model,
+                contents=user_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    temperature=0.2,
+                    max_output_tokens=max_tokens,
+                ),
+            )
+            return (response.text or "").strip()
+        except HinaaError:
+            raise
+        except Exception as error:
+            raise self._map_provider_error(error) from error
+        finally:
+            await client.aio.aclose()
+
     async def create_plan(
         self,
         text: str,

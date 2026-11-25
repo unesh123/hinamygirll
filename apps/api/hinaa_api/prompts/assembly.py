@@ -134,18 +134,21 @@ def _self_state_layer(voice: bool = False, allowed_tools: tuple[str, ...] | None
 
         settings = get_settings()
         brains = [
-            name
-            for name in (
-                "claude",
-                "gemini",
-                "openai",
-                "groq",
-                "qwen",
-                "azure",
-                "agent-router",
-                "custom",
+            label
+            for label, attr in (
+                ("xkiro", "xkiro_configured"),
+                ("cantrustai", "cantrust_configured"),
+                ("coarena", "coarena_configured"),
+                ("claude", "claude_configured"),
+                ("gemini", "gemini_configured"),
+                ("openai", "openai_configured"),
+                ("groq", "groq_configured"),
+                ("qwen", "qwen_configured"),
+                ("azure", "azure_configured"),
+                ("agent-router", "agent_router_configured"),
+                ("custom", "custom_configured"),
             )
-            if getattr(settings, f"{name.replace('-', '_')}_configured", False)
+            if getattr(settings, attr, False)
         ]
         tool_names = [tool.name for tool in registry.get_all_tools()]
         # The capability registry is the single source of truth for what this

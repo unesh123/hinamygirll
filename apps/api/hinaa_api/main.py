@@ -4559,6 +4559,104 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Run not found")
         return run.model_dump(mode="json")
 
+    @app.post("/v1/agent/agentic-runs")
+    @app.post("/api/v1/agent/agentic-runs")
+    async def create_agentic_run(
+        request: Request, body: dict[str, Any] = Body(default_factory=dict)
+    ) -> dict[str, Any]:
+        from .agent.live_agentic_service import run_agentic_job
+        from .runtime_paths import project_root
+
+        goal = str(body.get("goal") or "").strip()
+        if not goal:
+            raise HTTPException(status_code=400, detail="goal is required")
+        user_id = _resolve_user_id(request) or "default_user"
+        allowed = set(body["allowedTools"]) if isinstance(body.get("allowedTools"), list) else None
+        ws_dir = body.get("workspacePath") or os.environ.get("HINAA_LOCAL_WORKSPACE_DIR") or str(project_root())
+        rec = await run_agentic_job(
+            goal=goal,
+            router=service.router,
+            settings=service.settings,
+            provider_mode=str(body.get("providerMode") or "xkiro"),
+            brain_model=body.get("brainModel"),
+            user_id=user_id,
+            allowed_tools=allowed,
+            workspace_root=str(ws_dir),
+            host_header=request.headers.get("host"),
+            max_steps=min(max(1, int(body.get("maxSteps") or 8)), 12),
+        )
+        return rec.model_dump(mode="json")
+
+    @app.get("/v1/agent/agentic-runs")
+    @app.get("/api/v1/agent/agentic-runs")
+    async def list_agentic_runs() -> dict[str, Any]:
+        from .agent.live_agentic_service import get_agentic_store
+
+        runs = get_agentic_store().list_runs(limit=50)
+        return {"status": "ok", "count": len(runs), "runs": [r.model_dump(mode="json") for r in runs]}
+
+    @app.get("/v1/agent/agentic-runs/{run_id}")
+    @app.get("/api/v1/agent/agentic-runs/{run_id}")
+    async def get_agentic_run(run_id: str) -> dict[str, Any]:
+        from .agent.live_agentic_service import get_agentic_store
+
+        rec = get_agentic_store().load(run_id)
+        if rec is None:
+            raise HTTPException(status_code=404, detail="Agentic run not found")
+        return rec.model_dump(mode="json")
+
+    @app.post("/v1/agent/agentic-runs/{run_id}/approve")
+    @app.post("/api/v1/agent/agentic-runs/{run_id}/approve")
+    async def approve_agentic_run(
+        request: Request, run_id: str, body: dict[str, Any] = Body(default_factory=dict)
+    ) -> dict[str, Any]:
+        from .agent.live_agentic_service import get_agentic_store, run_agentic_job
+
+        store = get_agentic_store()
+        rec = store.load(run_id)
+        if rec is None:
+            raise HTTPException(status_code=404, detail="Agentic run not found")
+        pending = rec.result.pending_approval
+        if pending is None:
+            raise HTTPException(status_code=400, detail="Run has no pending approval")
+        approved_hash = str(body.get("argumentsHash") or body.get("arguments_hash") or "").strip()
+        if not approved_hash or approved_hash != pending.arguments_hash:
+            raise HTTPException(status_code=403, detail="Approval bound hash mismatch")
+        if body.get("approved", True) is False:
+            rec.result.status = "cancelled"
+            rec.result.summary = "Approval denied by user."
+            store.save(rec)
+            return rec.model_dump(mode="json")
+
+        approved_hashes = set(rec.approved_hashes)
+        approved_hashes.add(approved_hash)
+        updated = await run_agentic_job(
+            goal=rec.goal,
+            router=service.router,
+            settings=service.settings,
+            provider_mode=rec.provider_mode,
+            brain_model=rec.brain_model,
+            user_id=rec.user_id,
+            allowed_tools=set(rec.allowed_tools),
+            approved_hashes=approved_hashes,
+            workspace_root=rec.workspace_root,
+            host_header=request.headers.get("host"),
+            run_id=rec.run_id,
+            store=store,
+        )
+        return updated.model_dump(mode="json")
+
+    @app.post("/v1/agent/agentic-runs/{run_id}/cancel")
+    @app.post("/api/v1/agent/agentic-runs/{run_id}/cancel")
+    async def cancel_agentic_run(run_id: str) -> dict[str, Any]:
+        from .agent.live_agentic_service import cancel_active_agentic_run, get_agentic_store
+
+        ok = cancel_active_agentic_run(run_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Agentic run not found")
+        rec = get_agentic_store().load(run_id)
+        return rec.model_dump(mode="json") if rec else {"run_id": run_id, "status": "cancelled"}
+
     # ── Cognitive OS & World Model Routes ──────────────────────────────
 
     @app.get("/v1/cognitive/world-state")

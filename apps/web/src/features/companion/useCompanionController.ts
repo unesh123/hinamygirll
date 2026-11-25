@@ -121,8 +121,39 @@ function runtimeEventToSteps(
       detail: "Runtime validated the execution plan",
     });
   }
+  if (event.event_type === "agentic.started") {
+    return upsert({
+      id: "run",
+      label: "Autonomous Loop Started",
+      status: "active",
+      detail: typeof payload.goal === "string" ? payload.goal : "Executing bounded multi-step plan",
+    });
+  }
   if (event.event_type === "agent.step.started") {
-    return upsert({ id: stepId, label: title, status: "active", detail: "Running through server runtime" });
+    const stepNum = typeof payload.step === "number" ? payload.step : undefined;
+    const stepLabel = stepNum ? `Reasoning · Step ${stepNum}` : title;
+    return upsert({ id: stepId, label: stepLabel, status: "active", detail: "Inspecting workspace & selecting next tool" });
+  }
+  if (event.event_type === "tool.started") {
+    const tName = typeof payload.toolName === "string" ? payload.toolName : "tool";
+    return upsert({ id: `tool-${stepId}-${tName}`, label: `Running ${tName}`, status: "active", detail: "Executing inside server runtime" });
+  }
+  if (event.event_type === "tool.completed") {
+    const tName = typeof payload.toolName === "string" ? payload.toolName : "tool";
+    const ms = typeof payload.durationMs === "number" ? `${Math.round(payload.durationMs)} ms` : "completed";
+    return upsert({ id: `tool-${stepId}-${tName}`, label: `Completed ${tName}`, status: "done", detail: ms });
+  }
+  if (event.event_type === "tool.failed") {
+    const tName = typeof payload.toolName === "string" ? payload.toolName : "tool";
+    return upsert({ id: `tool-${stepId}-${tName}`, label: `Failed ${tName}`, status: "error", detail: typeof payload.error === "string" ? payload.error : "Tool returned an error" });
+  }
+  if (event.event_type === "artifact.ready") {
+    const art = (payload.artifact && typeof payload.artifact === "object" ? payload.artifact : {}) as Record<string, unknown>;
+    const artLabel = typeof art.filePath === "string" ? art.filePath : typeof art.filename === "string" ? art.filename : "Artifact ready";
+    return upsert({ id: `art-${artLabel}`, label: `Produced ${artLabel}`, status: "done", detail: String(art.kind || "artifact") });
+  }
+  if (event.event_type === "agentic.completed") {
+    return previous.map((step) => ({ ...step, status: step.status === "error" ? step.status : "done" }));
   }
   if (event.event_type === "agent.step.progress") {
     return upsert({ id: stepId, label: title, status: "active", detail: message ?? "Runtime step updated" });
@@ -134,7 +165,9 @@ function runtimeEventToSteps(
     return upsert({ id: stepId, label: title, status: "error", detail: message ?? "Runtime step failed" });
   }
   if (event.event_type === "confirmation.required") {
-    return upsert({ id: stepId, label: title, status: "pending", detail: "Waiting for your approval" });
+    const tName = typeof payload.tool === "string" ? payload.tool : title;
+    const reason = typeof payload.reason === "string" ? payload.reason : "Waiting for your approval";
+    return upsert({ id: stepId, label: `Approve ${tName}?`, status: "pending", detail: reason });
   }
   if (event.event_type === "agent.run.completed") {
     return previous.map((step) => ({ ...step, status: step.status === "error" ? step.status : "done" }));
@@ -166,6 +199,7 @@ export interface SendTextOptions {
   voiceEngine?: string;
   onSentenceChunk?: (sentence: string, isFirst: boolean) => void;
   persona_mode?: string;
+  agenticMode?: boolean;
   /**
    * Resend from this transcript prefix (regenerate / edit): it replaces the visible
    * conversation and is the turn's entire context, even when empty.
@@ -352,6 +386,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
   // A double click, touch event replay, or a transient rerender may not submit
   // the same external request twice or append duplicate terminal result cards.
   const resolvingToolRequestIds = useRef<Set<string>>(new Set());
+  const pendingAgenticApprovalRef = useRef<{ runId: string; argumentsHash: string; tool?: string } | null>(null);
   const turnSequence = useRef(0);
   const activeTurnId = useRef<string | null>(null);
   const finalizedTurnIds = useRef<Set<string>>(new Set());
@@ -389,9 +424,11 @@ export function useCompanionController({ conversationId, routing, languagePolicy
 
     setStreamingText("");
     setActivePlan(undefined);
-    setCurrentAgentRunId(undefined);
-    setCurrentAgentConfirmationStepId(undefined);
-    setAgentSteps([]);
+    if (!pendingAgenticApprovalRef.current) {
+      setCurrentAgentRunId(undefined);
+      setCurrentAgentConfirmationStepId(undefined);
+      setAgentSteps([]);
+    }
     const errorText = result.errorText;
     if (errorText && !partialToSave) {
       setMessages((current) => [...current, createMessage("assistant", errorText)]);
@@ -482,10 +519,15 @@ export function useCompanionController({ conversationId, routing, languagePolicy
 
   const cancelCurrentAgentRun = useCallback(async () => {
     if (currentAgentRunId) {
-      void fetch(`/api/v1/agent/runs/${encodeURIComponent(currentAgentRunId)}/cancel`, {
+      const targetEndpoint =
+        pendingAgenticApprovalRef.current?.runId === currentAgentRunId
+          ? `/api/v1/agent/agentic-runs/${encodeURIComponent(currentAgentRunId)}/cancel`
+          : `/api/v1/agent/runs/${encodeURIComponent(currentAgentRunId)}/cancel`;
+      void fetch(targetEndpoint, {
         method: "POST",
       }).catch(() => undefined);
     }
+    pendingAgenticApprovalRef.current = null;
     setCurrentAgentRunId(undefined);
     setCurrentAgentConfirmationStepId(undefined);
     setAgentSteps([]);
@@ -510,6 +552,51 @@ export function useCompanionController({ conversationId, routing, languagePolicy
 
   const confirmCurrentAgentStep = useCallback(async (approved: boolean) => {
     if (!currentAgentRunId || !currentAgentConfirmationStepId) return;
+    const pendingAgentic = pendingAgenticApprovalRef.current;
+    if (pendingAgentic && pendingAgentic.runId === currentAgentRunId) {
+      setState(approved ? "thinking" : "idle");
+      const response = await fetch(`/api/v1/agent/agentic-runs/${encodeURIComponent(currentAgentRunId)}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          approved,
+          argumentsHash: pendingAgentic.argumentsHash,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setState("idle");
+        throw new Error(payload?.detail || `Approval failed (${response.status})`);
+      }
+      pendingAgenticApprovalRef.current = null;
+      setCurrentAgentConfirmationStepId(undefined);
+      setCurrentAgentRunId(undefined);
+      setAgentSteps((current) =>
+        current.map((step) =>
+          step.id === currentAgentConfirmationStepId
+            ? {
+                ...step,
+                status: approved ? "done" : "cancelled",
+                detail: approved ? "Approved and executed" : "Declined by user",
+              }
+            : step,
+        ),
+      );
+      const res = payload?.result;
+      if (res) {
+        const videoArts = Array.isArray(res.artifacts)
+          ? res.artifacts
+              .filter((a: any) => a?.kind === "video" && a?.download_url)
+              .map((a: any) => `\n**Rendered MP4:** [Download / Play MP4](${a.download_url})`)
+              .join("")
+          : "";
+        const msg = `### Agentic Approval (${String(res.status || "updated").toUpperCase()})\n${res.summary || "Updated."}${videoArts}`;
+        setMessages((current) => [...current, createMessage("assistant", msg)]);
+      }
+      setState("idle");
+      return;
+    }
+
     const response = await fetch(`/api/v1/agent/runs/${encodeURIComponent(currentAgentRunId)}/confirm`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -637,6 +724,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
           reference_images: options?.reference_images,
           attachments: options?.attachments,
           persona_mode: options?.persona_mode,
+          agenticMode: options?.agenticMode,
           // An empty resend context is still sent so the server can't fall back to stored turns.
           history: historyPayload.length > 0 || historyBase ? historyPayload : undefined,
         })) {
@@ -724,15 +812,28 @@ export function useCompanionController({ conversationId, routing, languagePolicy
           } else if (event.type === "agent.event") {
             setCurrentAgentRunId(event.event.run_id);
             if (event.event.event_type === "confirmation.required") {
-              setCurrentAgentConfirmationStepId(event.event.step_id ?? undefined);
+              const p = (event.event.payload ?? {}) as Record<string, unknown>;
+              const stepKey = event.event.step_id ?? String(p.approval_id ?? "approval");
+              const argHash = String(p.arguments_hash ?? p.argumentsHash ?? "");
+              if (argHash) {
+                pendingAgenticApprovalRef.current = {
+                  runId: event.event.run_id,
+                  argumentsHash: argHash,
+                  tool: typeof p.tool === "string" ? p.tool : undefined,
+                };
+              }
+              setCurrentAgentConfirmationStepId(stepKey);
             }
             if (
               event.event.event_type === "agent.run.completed" ||
+              event.event.event_type === "agentic.completed" ||
               event.event.event_type === "agent.run.failed" ||
               event.event.event_type === "agent.run.cancelled"
             ) {
-              setCurrentAgentConfirmationStepId(undefined);
-              setCurrentAgentRunId(undefined);
+              if (!pendingAgenticApprovalRef.current) {
+                setCurrentAgentConfirmationStepId(undefined);
+                setCurrentAgentRunId(undefined);
+              }
             }
             setAgentSteps((current) => runtimeEventToSteps(current, event.event));
           } else if (event.type === "usage") {

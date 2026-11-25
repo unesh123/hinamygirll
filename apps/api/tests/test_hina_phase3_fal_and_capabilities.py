@@ -184,7 +184,9 @@ def test_registry_reports_the_brain_choice_and_video_status() -> None:
 
     plain = _settings()
     registry = build_capability_registry(plain)
-    assert "not configured" in video_provider_status(plain)
+    # Local code rendering via ffmpeg is active when ffmpeg is installed.
+    status = video_provider_status(plain)
+    assert "code rendering via ffmpeg" in status or "not configured" in status
     assert registry.primary_brain_reason == ""
 
     asked = _settings(HINAA_PRIMARY_BRAIN="claude")
@@ -201,6 +203,7 @@ def test_self_state_layer_tells_the_truth(monkeypatch) -> None:
     out = _self_state_layer(voice=True)
     assert "fully equipped with advanced capabilities" not in out
     assert "autonomous browser execution" not in out
-    assert "Video generation: not configured" in out
+    assert "Video generation:" in out
+    assert ("code rendering via ffmpeg" in out) or ("Video generation: not configured" in out)
     assert "No tools are available on this turn" in out
     assert "Never claim browser execution" in out

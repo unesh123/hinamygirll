@@ -845,6 +845,7 @@ export default function App() {
     overrideText?: string,
     attachmentRole?: AttachmentRole,
     resend?: { historyBase: TranscriptMessage[]; imageUrl?: string },
+    agenticMode?: boolean,
   ) => {
     if (event && "preventDefault" in event) event.preventDefault();
     const textToSend = (typeof overrideText === "string" ? overrideText : input).trim();
@@ -990,6 +991,7 @@ export default function App() {
         reference_images: imageData && attachmentRole && attachmentRole !== "inspection" ? [imageData] : undefined,
         responseMode: requestResponseMode,
         persona_mode: personaMode,
+        agenticMode,
         voiceEngine: effectiveEngine,
         historyBase: resend?.historyBase,
         onSentenceChunk: phrase => {
@@ -1541,8 +1543,8 @@ export default function App() {
                 searchQuery={controller.searchQuery || searchQuery}
                 input={input}
                 onInputChange={setInput}
-                onSend={(customText?: string, attachmentRole?: AttachmentRole) =>
-                  submit(undefined, customText, attachmentRole)
+                onSend={(customText?: string, attachmentRole?: AttachmentRole, agenticMode?: boolean) =>
+                  submit(undefined, customText, attachmentRole, undefined, agenticMode)
                 }
                 onAddMessage={(msg) => controller.setMessages((prev) => [...prev, msg])}
                 onStop={handleStop}

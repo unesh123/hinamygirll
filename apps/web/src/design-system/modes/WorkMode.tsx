@@ -178,7 +178,7 @@ interface WorkModeProps {
   searchQuery?: string;
   input: string;
   onInputChange: (value: string) => void;
-  onSend: (customText?: string, attachmentRole?: AttachmentRole) => void;
+  onSend: (customText?: string, attachmentRole?: AttachmentRole, agenticMode?: boolean) => void;
   onAddMessage?: (message: TranscriptMessage) => void;
   onStop: () => void;
   disabled: boolean;
@@ -677,7 +677,12 @@ export function WorkMode({
         text = `/code ${text}`;
       }
 
-      onSend(text, options?.attachmentRole);
+      const explicitAgentic = mode === "code" || isGoal || mode === "goal";
+      if (explicitAgentic) {
+        onSend(text, options?.attachmentRole, true);
+      } else {
+        onSend(text, options?.attachmentRole);
+      }
 
       // Reset one-shot action mode back to normal chat so it never sticks to subsequent turns
       if (actionMode !== "chat" && !isGoal) {

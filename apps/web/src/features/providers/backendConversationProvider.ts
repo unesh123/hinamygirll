@@ -20,7 +20,20 @@ interface StreamEvent {
   latencyMs?: number;
   event?: unknown;
   runId?: string;
+  correlationId?: string;
   stepId?: string | null;
+  step?: number;
+  maxSteps?: number;
+  durationMs?: number;
+  error?: string;
+  goal?: string;
+  argumentsHash?: string;
+  arguments_hash?: string;
+  approval_id?: string;
+  tool?: string;
+  scope?: string;
+  reason?: string;
+  artifact?: Record<string, unknown>;
   query?: string;
   sourcesCount?: number;
   toolName?: string;
@@ -29,15 +42,25 @@ interface StreamEvent {
   parameters?: unknown;
   route?: string;
   confidence?: number;
-  goal?: string;
   candidate_capabilities?: string[];
   canonical_name?: string;
   grounded_tool_query?: string;
   data?: Record<string, unknown>;
 }
 
+const TOP_LEVEL_AGENTIC_EVENTS = new Set([
+  "agentic.started",
+  "agentic.completed",
+  "agent.step.started",
+  "tool.started",
+  "tool.completed",
+  "tool.failed",
+  "artifact.ready",
+  "confirmation.required",
+]);
+
 function normalizeAgentEvent(event: StreamEvent): AgentRuntimeEvent | null {
-  if (!event.type.startsWith("agent.") && event.type !== "confirmation.required") return null;
+  if (!event.type.startsWith("agent.") && !TOP_LEVEL_AGENTIC_EVENTS.has(event.type)) return null;
   const raw = event.event;
   if (raw && typeof raw === "object") {
     const candidate = raw as Record<string, unknown>;
@@ -57,13 +80,19 @@ function normalizeAgentEvent(event: StreamEvent): AgentRuntimeEvent | null {
       };
     }
   }
-  if (typeof event.runId !== "string") return null;
+  const runId = event.runId ?? event.correlationId;
+  if (typeof runId !== "string") return null;
+  const payload = { ...(event as unknown as Record<string, unknown>) };
+  const stepId =
+    event.stepId ??
+    event.approval_id ??
+    (typeof event.step === "number" ? `step-${event.step}` : null);
   return {
-    sequence: 0,
+    sequence: typeof event.step === "number" ? event.step : 0,
     event_type: event.type,
-    run_id: event.runId,
-    step_id: event.stepId ?? null,
-    payload: {},
+    run_id: runId,
+    step_id: stepId,
+    payload,
   };
 }
 
@@ -94,6 +123,9 @@ export class BackendConversationProvider implements ConversationProvider {
     }
     if (request.persona_mode) {
       payload.persona_mode = request.persona_mode;
+    }
+    if (typeof request.agenticMode === "boolean") {
+      payload.agenticMode = request.agenticMode;
     }
     if (request.history) {
       payload.history = request.history;

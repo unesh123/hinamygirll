@@ -40,6 +40,7 @@ from . import ugc_trend_extractor
 from . import html_anime
 from . import lyric_video_tool
 from . import motion_video_tool
+from . import code_animation_tool
 from . import mobile_artemis
 from . import clean_room_loop
 from . import subagent_fork

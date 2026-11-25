@@ -22,7 +22,9 @@ from ..models import (
     MediaType,
 )
 from ..policy import CreativeSecurityPolicy
+from ..providers.code_video_provider import code_video_provider
 from ..providers.comfy_provider import comfyui_provider
+from ..providers.fal_video_provider import get_video_provider
 from ..providers.local_engine import local_creative_engine
 from ..providers.timeline_exporter import timeline_video_exporter
 from ..providers.video_generative_provider import generative_video_provider
@@ -172,23 +174,36 @@ class CreativeService:
                     raise FileNotFoundError("Source asset not found for background removal.")
                 out_bytes = local_creative_engine.remove_background(src_bytes)
             elif op == CreativeOperation.TIMELINE_EXPORT:
-                frames = []
-                if job.spec.motion_scenes:
-                    from ..motion import render_motion_frames
-                    frames = await asyncio.to_thread(render_motion_frames, job.spec.motion_scenes, job.spec.width, job.spec.height, job.spec.fps)
                 job.state = JobState.ENCODING
                 await self.store.append_event(
-                    self._next_event(job_id, seq, JobState.ENCODING, 60.0, "Encoding video frames via FFmpeg")
+                    self._next_event(job_id, seq, JobState.ENCODING, 60.0, "Rendering video from timeline via FFmpeg")
                 )
                 seq += 1
-                out_bytes, probe = await timeline_video_exporter.render_timeline_to_mp4(
-                    frame_images=frames,
-                    width=job.spec.width,
-                    height=job.spec.height,
-                    fps=job.spec.fps,
-                    title=job.spec.prompt,
+                if job.spec.timeline_json:
+                    out_bytes = await code_video_provider.execute_job(job)
+                    job.telemetry["video_provider"] = "code_video"
+                else:
+                    frames = []
+                    if job.spec.motion_scenes:
+                        from ..motion import render_motion_frames
+                        frames = await asyncio.to_thread(render_motion_frames, job.spec.motion_scenes, job.spec.width, job.spec.height, job.spec.fps)
+                    out_bytes, probe = await timeline_video_exporter.render_timeline_to_mp4(
+                        frame_images=frames,
+                        width=job.spec.width,
+                        height=job.spec.height,
+                        fps=job.spec.fps,
+                        title=job.spec.prompt,
+                    )
+                    job.telemetry["ffmpeg_probe"] = probe
+            elif op == CreativeOperation.TEXT_TO_VIDEO:
+                job.state = JobState.ENCODING
+                await self.store.append_event(
+                    self._next_event(job_id, seq, JobState.ENCODING, 60.0, "Rendering video")
                 )
-                job.telemetry["ffmpeg_probe"] = probe
+                seq += 1
+                provider = get_video_provider(job)
+                out_bytes = await provider.execute_job(job)
+                job.telemetry["video_provider"] = provider.provider_id
             else:
                 raise NotImplementedError(f"Operation {op} execution handler not implemented.")
 
@@ -203,7 +218,7 @@ class CreativeService:
                 raise ValueError("Engine produced 0-byte corrupt media output.")
 
             # Stage 4: STORE ASSET
-            is_video = (op == CreativeOperation.TIMELINE_EXPORT)
+            is_video = op in (CreativeOperation.TIMELINE_EXPORT, CreativeOperation.TEXT_TO_VIDEO)
             ext = ".mp4" if is_video else ".png"
             filename = f"gen_{job_id}{ext}"
 
