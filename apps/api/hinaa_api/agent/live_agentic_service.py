@@ -246,7 +246,8 @@ def format_agentic_markdown(result: AgenticRunResult) -> str:
     for art in result.artifacts:
         kind = art.get("kind")
         if kind == "video" and art.get("download_url"):
-            out = art.get("output") or {}
+            raw_out = art.get("output")
+            out = raw_out if isinstance(raw_out, dict) else {}
             meta_bits = []
             if out.get("resolution"):
                 meta_bits.append(str(out["resolution"]))
@@ -327,13 +328,20 @@ async def run_agentic_job(
         if history:
             recent = [
                 f"{r}: {str(c)[:600]}"
-                for r, c in history[-4:]
+                for r, c in history[-6:]
                 if str(c).strip()
+                and not (
+                    r == "assistant"
+                    and re.search(
+                        r"(?i)no\s+(?:render|file[- ]delivery|execution)\s+tool\s+is\s+available|can'?t\s+render\s+or\s+attach",
+                        str(c),
+                    )
+                )
             ]
             if recent:
                 effective_goal = (
                     f"{goal}\n\n[Recent conversation context (reference only)]:\n"
-                    + "\n".join(recent)
+                    + "\n".join(recent[-4:])
                 )
         result = await runner.run(
             goal=effective_goal,

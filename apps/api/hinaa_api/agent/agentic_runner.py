@@ -326,6 +326,10 @@ class AgenticLoopRunner:
                 "stderr": str(obs.get("stderr") or "")[:1200],
             })
         elif obs.get("download_url") or obs.get("asset_id"):
+            raw_out = obs.get("output")
+            out_dict = raw_out if isinstance(raw_out, dict) else {
+                k: obs.get(k) for k in ("width", "height", "duration_seconds", "fps") if obs.get(k) is not None
+            }
             artifacts.append({
                 "kind": "video" if (obs.get("mime_type") == "video/mp4" or "video" in tool_name or "animation" in tool_name) else "file",
                 "tool": tool_name,
@@ -333,9 +337,7 @@ class AgenticLoopRunner:
                 "filename": obs.get("filename"),
                 "download_url": obs.get("download_url"),
                 "mime_type": obs.get("mime_type") or ("video/mp4" if "video" in tool_name or "animation" in tool_name else "application/octet-stream"),
-                "output": obs.get("output") or {
-                    k: obs.get(k) for k in ("width", "height", "duration_seconds", "fps") if obs.get(k) is not None
-                },
+                "output": out_dict,
             })
 
     async def run(

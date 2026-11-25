@@ -7212,9 +7212,12 @@ class ConversationService:
             r"(?:[a-z0-9_-]+\s+){0,4}(?:html|python|script|app|file|module|component|project|site|landing\s+page|game|dashboard|mp4|video|reel|animation)|"
             r"run\s+(?:the\s+)?(?:tests?|pytest|build|linter|typecheck|command))\b)"
         )
-        _CAPABILITY_Q_RE = re.compile(r"(?i)^\s*(?:what\s+kind\s+of|can\s+you|are\s+you\s+able\s+to|do\s+you\s+support)\b")
+        _CAPABILITY_Q_RE = re.compile(r"(?i)^\s*(?:what\s+kind\s+of|what\s+types?\s+of|explain\s+what)\b")
         _NON_AGENTIC_GUARD_RE = re.compile(
             r"(?i)(?:^/(?:image|search|pdf|walk|roam)\b|\b(?:play|listen\s+to|put\s+on)\s+(?:a|the|my|some)?\s*(?:song|music|track)\b|\b(?:spotify|youtube)\s+play\b|\bremind\s+me\b)"
+        )
+        _RETRY_FOLLOWUP_RE = re.compile(
+            r"(?i)^(?:ok(?:ay)?[\s,]+|please[\s,]+|now[\s,]+)*(?:try\s+again|retry(?:\s+(?:it|that|now))?|do\s+(?:it|that)(?:\s+(?:again|now))?|run\s+(?:it|that)(?:\s+now)?|render\s+(?:it|that|one)(?:\s+now)?|make\s+(?:it|that|one)(?:\s+now)?|create\s+(?:it|that|one)(?:\s+now)?|build\s+(?:it|that|one)(?:\s+now)?|go\s+ahead(?:\s+and\s+(?:render|create|build|do)\s+it)?)\s*[!.]*$"
         )
         _has_visual_attachment = bool(
             getattr(request, "imageUrl", None)
@@ -7228,14 +7231,55 @@ class ConversationService:
                 for att in (getattr(request, "attachments", None) or ())
             )
         )
+        recent_hist = self._turn_history(request)
+        _promoted_retry_goal: str | None = None
+        if (
+            _req_agentic is None
+            and not _has_visual_attachment
+            and _RETRY_FOLLOWUP_RE.match(_text_clean)
+            and recent_hist
+        ):
+            # Walk backward to locate the latest concrete coding/HTML/video user request in context
+            for r_role, r_content in reversed(recent_hist[-10:]):
+                if r_role != "user":
+                    continue
+                cand = str(r_content or "").strip()
+                if not cand or _RETRY_FOLLOWUP_RE.match(cand):
+                    continue
+                if _AUTO_AGENTIC_RE.search(cand) and not _NON_AGENTIC_GUARD_RE.search(cand):
+                    _promoted_retry_goal = cand
+                    break
+                # Also promote if the user attached a brief or previously got a "no render tool" refusal for video/mp4/html
+            if _promoted_retry_goal is None:
+                for r_role, r_content in reversed(recent_hist[-6:]):
+                    txt_h = str(r_content or "")
+                    if r_role == "assistant" and re.search(
+                        r"(?i)kinetic[\s-]+typography|playwright|ffmpeg|render\s+(?:and\s+attach\s+)?(?:a|the)?\s*(?:video|mp4)|render\s+tool",
+                        txt_h,
+                    ):
+                        # Pick the preceding non-trivial user turn
+                        for u_role, u_content in reversed(recent_hist[-8:]):
+                            uc = str(u_content or "").strip()
+                            if u_role == "user" and uc and not _RETRY_FOLLOWUP_RE.match(uc):
+                                _promoted_retry_goal = uc
+                                break
+                        if not _promoted_retry_goal:
+                            _promoted_retry_goal = "Render the requested kinetic-typography MP4 preview using render_code_animation."
+                        break
+
         _use_agentic = (
             _req_agentic is True
             or (
                 _req_agentic is None
                 and not _has_visual_attachment
-                and bool(_AUTO_AGENTIC_RE.search(_text_clean))
-                and not bool(_CAPABILITY_Q_RE.search(_text_clean))
-                and not bool(_NON_AGENTIC_GUARD_RE.search(_text_clean))
+                and (
+                    bool(_promoted_retry_goal)
+                    or (
+                        bool(_AUTO_AGENTIC_RE.search(_text_clean))
+                        and not bool(_CAPABILITY_Q_RE.search(_text_clean))
+                        and not bool(_NON_AGENTIC_GUARD_RE.search(_text_clean))
+                    )
+                )
             )
         )
         if _use_agentic:
@@ -7243,10 +7287,20 @@ class ConversationService:
             from .agent.live_agentic_service import format_agentic_markdown, run_agentic_job
             from .runtime_paths import project_root
 
-            goal_text = re.sub(r"(?i)^/(?:code|agent|goal)\s+", "", _text_clean).strip() or _text_clean
-            allowed_for_agentic = set(
-                self._builtin_turn_tool_whitelist(goal_text, None, history=request.history) or ()
-            )
+            raw_goal = _promoted_retry_goal or _text_clean
+            goal_text = re.sub(r"(?i)^/(?:code|agent|goal)\s+", "", raw_goal).strip() or raw_goal
+            # Expose the clean unified workspace + studio toolset without overlapping legacy :8765 duplicates
+            _LEGACY_DUPES = frozenset({
+                "shell_run", "file_list", "file_read", "file_write", "ultra_file_write",
+                "coding_agent", "clean_room_loop", "terminal_hands", "subagent_fork",
+                "video_create", "ffmpeg_export", "record_frames", "create_motion_video",
+                "html_anime_generate", "workspace", "auto_goal_decomposer", "parallel_executor",
+                "self_improver", "system_info",
+            })
+            allowed_for_agentic = {
+                t for t in (self._builtin_turn_tool_whitelist(goal_text, None, history=request.history) or ())
+                if t not in _LEGACY_DUPES
+            }
             allowed_for_agentic.update({
                 "workspace_list_dir",
                 "workspace_read_file",
@@ -7265,7 +7319,6 @@ class ConversationService:
             async def _on_agentic_event(evt_name: str, evt_payload: dict[str, Any]) -> None:
                 await ev_queue.put((evt_name, evt_payload))
 
-            recent_hist = self._turn_history(request)
             agentic_task = asyncio.create_task(
                 run_agentic_job(
                     goal=goal_text,

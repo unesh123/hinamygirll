@@ -427,3 +427,41 @@ async def test_long_motion_title_and_kinetic_song_prompt_never_502(tmp_path, mon
             if line.strip()
         ]
         assert "agent.step.started" not in [e.get("type") for e in ev_plain]
+
+    # Follow-up "now try again" resolves prior kinetic/MP4 goal from history & ignores stale refusal
+    req_retry = TurnRequest(
+        sessionId="sess-retry-1",
+        text="now try again",
+        providerMode="mock",
+        history=[
+            {"role": "user", "content": "Create a kinetic typography MP4 video synced to the song"},
+            {"role": "assistant", "content": "No render tool is available to me on this turn; I can't render or attach the MP4."},
+        ],
+    )
+    ev_retry = [
+        json.loads(line)
+        async for chunk in service.stream_turn(req_retry, "corr-retry-1", user_id="u1")
+        for line in chunk.decode("utf-8").splitlines()
+        if line.strip()
+    ]
+    assert "agent.step.started" in [e.get("type") for e in ev_retry]
+
+
+def test_format_agentic_markdown_handles_string_output_without_crashing() -> None:
+    from hinaa_api.agent.agentic_runner import AgenticRunResult
+    from hinaa_api.agent.live_agentic_service import format_agentic_markdown
+
+    res = AgenticRunResult(
+        run_id="run-fmt-1",
+        status="completed",
+        summary="Rendered clip cleanly.",
+        artifacts=[
+            {
+                "kind": "video",
+                "download_url": "/v1/creative/assets/asset-xyz/download",
+                "output": "neon.mp4",
+            }
+        ],
+    )
+    md = format_agentic_markdown(res)
+    assert "/v1/creative/assets/asset-xyz/download" in md
