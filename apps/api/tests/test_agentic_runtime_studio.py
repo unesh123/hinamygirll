@@ -384,3 +384,46 @@ async def test_agentic_runner_xml_raw_tool_and_truncated_json_retry(tmp_path) ->
     assert res.files_changed == ["exports/raw_scene.html"]
     assert '"Raw quotes"' in (tmp_path / "exports" / "raw_scene.html").read_text(encoding="utf-8")
     assert calls == 3
+
+
+@pytest.mark.asyncio
+async def test_long_motion_title_and_kinetic_song_prompt_never_502(tmp_path, monkeypatch) -> None:
+    from hinaa_api.tools.motion_video_tool import MotionVideoParams
+
+    # Long >120 char multi-line titles must clamp cleanly instead of raising HTTP 502 ValidationError
+    mv = MotionVideoParams(
+        title="There are my conversations with Hina.\n" + ("X" * 260),
+        scenes=[{"title": "Intro", "subtitle": "Kinetic", "duration": 2.0, "layout": "orbit"}],
+    )
+    assert len(mv.title) <= 120
+    assert mv.title.startswith("There are my conversations")
+
+    monkeypatch.setenv("HINAA_AGENTIC_RUNS_DIR", str(tmp_path / "runs"))
+    monkeypatch.setenv("HINAA_LOCAL_WORKSPACE_DIR", str(tmp_path))
+    monkeypatch.setattr("hinaa_api.agent.live_agentic_service._STORE_SINGLETON", None)
+    service = ConversationService(Settings(_env_file=None, provider_mode="mock"))
+
+    # Long kinetic-typography prompt containing "song" must auto-route to agentic loop (not blocked by song guard)
+    long_prompt = (
+        "There are my conversations with Hina. " + ("Context line. " * 12) +
+        "Now create a kinetic typography MP4 video tightly synced to the song with layered motion and glow."
+    )
+    req_kin = TurnRequest(sessionId="sess-kin-1", text=long_prompt, providerMode="mock")
+    ev_kin = [
+        json.loads(line)
+        async for chunk in service.stream_turn(req_kin, "corr-kin-1", user_id="u1")
+        for line in chunk.decode("utf-8").splitlines()
+        if line.strip()
+    ]
+    assert "agent.step.started" in [e.get("type") for e in ev_kin]
+
+    # Capability inquiry and pure song playback stay off the auto-agentic loop
+    for non_ag_prompt in ("What kind of videos can you make?", "Play a chill song on spotify"):
+        req_plain = TurnRequest(sessionId="sess-plain-1", text=non_ag_prompt, providerMode="mock")
+        ev_plain = [
+            json.loads(line)
+            async for chunk in service.stream_turn(req_plain, "corr-plain-1", user_id="u1")
+            for line in chunk.decode("utf-8").splitlines()
+            if line.strip()
+        ]
+        assert "agent.step.started" not in [e.get("type") for e in ev_plain]

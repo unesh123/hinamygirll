@@ -296,6 +296,7 @@ async def run_agentic_job(
     workspace_root: str | None = None,
     host_header: str | None = "127.0.0.1:8000",
     max_steps: int = 8,
+    history: list[tuple[str, str]] | None = None,
     on_event: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
     run_id: str | None = None,
     store: AgenticRunStore | None = None,
@@ -322,8 +323,20 @@ async def run_agentic_job(
         host_header=host_header,
     )
     try:
+        effective_goal = goal
+        if history:
+            recent = [
+                f"{r}: {str(c)[:600]}"
+                for r, c in history[-4:]
+                if str(c).strip()
+            ]
+            if recent:
+                effective_goal = (
+                    f"{goal}\n\n[Recent conversation context (reference only)]:\n"
+                    + "\n".join(recent)
+                )
         result = await runner.run(
-            goal=goal,
+            goal=effective_goal,
             planner=planner,
             allowed_tools=permitted,
             approved_hashes=approved,

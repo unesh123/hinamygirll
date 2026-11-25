@@ -1,6 +1,6 @@
 """Local editable motion graphics exposed through Hina's creative job lifecycle."""
 import asyncio
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from ..creative.motion import MotionScene
 from ..creative.models import CreativeJobSpec, CreativeOperation, JobState
 from ..creative.jobs.service import creative_service
@@ -11,6 +11,14 @@ class MotionVideoParams(BaseModel):
     title: str = Field(default="Motion video", max_length=120)
     scenes: list[MotionScene] = Field(min_length=1, max_length=8)
     userId: str = "default_user"
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def _clamp_title(cls, value: object) -> str:
+        raw = str(value or "").strip().splitlines()[0].strip() if value else ""
+        if not raw:
+            return "Motion video"
+        return raw[:120].strip() or "Motion video"
 
 
 async def create_motion_video_handler(params: MotionVideoParams):

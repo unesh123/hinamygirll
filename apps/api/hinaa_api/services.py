@@ -5807,7 +5807,8 @@ class ConversationService:
             ) and not any(t.toolName == "create_motion_video" for t in result.value.toolRequests):
                 from .tools.intent_gate import sanction_tools
                 sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
-                motion_title = sanction.parameters.get("create_motion_video", {}).get("title", request.text)
+                raw_motion_title = str(sanction.parameters.get("create_motion_video", {}).get("title", request.text) or "").strip()
+                motion_title = (raw_motion_title.splitlines()[0].strip()[:115] if raw_motion_title else "") or "Motion video"
                 default_scenes = [
                     {"title": motion_title[:80], "subtitle": "Local Code-Driven Motion", "duration": 4.0, "layout": "orbit", "accent": "#9f8cff"},
                     {"title": "Core Architecture", "subtitle": "Deterministic Render", "duration": 4.0, "layout": "bars", "accent": "#5eead4"},
@@ -7036,7 +7037,8 @@ class ConversationService:
             ) and not any(t.toolName == "create_motion_video" for t in result.value.toolRequests):
                 from .tools.intent_gate import sanction_tools
                 sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
-                motion_title = sanction.parameters.get("create_motion_video", {}).get("title", request.text)
+                raw_motion_title = str(sanction.parameters.get("create_motion_video", {}).get("title", request.text) or "").strip()
+                motion_title = (raw_motion_title.splitlines()[0].strip()[:115] if raw_motion_title else "") or "Motion video"
                 default_scenes = [
                     {"title": motion_title[:80], "subtitle": "Local Code-Driven Motion", "duration": 4.0, "layout": "orbit", "accent": "#9f8cff"},
                     {"title": "Core Architecture", "subtitle": "Deterministic Render", "duration": 4.0, "layout": "bars", "accent": "#5eead4"},
@@ -7204,19 +7206,27 @@ class ConversationService:
         _text_clean = (request.text or "").strip()
         _AUTO_AGENTIC_RE = re.compile(
             r"(?i)(?:^/(?:code|agent)\b|\b(?:workspace|repository|repo\b|codebase|pytest|vitest|py_compile|"
-            r"tsc\b|playwright|ffmpeg|render_code_animation|full[- ]?page\s+html|html\s+(?:file|page|app|site|landing)|"
-            r"(?:create|write|build|make|scaffold|generate|edit|fix|debug|refactor)\s+(?:a|an|the|full[- ]?page)?\s*"
-            r"(?:html|python|script|app|file|module|component|project|site|landing\s+page|game|dashboard|mp4|video|animation)|"
+            r"tsc\b|playwright|ffmpeg|render_code_animation|kinetic[\s-]+typography|motion\s+(?:video|graphics|reel)|"
+            r"full[- ]?page\s+html|html\s+(?:file|page|app|site|landing)|"
+            r"(?:create|write|build|make|scaffold|generate|edit|fix|debug|refactor|render|export)\s+(?:a|an|the|this|my|full[- ]?page)?\s*"
+            r"(?:[a-z0-9_-]+\s+){0,4}(?:html|python|script|app|file|module|component|project|site|landing\s+page|game|dashboard|mp4|video|reel|animation)|"
             r"run\s+(?:the\s+)?(?:tests?|pytest|build|linter|typecheck|command))\b)"
         )
+        _CAPABILITY_Q_RE = re.compile(r"(?i)^\s*(?:what\s+kind\s+of|can\s+you|are\s+you\s+able\s+to|do\s+you\s+support)\b")
         _NON_AGENTIC_GUARD_RE = re.compile(
-            r"(?i)(?:^/(?:image|search|pdf|walk|roam)\b|\b(?:song|music|spotify|youtube|lofi|remind\s+me)\b)"
+            r"(?i)(?:^/(?:image|search|pdf|walk|roam)\b|\b(?:play|listen\s+to|put\s+on)\s+(?:a|the|my|some)?\s*(?:song|music|track)\b|\b(?:spotify|youtube)\s+play\b|\bremind\s+me\b)"
         )
         _has_visual_attachment = bool(
             getattr(request, "imageUrl", None)
-            or getattr(request, "attachment_ids", None)
-            or getattr(request, "attachments", None)
             or getattr(request, "reference_images", None)
+            or any(
+                isinstance(att, dict)
+                and (
+                    att.get("kind") == "image"
+                    or str(att.get("mime_type") or att.get("mimeType") or "").startswith("image/")
+                )
+                for att in (getattr(request, "attachments", None) or ())
+            )
         )
         _use_agentic = (
             _req_agentic is True
@@ -7224,6 +7234,7 @@ class ConversationService:
                 _req_agentic is None
                 and not _has_visual_attachment
                 and bool(_AUTO_AGENTIC_RE.search(_text_clean))
+                and not bool(_CAPABILITY_Q_RE.search(_text_clean))
                 and not bool(_NON_AGENTIC_GUARD_RE.search(_text_clean))
             )
         )
@@ -7254,6 +7265,7 @@ class ConversationService:
             async def _on_agentic_event(evt_name: str, evt_payload: dict[str, Any]) -> None:
                 await ev_queue.put((evt_name, evt_payload))
 
+            recent_hist = self._turn_history(request)
             agentic_task = asyncio.create_task(
                 run_agentic_job(
                     goal=goal_text,
@@ -7264,6 +7276,7 @@ class ConversationService:
                     user_id=user_id or "default_user",
                     allowed_tools=allowed_for_agentic,
                     workspace_root=ws_dir,
+                    history=recent_hist,
                     run_id=correlation_id,
                     on_event=_on_agentic_event,
                 )

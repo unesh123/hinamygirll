@@ -219,7 +219,8 @@ _VIDEO_CREATE_ASK = re.compile(
 )
 _CODE_ANIMATION_ASK = re.compile(
     r"""(?ix) \b (?: build | create | design | make | generate | render | export ) \b [^.?!]*
-        (?: \b via\s+playwright\b | \b playwright\b[^.?!]*\bffmpeg\b | \bkinetic[\s-]+typography\b[^.?!]*\b(?:mp4|video|animation|preview)\b |
+        (?: \b via\s+playwright\b | \b playwright\b[^.?!]*\bffmpeg\b |
+            \bkinetic[\s-]+typography\b[^.?!]*(?:\b(?:mp4|video|animation|preview|reel|song)\b|$) |
             \b (?: in\s+code | by\s+code | html\s+animation | canvas\s+animation ) \b[^.?!]*\b(?:mp4|video|render)\b |
             \b render\s+(?: a\s+|an\s+ )?(?:\d+\s*(?:s|sec|second|seconds)\s+)?mp4\b )"""
 )
@@ -983,7 +984,8 @@ def _sanction_single(
 
     if _MOTION_VIDEO.search(lowered) and not META_FRAMING.search(lowered):
         sanction.allowed.add("create_motion_video")
-        sanction.parameters["create_motion_video"] = {"title": raw}
+        first_line = raw.strip().splitlines()[0].strip() if raw.strip() else "Motion video"
+        sanction.parameters["create_motion_video"] = {"title": first_line[:110].strip() or "Motion video"}
         return sanction
 
     if _FILE_LIST_ASK.search(lowered) and not META_FRAMING.search(lowered):
