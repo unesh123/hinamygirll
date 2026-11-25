@@ -3086,6 +3086,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     else "TINYFISH_API_KEY is not configured; paste it into apps/api/.env.local."
                 ),
             ),
+            ProviderStatus(
+                id="mlai-code",
+                capabilities=["routines", "cloud-automations", "list-routines", "run-routine"],
+                state="healthy" if active_settings.mlai_code_configured else "unavailable",
+                userMessage=(
+                    "ML AI Code (code.ml.ai) cloud coding routines connector is configured server-side."
+                    if active_settings.mlai_code_configured
+                    else "MLAI_CODE_API_KEY is not configured; add it to apps/api/.env.local."
+                ),
+            ),
         ]
 
         # Configuration proves a credential exists, not that it is accepted. The
@@ -3455,19 +3465,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/v1/image-studio/config")
     @app.get("/api/v1/image-studio/config")
     async def get_image_studio_config() -> dict:
+        settings_img_key = (
+            active_settings.openai_image_api_key.get_secret_value()
+            if getattr(active_settings, "openai_image_api_key", None)
+            else None
+        )
         return {
             "openaiImageApiKeyConfigured": bool(
                 os.getenv("OPENAI_IMAGE_API_KEY")
                 or os.getenv("IMAGE_PROXY_API_KEY")
+                or settings_img_key
             ),
             "openaiImageBaseUrl": (
                 os.getenv("OPENAI_IMAGE_BASE_URL")
                 or os.getenv("IMAGE_PROXY_BASE_URL")
+                or getattr(active_settings, "openai_image_base_url", None)
                 or "https://api.openai.com/v1"
             ),
             "openaiImageModel": (
                 os.getenv("OPENAI_IMAGE_MODEL")
                 or os.getenv("IMAGE_MODEL")
+                or getattr(active_settings, "openai_image_model", None)
                 or "gemini-3.1-flash-image"
             ),
             "stabilityApiKeyConfigured": bool(os.getenv("STABILITY_API_KEY")),
@@ -3504,7 +3522,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 os.environ["MAGNIFIC_API_KEY"] = val
                 updates["MAGNIFIC_API_KEY"] = val
 
-        if updates:
+        if updates and not os.getenv("PYTEST_CURRENT_TEST"):
             env_path = Path(__file__).resolve().parent.parent / ".env.local"
             lines = []
             if env_path.exists():

@@ -31,7 +31,7 @@ const PROVIDER_LABELS: Record<ProviderMode, { label: string; description: string
   pgsgrove:       { label: "PGSGrove AI",   description: "api.pgsgrove.com — high-speed GLM-5.3 & DeepSeek V4.1 Flash." },
   seekai:         { label: "SeekAI",        description: "seekai.cc — DeepSeek & Claude multi-model gateway." },
   tokentable:     { label: "TokenTable",    description: "tokentable.asia — Claude Fable 5, GPT-6, Opus 5." },
-  xkiro:          { label: "XKiro AI",      description: "api.xkiro.com — fast free Qwen 3.8 Max, Qwen 3.7 Flash." },
+  xkiro:          { label: "XKiro AI",      description: "api.xkiro.com — GPT-6.2/6.1/5.6, Grok 4.7, Mistral Large 4, Nemotron, Command-A & Image Gen." },
   cavoti:         { label: "Cavoti AI",     description: "cavoti.com — frontier Claude Fable 5, Opus 5, Haiku 4.5." },
   apmix:          { label: "APMIX.AI",      description: "api.apmix.ai — fast free DeepSeek V4 Flash & frontier models." },
   oxion:          { label: "Oxion AI",      description: "oxionai.com — 33+ frontier models (Claude Fable 5.1, Grok 4.6, Opus 5.5)." },

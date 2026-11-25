@@ -33,6 +33,8 @@ from . import ide_workflow
 from . import whatsapp
 from . import exa_tool
 from . import coding_agent_tool
+from . import workspace_coding_tools
+from . import mlai_code_tools
 from . import treg_gateway
 from . import ugc_trend_extractor
 from . import html_anime

@@ -63,6 +63,7 @@ LOCAL_EFFECT_TOOLS: frozenset[str] = frozenset(
         "system_info",
         "build_with_ide",
         "coding_agent",
+        "workspace_edit_file",
         "subagent_fork",
         "swarm_orchestrate",
         "clean_room_loop",
@@ -108,6 +109,7 @@ IRREVERSIBLE_EXTERNAL_TOOLS: frozenset[str] = frozenset(
         "phone_call_user",
         "whatsapp_send",
         "social_publish",
+        "mlai_run_routine",
         "prodcamp_create_feature",
         "prodcamp_submit_feedback",
     }

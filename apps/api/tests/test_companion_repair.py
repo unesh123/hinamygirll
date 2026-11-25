@@ -293,7 +293,13 @@ async def test_reference_generation_uses_kontext_task_contract(monkeypatch, tmp_
     assert seen[1][1].endswith("/reference-1")
 
 
-def test_image_studio_config_endpoints(client):
+def test_image_studio_config_endpoints(client, monkeypatch):
+    import os
+    for key in ("OPENAI_IMAGE_API_KEY", "OPENAI_IMAGE_BASE_URL", "OPENAI_IMAGE_MODEL", "STABILITY_API_KEY", "MAGNIFIC_API_KEY"):
+        if key in os.environ:
+            monkeypatch.setenv(key, os.environ[key])
+        else:
+            monkeypatch.delenv(key, raising=False)
     res = client.get("/v1/image-studio/config")
     assert res.status_code == 200
     data = res.json()

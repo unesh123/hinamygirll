@@ -37,6 +37,15 @@ for _ambient_var in (
     "HINAA_CLAUDE_MODEL",
     "HINAA_CLAUDE_ALLOWED_MODELS",
     "HINAA_CLAUDE_PROTOCOL",
+    "COARENA_MODEL",
+    "COARENA_ALLOWED_MODELS",
+    "COARENA_BASE_URL",
+    "XKIRO_MODEL",
+    "XKIRO_ALLOWED_MODELS",
+    "GEMINI_ALLOWED_MODELS",
+    "HINAA_VISIBLE_PROVIDERS",
+    "MLAI_CODE_API_KEY",
+    "MLAI_CODE_BASE_URL",
 ):
     os.environ.pop(_ambient_var, None)
 

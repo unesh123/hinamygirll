@@ -99,10 +99,10 @@ def _llm_budget_tokens(prompt: Any = None) -> int:
 
     depth = getattr(prompt, "response_depth", None)
 
-    # Minimal / safety redirects keep a safe token limit with headroom
-    # for reasoning models to formulate a concise response.
+    # Minimal / safety redirects keep enough headroom for reasoning models
+    # (<think> + final reply) without truncating mid-thought.
     if depth in {"minimal", "clarification", "safety_redirect"}:
-        return min(default_budget, 1024)
+        return min(default_budget, 4096)
     # Conversational & supportive turns require full expressive capacity so
     # reasoning models and thorough answers never break or truncate mid-sentence.
     if depth in {"conversational", "supportive"}:
@@ -330,6 +330,21 @@ _GATEWAY_PROVIDERS = {
     "articul8",
     "experiential",
 }
+
+
+_TRANSIENT_STREAM_MARKERS = (
+    "overloaded",
+    "retry in",
+    "temporarily",
+    "try again",
+    "rate limit",
+    "busy",
+)
+
+
+def _is_transient_stream_error(message: str) -> bool:
+    lowered = message.lower()
+    return any(marker in lowered for marker in _TRANSIENT_STREAM_MARKERS)
 
 
 class OpenAILLMProvider:
@@ -579,7 +594,9 @@ class OpenAILLMProvider:
             timing.mark("text_complete")
             answer = outcome.text.strip()
             if not answer:
-                thinking_val = getattr(outcome, "thinking", None)
+                thinking_val = getattr(outcome, "thinking", None) or (
+                    first_decoder.thinking if first_decoder else None
+                )
                 if thinking_val and str(thinking_val).strip():
                     answer = str(thinking_val).strip()
                 else:
@@ -769,77 +786,109 @@ class OpenAILLMProvider:
                 streamed_any = False
                 stream_failed_early = False
                 key_failed_early = False
-                try:
-                    async with _pooled_client() as client:
-                        async with client.stream(
-                            "POST",
-                            self._chat_url(),
-                            headers=self._headers(),
-                            json=payload,
-                        ) as response:
-                            if response.status_code in {401, 403, 429} and key_idx < num_keys - 1:
-                                self._rotate_key()
-                                key_failed_early = True
-                            elif (response.status_code >= 400 or response.status_code in {429, 503}) and len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
-                                stream_failed_early = True
-                            else:
-                                self._raise_for_status(response)
-                                in_thought = False
-                                async for line in response.aiter_lines():
-                                    if not line.startswith("data:"):
-                                        continue
-                                    event = line.removeprefix("data:").strip()
-                                    if event == "[DONE]":
+                for transient_attempt in range(3):
+                    retry_transient_same_model = False
+                    try:
+                        async with _pooled_client() as client:
+                            async with client.stream(
+                                "POST",
+                                self._chat_url(),
+                                headers=self._headers(),
+                                json=payload,
+                            ) as response:
+                                if response.status_code in {401, 403, 429} and key_idx < num_keys - 1:
+                                    self._rotate_key()
+                                    key_failed_early = True
+                                elif (response.status_code >= 400 or response.status_code in {429, 503}) and len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
+                                    stream_failed_early = True
+                                else:
+                                    self._raise_for_status(response)
+                                    in_thought = False
+                                    async for line in response.aiter_lines():
+                                        if not line.startswith("data:"):
+                                            continue
+                                        event = line.removeprefix("data:").strip()
+                                        if event == "[DONE]":
+                                            if finish_reason_holder is not None and not finish_reason_holder.get("value"):
+                                                finish_reason_holder["value"] = "stop"
+                                            break
+                                        try:
+                                            data = json.loads(event)
+                                        except json.JSONDecodeError:
+                                            continue
+                                        if isinstance(data, dict) and "error" in data:
+                                            if len(models_to_try) > 1 and candidate_model != models_to_try[-1] and not streamed_any:
+                                                stream_failed_early = True
+                                                break
+                                            err_obj = data["error"]
+                                            err_msg = err_obj.get("message", "Upstream stream error") if isinstance(err_obj, dict) else str(err_obj)
+                                            if not streamed_any and _is_transient_stream_error(err_msg) and transient_attempt < 2:
+                                                retry_transient_same_model = True
+                                                break
+                                            if _is_transient_stream_error(err_msg):
+                                                if "rate limit" in err_msg.lower():
+                                                    raise HinaaError("PROVIDER_RATE_LIMIT", err_msg, 429, True)
+                                                raise HinaaError("PROVIDER_TEMPORARY_MAINTENANCE", err_msg, 503, True)
+                                            raise HinaaError("PROVIDER_UNAVAILABLE", err_msg, 502, True)
+                                        choices = data.get("choices") or []
+                                        if not choices:
+                                            continue
+                                        if finish_reason_holder is not None:
+                                            raw_fr = choices[0].get("finish_reason")
+                                            if raw_fr:
+                                                finish_reason_holder["value"] = str(raw_fr)
+                                        delta_dict = choices[0].get("delta") or {}
+                                        content_chunk = delta_dict.get("content")
+                                        reasoning_chunk = delta_dict.get("reasoning_content") or delta_dict.get("reasoning")
+                                        if isinstance(reasoning_chunk, str) and reasoning_chunk:
+                                            streamed_any = True
+                                            if not in_thought:
+                                                in_thought = True
+                                                yield "<think>"
+                                            yield reasoning_chunk
+                                        if isinstance(content_chunk, str) and content_chunk:
+                                            streamed_any = True
+                                            if in_thought:
+                                                in_thought = False
+                                                yield "</think>\n\n"
+                                            yield content_chunk
+                                    if retry_transient_same_model:
+                                        pass
+                                    elif not streamed_any and len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
+                                        stream_failed_early = True
+                                    elif streamed_any:
                                         if finish_reason_holder is not None and not finish_reason_holder.get("value"):
                                             finish_reason_holder["value"] = "stop"
-                                        break
-                                    try:
-                                        data = json.loads(event)
-                                    except json.JSONDecodeError:
-                                        continue
-                                    if isinstance(data, dict) and "error" in data:
-                                        if len(models_to_try) > 1 and candidate_model != models_to_try[-1] and not streamed_any:
-                                            stream_failed_early = True
-                                            break
-                                        err_msg = data["error"].get("message", "Upstream stream error")
-                                        raise HinaaError("PROVIDER_UNAVAILABLE", err_msg, 502, True)
-                                    choices = data.get("choices") or []
-                                    if not choices:
-                                        continue
-                                    if finish_reason_holder is not None:
-                                        raw_fr = choices[0].get("finish_reason")
-                                        if raw_fr:
-                                            finish_reason_holder["value"] = str(raw_fr)
-                                    delta_dict = choices[0].get("delta") or {}
-                                    content_chunk = delta_dict.get("content")
-                                    reasoning_chunk = delta_dict.get("reasoning_content") or delta_dict.get("reasoning")
-                                    if isinstance(reasoning_chunk, str) and reasoning_chunk:
-                                        streamed_any = True
-                                        if not in_thought:
-                                            in_thought = True
-                                            yield "<think>"
-                                        yield reasoning_chunk
-                                    if isinstance(content_chunk, str) and content_chunk:
-                                        streamed_any = True
                                         if in_thought:
-                                            in_thought = False
                                             yield "</think>\n\n"
-                                        yield content_chunk
-                                if not streamed_any and len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
-                                    stream_failed_early = True
-                                elif streamed_any:
-                                    if finish_reason_holder is not None and not finish_reason_holder.get("value"):
-                                        finish_reason_holder["value"] = "stop"
-                                    if in_thought:
-                                        yield "</think>\n\n"
-                                    return
-                except Exception:
-                    if key_failed_early:
+                                        return
+                    except HinaaError as err:
+                        if (
+                            not streamed_any
+                            and transient_attempt < 2
+                            and err.code in {"PROVIDER_TEMPORARY_MAINTENANCE", "PROVIDER_RATE_LIMIT"}
+                            and self._provider_id in _GATEWAY_PROVIDERS
+                        ):
+                            retry_transient_same_model = True
+                        elif key_failed_early:
+                            break
+                        elif len(models_to_try) > 1 and candidate_model != models_to_try[-1] and not streamed_any:
+                            stream_failed_early = True
+                            break
+                        else:
+                            raise
+                    except Exception:
+                        if key_failed_early:
+                            break
+                        if len(models_to_try) > 1 and candidate_model != models_to_try[-1] and not streamed_any:
+                            stream_failed_early = True
+                            break
+                        else:
+                            raise
+                    if retry_transient_same_model:
+                        await asyncio.sleep(1.2 * (transient_attempt + 1))
                         continue
-                    if len(models_to_try) > 1 and candidate_model != models_to_try[-1] and not streamed_any:
-                        stream_failed_early = True
-                    else:
-                        raise
+                    break
                 if key_failed_early:
                     continue
                 if stream_failed_early:
@@ -929,7 +978,7 @@ class OpenAILLMProvider:
             )
         if response.status_code == 503 and any(
             marker in provider_text
-            for marker in ("service_upgrading", "upgraded right now", "maintenance", "temporarily unavailable")
+            for marker in ("service_upgrading", "upgraded right now", "maintenance", "temporarily unavailable", "overloaded")
         ):
             msg = f"{self._provider_label()} is temporarily undergoing service maintenance or upgrade. Please retry shortly."
             self._circuit_breaker.record_failure("PROVIDER_TEMPORARY_MAINTENANCE", msg)

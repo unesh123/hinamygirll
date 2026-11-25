@@ -531,6 +531,15 @@ class Settings(BaseSettings):
         "deepseek/deepseek-v4.1-flash",
         validation_alias=AliasChoices("CANTRUST_ALLOWED_MODELS", "CANTRUSTAI_ALLOWED_MODELS"),
     )
+    # ML AI Code (https://code.ml.ai) — cloud coding automations / routines API
+    mlai_code_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("MLAI_CODE_API_KEY", "MLAI_API_KEY"),
+    )
+    mlai_code_base_url: str = Field(
+        "https://code.ml.ai",
+        validation_alias=AliasChoices("MLAI_CODE_BASE_URL", "MLAI_BASE_URL"),
+    )
     # Articul8 / Bivia ("Ben") Multi-Modal Decision Engine
     articul8_api_key: SecretStr | None = Field(
         None,
@@ -2057,6 +2066,20 @@ class Settings(BaseSettings):
             allowed = ", ".join(self.cantrust_allowed_models)
             raise ValueError(f"CanTrustAI model is not in CANTRUST_ALLOWED_MODELS: {allowed}")
         return model
+
+    @property
+    def active_mlai_code_key(self) -> SecretStr | None:
+        if self.mlai_code_api_key and self.mlai_code_api_key.get_secret_value().strip():
+            return self.mlai_code_api_key
+        return None
+
+    @property
+    def active_mlai_code_base_url(self) -> str:
+        return (self.mlai_code_base_url or "https://code.ml.ai").strip().rstrip("/") or "https://code.ml.ai"
+
+    @property
+    def mlai_code_configured(self) -> bool:
+        return self.active_mlai_code_key is not None and bool(self.active_mlai_code_base_url)
 
     @property
     def articul8_configured(self) -> bool:

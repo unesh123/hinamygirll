@@ -5304,7 +5304,7 @@ class ConversationService:
         # must not be paid another full timeout of silence on every turn, and
         # a brain past cooloff proves recovery on a cheap probe budget.
         primary_bench_cooloff = self._primary_cooloff_remaining(request.providerMode)
-        if not primary_bench_cooloff and self._primary_probing(request.providerMode) and request.providerMode not in ("ollama", "cantrustai", "cantrust", "claude"):
+        if not primary_bench_cooloff and self._primary_probing(request.providerMode) and request.providerMode not in ("ollama", "cantrustai", "cantrust", "claude", "xkiro", "coarena"):
             primary_plan_timeout = min(primary_plan_timeout, 12.0)
         attempted_brain = request.providerMode
         fast_provider_id = None
@@ -6265,7 +6265,7 @@ class ConversationService:
         # turn goes straight to the fallback chain. A brain past cooloff but
         # not yet proven healthy gets a cheap probe budget for the same reason.
         primary_bench_cooloff = self._primary_cooloff_remaining(request.providerMode)
-        if not primary_bench_cooloff and self._primary_probing(request.providerMode) and request.providerMode not in ("ollama", "cantrustai", "cantrust", "claude"):
+        if not primary_bench_cooloff and self._primary_probing(request.providerMode) and request.providerMode not in ("ollama", "cantrustai", "cantrust", "claude", "xkiro", "coarena"):
             primary_idle_timeout = min(primary_idle_timeout, 12.0)
             primary_live_timeout = min(primary_live_timeout, 45.0)
         primary_text: list[str] = []
