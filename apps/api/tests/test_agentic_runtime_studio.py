@@ -516,3 +516,192 @@ def test_build_compact_tool_prompt_marks_final_render_ready() -> None:
         6,
     )
     assert "Verified Asset Ready: /v1/creative/assets/a2/download" in final_prompt
+
+
+@pytest.mark.asyncio
+async def test_services_routes_bug_inspection_and_webpage_builds_into_agentic(monkeypatch, tmp_path) -> None:
+    from hinaa_api.config import get_settings
+    from hinaa_api.models import TurnRequest
+    from hinaa_api.services import ConversationService
+
+    monkeypatch.setenv("HINAA_AGENTIC_RUNS_DIR", str(tmp_path / "runs"))
+    import hinaa_api.agent.live_agentic_service as las
+    las._STORE_SINGLETON = None
+    service = ConversationService(get_settings())
+
+    for prompt in (
+        "Inspect why CreativeAssetManager loses metadata on restart and explain the line numbers cleanly.",
+        "Build me a high-level interactive 3D solar system webpage with live orbits and controls, then verify it renders cleanly.",
+        "Create a 6-second 1080p (1920x1080) kinetic motion-graphics MP4 reel using StudioFX showcasing BUILD BEYOND.",
+    ):
+        req = TurnRequest(sessionId="sess-auto-route", text=prompt, providerMode="mock")
+        events = [
+            json.loads(line)
+            async for chunk in service.stream_turn(req, f"corr-{hash(prompt) & 0xffff}", user_id="u1")
+            for line in chunk.decode("utf-8").splitlines()
+            if line.strip()
+        ]
+        types = [e.get("type") for e in events]
+        assert "agentic.started" in types, f"Expected agentic execution for {prompt!r}, got {types}"
+        plan_ev = next(e for e in events if e.get("type") == "plan")
+        assert plan_ev.get("provider") != "deterministic-intent"
+
+
+@pytest.mark.asyncio
+async def test_agentic_runner_parallel_batch_and_subagent_and_vision(tmp_path) -> None:
+    from PIL import Image
+    from hinaa_api.agent.agentic_runner import AgenticLoopRunner
+
+    (tmp_path / "alpha.txt").write_text("alpha-data\n", encoding="utf-8")
+    (tmp_path / "beta.txt").write_text("beta-data\n", encoding="utf-8")
+    preview_file = tmp_path / "shot.jpg"
+    Image.new("RGB", (64, 64), (20, 120, 240)).save(preview_file, format="JPEG")
+
+    from hinaa_api.tools.registry import RiskTier, ToolDefinition, ToolEffect, registry
+
+    if registry.get("_test_vision_emit") is None:
+        async def _emit_vis(_args):
+            return {"status": "success", "_vision_preview_path": str(preview_file)}
+
+        registry.register(
+            ToolDefinition(
+                name="_test_vision_emit",
+                display_name="Test Vision Emit",
+                description="Emit synthetic preview path.",
+                parameters={},
+                required_parameters=[],
+                is_read_only=True,
+                is_concurrency_safe=True,
+                requires_confirmation=False,
+                risk_tier=RiskTier.TIER_0_READ_ONLY,
+                effect=ToolEffect.READ,
+            ),
+            _emit_vis,
+        )
+
+    runner = AgenticLoopRunner(max_steps=5, workspace_root=str(tmp_path))
+    seen_images: list[int] = []
+
+    async def _planner(transcript, step_num: int, images=None) -> str:
+        if images:
+            seen_images.append(len(images))
+        # Handle isolated subagent child call cleanly
+        if transcript and "[Subagent Role:" in str(transcript[0].get("content", "")):
+            if step_num == 1:
+                return json.dumps({
+                    "action": "call_tool",
+                    "tool": "workspace_glob",
+                    "arguments": {"pattern": "*.txt"},
+                })
+            return json.dumps({"action": "final", "summary": "Subagent found alpha.txt and beta.txt"})
+
+        if step_num == 1:
+            # Parallel XML read batch + subagent + vision producer
+            return (
+                '<tool name="workspace_read_file" file_path="alpha.txt" start_line="1" end_line="5"></tool>\n'
+                '<tool name="workspace_read_file" file_path="beta.txt" start_line="1" end_line="5"></tool>\n'
+                '<tool name="_test_vision_emit"></tool>'
+            )
+        if step_num == 2:
+            return json.dumps({
+                "action": "call_tool",
+                "tool": "workspace_spawn_subagent",
+                "arguments": {"role": "File Checker", "task": "List txt files"},
+            })
+        return json.dumps({"action": "final", "summary": "Parallel + vision + subagent succeeded"})
+
+    try:
+        res = await runner.run(
+            goal="Inspect files cleanly",
+            planner=_planner,
+            allowed_tools={"workspace_read_file", "workspace_glob", "workspace_spawn_subagent", "_test_vision_emit"},
+        )
+        assert res.status == "completed"
+        assert seen_images == [1]
+        assert not preview_file.exists()  # temp preview cleaned up after reading bytes
+        assert len(res.steps) == 4
+        assert res.steps[3].tool == "workspace_spawn_subagent"
+        assert res.steps[3].observation["summary"] == "Subagent found alpha.txt and beta.txt"
+    finally:
+        registry._tools.pop("_test_vision_emit", None)
+        registry._handlers.pop("_test_vision_emit", None)
+
+
+@pytest.mark.asyncio
+async def test_workspace_background_process_and_loopback_verify(tmp_path) -> None:
+    import socket
+    from hinaa_api.tools.code_animation_tool import WorkspaceVerifyUrlParams, workspace_verify_url_handler
+    from hinaa_api.tools.workspace_coding_tools import (
+        WorkspaceProcessLogsParams,
+        WorkspaceStartProcessParams,
+        WorkspaceStopProcessParams,
+        workspace_process_logs_handler,
+        workspace_start_process_handler,
+        workspace_stop_process_handler,
+    )
+
+    (tmp_path / "index.html").write_text(
+        "<!DOCTYPE html><html><body style='background:#0b1120;color:#fff'><h1>Live Local App</h1></body></html>",
+        encoding="utf-8",
+    )
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    free_port = sock.getsockname()[1]
+    sock.close()
+
+    started = await workspace_start_process_handler(
+        WorkspaceStartProcessParams(
+            command=f"python -m http.server {free_port} --bind 127.0.0.1",
+            ready_port=free_port,
+            ready_wait_ms=5000,
+            workspace_root=str(tmp_path),
+        )
+    )
+    assert started["status"] == "success"
+    assert started["listening"] is True
+    pid = started["processId"]
+    try:
+        # Reject non-loopback SSRF URLs cleanly
+        bad_url = await workspace_verify_url_handler(WorkspaceVerifyUrlParams(url="https://example.com/"))
+        assert bad_url["status"] == "error"
+        assert bad_url["code"] == "LOOPBACK_ONLY_BLOCKED"
+
+        logs = await workspace_process_logs_handler(WorkspaceProcessLogsParams(process_id=pid, tail=20))
+        assert logs["status"] == "success"
+        assert logs["running"] is True
+
+        try:
+            verified = await workspace_verify_url_handler(
+                WorkspaceVerifyUrlParams(url=f"http://127.0.0.1:{free_port}/index.html", wait_ms=300)
+            )
+            assert verified["status"] == "success"
+            assert verified["httpStatus"] == 200
+            assert verified["hasVisualRender"] is True
+        finally:
+            pass
+    finally:
+        stopped = await workspace_stop_process_handler(WorkspaceStopProcessParams(process_id=pid))
+        assert stopped["status"] == "success"
+        assert stopped["running"] is False
+
+
+def test_build_compact_tool_prompt_builds_scratchpad_digest_for_long_transcripts() -> None:
+    from hinaa_api.agent.live_agentic_service import build_compact_tool_prompt
+
+    transcript: list[dict] = [{"role": "user", "content": "Build big app"}]
+    for i in range(1, 14):
+        transcript.append({
+            "role": "tool_observation",
+            "step": i,
+            "tool": "workspace_read_file",
+            "observation": {
+                "status": "success",
+                "filePath": f"src/mod_{i}.py",
+                "startLine": 1,
+                "endLine": 120,
+                "content": "x" * 3500,
+            },
+        })
+    prompt = build_compact_tool_prompt({"workspace_read_file"}, transcript, 14, 16)
+    assert "[Rolling Workspace Scratchpad" in prompt
+    assert "read `src/mod_1.py` L1-120" in prompt

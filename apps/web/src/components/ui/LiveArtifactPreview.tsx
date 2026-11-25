@@ -10,9 +10,14 @@ export const LiveArtifactPreview = memo(function LiveArtifactPreview({
   language,
 }: LiveArtifactPreviewProps) {
   const [viewMode, setViewMode] = useState<"preview" | "code">("preview");
+  const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const isSvg = language === "svg" || code.trim().startsWith("<svg");
+  const isFullHtmlDoc = /^\s*(?:<!doctype\s+html\b|<html\b)/i.test(code);
+  const iframeSrcDoc = isFullHtmlDoc
+    ? code
+    : `<!DOCTYPE html><html><head><meta charset="utf-8"><script src="https://cdn.tailwindcss.com"></script><style>body { margin: 0; padding: 16px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; }</style></head><body>${code}</body></html>`;
 
   const handleCopy = async () => {
     try {
@@ -69,6 +74,14 @@ export const LiveArtifactPreview = memo(function LiveArtifactPreview({
 
           <button
             type="button"
+            onClick={() => setExpanded((prev) => !prev)}
+            className="flex items-center gap-1 rounded-lg bg-slate-900 px-2.5 py-1 text-xs font-medium text-slate-300 ring-1 ring-slate-800 transition hover:bg-slate-800 hover:text-slate-100"
+          >
+            <span>{expanded ? "Collapse" : "Expand"}</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => void handleCopy()}
             className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-2.5 py-1 text-xs font-medium text-slate-300 ring-1 ring-slate-800 transition hover:bg-slate-800 hover:text-slate-100"
           >
@@ -93,7 +106,7 @@ export const LiveArtifactPreview = memo(function LiveArtifactPreview({
       </div>
 
       {/* Main Body */}
-      <div className="relative min-h-[160px] bg-slate-950/40 p-4">
+      <div className={expanded ? "relative h-[78vh] bg-slate-950/40 p-2" : "relative min-h-[160px] bg-slate-950/40 p-4"}>
         {viewMode === "preview" ? (
           isSvg ? (
             <div
@@ -104,8 +117,8 @@ export const LiveArtifactPreview = memo(function LiveArtifactPreview({
             <iframe
               title="Artifact Sandbox"
               sandbox="allow-scripts"
-              srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8"><script src="https://cdn.tailwindcss.com"></script><style>body { margin: 0; padding: 16px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; }</style></head><body>${code}</body></html>`}
-              className="h-[360px] w-full rounded-lg border border-slate-800 bg-[#0f172a]"
+              srcDoc={iframeSrcDoc}
+              className={`${expanded ? "h-full" : isFullHtmlDoc ? "h-[520px]" : "h-[360px]"} w-full rounded-lg border border-slate-800 bg-[#0f172a]`}
             />
           )
         ) : (

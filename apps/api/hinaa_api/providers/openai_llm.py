@@ -398,6 +398,7 @@ class OpenAILLMProvider:
         system_prompt: str,
         user_prompt: str,
         max_tokens: int = 8192,
+        images: list[tuple[str, bytes]] | None = None,
     ) -> str:
         """Direct raw completion for bounded coding/studio agent loops without companion persona schema."""
         can_exec, reason, _ = self._circuit_breaker.can_execute()
@@ -407,25 +408,52 @@ class OpenAILLMProvider:
             raise HinaaError(code, reason or f"{self._provider_label()} is currently in cooldown.", status_code, True)
         started = perf_counter()
         use_max_tokens = self._provider_id in {"qwen", "agent-router", "codecraft"} | _GATEWAY_PROVIDERS
-        payload: dict[str, object] = {
-            "model": self._model_for_payload(),
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": self._effective_temperature(0.2),
-            ("max_tokens" if use_max_tokens else "max_completion_tokens"): max_tokens,
-        }
+
+        def _build_payload(include_images: bool) -> dict[str, object]:
+            if include_images and images:
+                import base64
+
+                user_content: Any = [{"type": "text", "text": user_prompt}]
+                for mime_type, raw_bytes in images[:4]:
+                    if raw_bytes:
+                        b64 = base64.b64encode(raw_bytes).decode("ascii")
+                        user_content.append({
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime_type or 'image/jpeg'};base64,{b64}"},
+                        })
+            else:
+                user_content = user_prompt
+            return {
+                "model": self._model_for_payload(),
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                "temperature": self._effective_temperature(0.2),
+                ("max_tokens" if use_max_tokens else "max_completion_tokens"): max_tokens,
+            }
+
         last_resp: httpx.Response | None = None
         num_keys = max(1, len(self._keys))
+        use_vision = bool(images)
         try:
             for key_idx in range(num_keys):
+                payload = _build_payload(use_vision)
                 async with _pooled_client() as client:
                     response = await client.post(
                         self._chat_url(),
                         headers=self._headers(),
                         json=payload,
                     )
+                if use_vision and response.status_code in {400, 415, 422}:
+                    # Text-only gateway rejected multimodal content blocks; fall back seamlessly.
+                    use_vision = False
+                    async with _pooled_client() as client:
+                        response = await client.post(
+                            self._chat_url(),
+                            headers=self._headers(),
+                            json=_build_payload(False),
+                        )
                 last_resp = response
                 if response.status_code in {401, 403, 429} and key_idx < num_keys - 1:
                     self._rotate_key()

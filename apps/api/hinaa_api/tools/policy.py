@@ -66,6 +66,8 @@ LOCAL_EFFECT_TOOLS: frozenset[str] = frozenset(
         "workspace_write_file",
         "workspace_edit_file",
         "workspace_run_command",
+        "workspace_start_process",
+        "workspace_stop_process",
         "subagent_fork",
         "swarm_orchestrate",
         "clean_room_loop",

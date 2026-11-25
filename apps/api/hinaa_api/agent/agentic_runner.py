@@ -43,6 +43,12 @@ DEFAULT_AGENTIC_TOOLS: frozenset[str] = frozenset({
     "workspace_glob",
     "workspace_grep",
     "workspace_run_command",
+    "workspace_verify_html",
+    "workspace_verify_url",
+    "workspace_start_process",
+    "workspace_process_logs",
+    "workspace_stop_process",
+    "workspace_spawn_subagent",
     "render_code_animation",
     "create_lyric_video",
     "create_motion_video",
@@ -50,6 +56,39 @@ DEFAULT_AGENTIC_TOOLS: frozenset[str] = frozenset({
     "mlai_list_routines",
     "mlai_run_routine",
 })
+
+
+async def _spawn_subagent_stub_handler(params: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": "error",
+        "code": "SUBAGENT_REQUIRES_LOOP",
+        "error": "workspace_spawn_subagent must run inside AgenticLoopRunner.",
+    }
+
+
+from ..tools.registry import ToolEffect  # noqa: E402
+
+if registry.get("workspace_spawn_subagent") is None:
+    registry.register(
+        ToolDefinition(
+            name="workspace_spawn_subagent",
+            display_name="Agent: Spawn Parallel Subagent",
+            description="Launch an isolated read-and-verify subagent with its own context window to inspect modules, search code, or verify HTML pages in parallel.",
+            parameters={
+                "role": {"type": "string", "description": "Short specialist role (e.g. 'Frontend Auditor', 'API Tracer')."},
+                "task": {"type": "string", "description": "Clear inspection/audit/verification task and what exact facts to return."},
+            },
+            required_parameters=["role", "task"],
+            is_read_only=True,
+            is_concurrency_safe=True,
+            requires_confirmation=False,
+            risk_tier=RiskTier.TIER_0_READ_ONLY,
+            risk_level="low",
+            effect=ToolEffect.READ,
+            timeout_seconds=90,
+        ),
+        _spawn_subagent_stub_handler,
+    )
 
 
 class AgenticStepRecord(BaseModel):
@@ -99,6 +138,35 @@ _XML_TOOL_RE = re.compile(
 _XML_ATTR_RE = re.compile(r'([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*(?:"([^"]*)"|\'([^\']*)\')')
 
 
+def _parse_xml_tool_match(attr_str: str, body: str) -> dict[str, Any] | None:
+    attrs = {k: (v1 if v1 else v2) for k, v1, v2 in _XML_ATTR_RE.findall(attr_str)}
+    tname = attrs.pop("name", "").strip()
+    if not tname:
+        return None
+    if tname in ("workspace_write_file", "workspace_write") and "path" in attrs and "file_path" not in attrs:
+        attrs["file_path"] = attrs.pop("path")
+    if tname == "workspace_write_file" and body.strip():
+        attrs["content"] = body.lstrip("\r\n")
+    elif tname == "render_code_animation" and body.strip() and "html_code" not in attrs and "html_path" not in attrs:
+        attrs["html_code"] = body.strip()
+    for bool_k in ("overwrite", "preview", "normalize_audio"):
+        if bool_k in attrs and isinstance(attrs[bool_k], str):
+            attrs[bool_k] = attrs[bool_k].strip().lower() in ("true", "1", "yes")
+    for num_k in ("duration_seconds",):
+        if num_k in attrs and isinstance(attrs[num_k], str):
+            try:
+                attrs[num_k] = float(attrs[num_k])
+            except ValueError:
+                pass
+    for int_k in ("fps", "width", "height", "start_line", "end_line", "ready_port", "wait_ms"):
+        if int_k in attrs and isinstance(attrs[int_k], str):
+            try:
+                attrs[int_k] = int(attrs[int_k])
+            except ValueError:
+                pass
+    return {"tool": tname, "arguments": attrs, "rationale": "XML tool invocation"}
+
+
 def _extract_decision_json(raw: str | dict[str, Any]) -> dict[str, Any]:
     if isinstance(raw, dict):
         return raw
@@ -106,35 +174,22 @@ def _extract_decision_json(raw: str | dict[str, Any]) -> dict[str, Any]:
     if not txt:
         return {"action": "final", "summary": ""}
 
-    # 1. Support raw XML-wrapped tool blocks so multi-line HTML/code never fails JSON string escaping
-    xml_m = _XML_TOOL_RE.search(txt)
-    if xml_m:
-        attr_str, body = xml_m.group(1), xml_m.group(2)
-        attrs = {k: (v1 if v1 else v2) for k, v1, v2 in _XML_ATTR_RE.findall(attr_str)}
-        tname = attrs.pop("name", "").strip()
-        if tname:
-            if tname in ("workspace_write_file", "workspace_write") and "path" in attrs and "file_path" not in attrs:
-                attrs["file_path"] = attrs.pop("path")
-            if tname == "workspace_write_file" and body.strip():
-                attrs["content"] = body.lstrip("\r\n")
-            elif tname == "render_code_animation" and body.strip() and "html_code" not in attrs and "html_path" not in attrs:
-                attrs["html_code"] = body.strip()
-            for bool_k in ("overwrite", "preview", "normalize_audio"):
-                if bool_k in attrs and isinstance(attrs[bool_k], str):
-                    attrs[bool_k] = attrs[bool_k].strip().lower() in ("true", "1", "yes")
-            for num_k in ("duration_seconds",):
-                if num_k in attrs and isinstance(attrs[num_k], str):
-                    try:
-                        attrs[num_k] = float(attrs[num_k])
-                    except ValueError:
-                        pass
-            for int_k in ("fps", "width", "height"):
-                if int_k in attrs and isinstance(attrs[int_k], str):
-                    try:
-                        attrs[int_k] = int(attrs[int_k])
-                    except ValueError:
-                        pass
-            return {"action": "call_tool", "tool": tname, "arguments": attrs, "rationale": "XML tool invocation"}
+    # 1. Support one or multiple XML-wrapped tool blocks (enabling parallel batch reads/searches)
+    xml_matches = list(_XML_TOOL_RE.finditer(txt))
+    if xml_matches:
+        parsed_calls = []
+        for xm in xml_matches[:6]:
+            call = _parse_xml_tool_match(xm.group(1), xm.group(2))
+            if call is not None:
+                parsed_calls.append(call)
+        if len(parsed_calls) == 1:
+            return {"action": "call_tool", **parsed_calls[0]}
+        if len(parsed_calls) > 1:
+            return {
+                "action": "call_tools",
+                "calls": parsed_calls,
+                "rationale": f"Parallel batch ({len(parsed_calls)} tools)",
+            }
 
     # Strip markdown JSON fences if present
     if txt.startswith("```"):
@@ -169,18 +224,41 @@ def _extract_decision_json(raw: str | dict[str, Any]) -> dict[str, Any]:
     return {"action": "final", "summary": txt}
 
 
+def _extract_vision_bytes(raw_obs: dict[str, Any]) -> tuple[str, bytes] | None:
+    p_str = raw_obs.pop("_vision_preview_path", None)
+    if not isinstance(p_str, str) or not p_str:
+        return None
+    from pathlib import Path
+
+    p = Path(p_str)
+    try:
+        if p.is_file() and p.stat().st_size <= 1_500_000:
+            data = p.read_bytes()
+            mime = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
+            return mime, data
+    except Exception:
+        pass
+    finally:
+        try:
+            p.unlink(missing_ok=True)
+        except Exception:
+            pass
+    return None
+
+
 @dataclass
 class AgenticLoopRunner:
     """Executes bounded multi-step tool loops with server-side policy gates."""
 
-    max_steps: int = 8
-    wall_clock_seconds: float = 210.0
+    max_steps: int = 16
+    wall_clock_seconds: float = 360.0
     max_consecutive_failures: int = 2
     per_tool_timeout_seconds: float = 120.0
     workspace_root: str | None = None
     settings: Settings | None = None
     host_header: str | None = "127.0.0.1:8000"
     auto_approve_workspace_edits: bool = True
+    subagent_depth: int = 0
 
     def _is_tool_permitted(
         self,
@@ -197,7 +275,7 @@ class AgenticLoopRunner:
         if name in LOCAL_EFFECT_TOOLS and not local_effects_permitted(cfg, self.host_header):
             return False, None, f"Tool '{name}' requires local workstation host access."
 
-        # Reversible edits and allowlisted read/test verification commands scoped
+        # Reversible edits and allowlisted read/test/server commands scoped
         # to a bounded workspace_root do not block autonomous coding loops.
         # Arbitrary shell commands and external connectors still require user approval.
         scoped_edit = bool(
@@ -217,10 +295,22 @@ class AgenticLoopRunner:
                 str(args.get("command") or ""),
                 args.get("args") if isinstance(args.get("args"), list) else None,
             )
+        scoped_server_cmd = False
+        if (
+            name == "workspace_start_process"
+            and self.workspace_root
+            and self.auto_approve_workspace_edits
+        ):
+            from ..tools.workspace_coding_tools import is_safe_server_command
+
+            scoped_server_cmd = is_safe_server_command(
+                str(args.get("command") or ""),
+                args.get("args") if isinstance(args.get("args"), list) else None,
+            )
 
         args_hash = _hash_args(name, args)
         needs_approval = bool(
-            (tdef.requires_confirmation and not scoped_edit and not scoped_verify_cmd)
+            (tdef.requires_confirmation and not scoped_edit and not scoped_verify_cmd and not scoped_server_cmd)
             or tdef.risk_tier >= RiskTier.TIER_4_DESTRUCTIVE
             or name in IRREVERSIBLE_EXTERNAL_TOOLS
         )
@@ -298,13 +388,13 @@ class AgenticLoopRunner:
             if fp.lower().endswith((".html", ".htm", ".svg")) or obs.get("isHtml"):
                 html_src = ""
                 if isinstance(args.get("content"), str):
-                    html_src = str(args["content"])[:45_000]
+                    html_src = str(args["content"])[:120_000]
                 elif self.workspace_root and fp:
                     try:
                         from pathlib import Path
                         p = Path(self.workspace_root) / fp
                         if p.is_file():
-                            html_src = p.read_text(encoding="utf-8", errors="replace")[:45_000]
+                            html_src = p.read_text(encoding="utf-8", errors="replace")[:120_000]
                     except Exception:
                         pass
                 if html_src.strip():
@@ -377,7 +467,80 @@ class AgenticLoopRunner:
                 except Exception:
                     logger.debug("Agentic callback %s failed", evt_type, exc_info=True)
 
+        pending_vision_images: list[tuple[str, bytes]] = []
         await _emit("agentic.started", {"goal": goal[:300], "maxSteps": self.max_steps})
+
+        async def _call_planner(cur_step: int) -> str | dict[str, Any]:
+            if pending_vision_images:
+                try:
+                    sig_p = inspect.signature(planner)
+                    if "images" in sig_p.parameters or any(
+                        p.kind == inspect.Parameter.VAR_KEYWORD for p in sig_p.parameters.values()
+                    ):
+                        return await planner(transcript, cur_step, images=list(pending_vision_images))
+                except (ValueError, TypeError):
+                    pass
+            return await planner(transcript, cur_step)
+
+        async def _run_subagent(args: dict[str, Any]) -> dict[str, Any]:
+            if self.subagent_depth >= 1:
+                return {"status": "error", "code": "SUBAGENT_DEPTH_EXCEEDED", "error": "Nested subagents beyond depth 1 are disallowed."}
+            role = str(args.get("role") or "Specialist Researcher")[:80]
+            task = str(args.get("task") or "").strip()
+            if not task:
+                return {"status": "error", "code": "INVALID_TASK", "error": "Subagent task must be non-empty."}
+            sub_tools = {
+                t for t in (
+                    "workspace_list_dir",
+                    "workspace_glob",
+                    "workspace_grep",
+                    "workspace_read_file",
+                    "workspace_verify_html",
+                    "workspace_verify_url",
+                )
+                if t in permitted
+            }
+            sub_runner = AgenticLoopRunner(
+                max_steps=6,
+                wall_clock_seconds=75.0,
+                max_consecutive_failures=2,
+                per_tool_timeout_seconds=45.0,
+                workspace_root=self.workspace_root,
+                settings=self.settings,
+                host_header=self.host_header,
+                auto_approve_workspace_edits=False,
+                subagent_depth=self.subagent_depth + 1,
+            )
+            sub_res = await sub_runner.run(
+                goal=f"[Subagent Role: {role}]\n{task}\nReturn concise verified facts with file paths, line numbers, or URL checks.",
+                planner=planner,
+                allowed_tools=sub_tools,
+                cancel_event=cancel_event,
+            )
+            return {
+                "status": "success" if sub_res.status == "completed" else "error",
+                "role": role,
+                "subRunId": sub_res.run_id,
+                "stepsExecuted": sub_res.steps_executed,
+                "summary": sub_res.summary,
+            }
+
+        async def _exec_tool_item(tdef: ToolDefinition, args: dict[str, Any]) -> tuple[dict[str, Any], float]:
+            step_t0 = time.perf_counter()
+            try:
+                if tdef.name == "workspace_spawn_subagent":
+                    raw_obs = await _run_subagent(args)
+                else:
+                    raw_obs = await self._invoke_tool(tdef, args)
+            except Exception as exec_exc:
+                err_msg = safe_error_text(exec_exc, [])
+                if not err_msg:
+                    err_msg = (
+                        f"Tool '{tdef.name}' timed out or aborted after {int(self.per_tool_timeout_seconds)}s "
+                        "(reduce duration_seconds, resolution/fps, or heavy CSS/SVG filters)."
+                    )
+                raw_obs = {"status": "error", "code": "TOOL_EXEC_FAILED", "error": err_msg}
+            return raw_obs, round((time.perf_counter() - step_t0) * 1000, 2)
 
         for step_num in range(1, self.max_steps + 1):
             if cancel_event is not None and cancel_event.is_set():
@@ -406,9 +569,11 @@ class AgenticLoopRunner:
 
             await _emit("agent.step.started", {"step": step_num, "maxSteps": self.max_steps})
             try:
-                raw_decision = await planner(transcript, step_num)
+                raw_decision = await _call_planner(step_num)
+                pending_vision_images.clear()
                 decision = _extract_decision_json(raw_decision)
             except Exception as exc:
+                pending_vision_images.clear()
                 err_msg = safe_error_text(exc, [])
                 return AgenticRunResult(
                     run_id=rid,
@@ -444,7 +609,9 @@ class AgenticLoopRunner:
                     )
                 continue
 
-            if action in ("final", "done", "answer") or (not decision.get("tool") and "summary" in decision):
+            if action in ("final", "done", "answer") or (
+                not decision.get("tool") and not decision.get("calls") and "summary" in decision
+            ):
                 summary = str(decision.get("summary") or "Completed.")
                 await _emit("agentic.completed", {"steps": len(steps), "artifacts": len(artifacts)})
                 return AgenticRunResult(
@@ -458,124 +625,145 @@ class AgenticLoopRunner:
                     elapsed_ms=round((time.perf_counter() - t0) * 1000, 2),
                 )
 
-            tool_name = str(decision.get("tool") or "").strip()
-            args = decision.get("arguments")
-            if not isinstance(args, dict):
-                args = {}
-            rationale = str(decision.get("rationale") or "")
-            tdef = registry.get(tool_name)
-            if tdef is None:
-                obs = {"status": "error", "code": "UNKNOWN_TOOL", "error": f"Unknown tool '{tool_name}'."}
-                steps.append(AgenticStepRecord(
-                    step=step_num, action="call_tool", tool=tool_name,
-                    arguments=_sanitize_value(args), status="failed",
-                    observation=obs, error=obs["error"], rationale=rationale,
-                ))
-                transcript.append({"role": "tool_observation", "trusted": False, "tool": tool_name, "result": obs})
-                sig = f"UNKNOWN:{tool_name}"
-                consecutive_same_errors = consecutive_same_errors + 1 if sig == last_error_sig else 1
-                last_error_sig = sig
-                if consecutive_same_errors >= self.max_consecutive_failures:
-                    return AgenticRunResult(
-                        run_id=rid, status="blocked",
-                        summary=f"Blocked after repeated unknown tool '{tool_name}'.",
-                        steps_executed=len(steps), steps=steps, artifacts=artifacts,
-                        files_changed=files_changed,
-                        elapsed_ms=round((time.perf_counter() - t0) * 1000, 2),
-                        blocker=obs["error"],
-                    )
-                continue
-
-            ok, pending, deny_reason = self._is_tool_permitted(tdef, args, permitted, approved)
-            if not ok:
-                if pending is not None:
-                    await _emit("confirmation.required", pending.model_dump())
-                    steps.append(AgenticStepRecord(
-                        step=step_num, action="approval_gate", tool=tool_name,
-                        arguments=pending.arguments_preview, status="awaiting_approval",
-                        error=pending.reason, rationale=rationale,
-                    ))
-                    return AgenticRunResult(
-                        run_id=rid,
-                        status="awaiting_approval",
-                        summary=pending.reason,
-                        steps_executed=len(steps),
-                        steps=steps,
-                        artifacts=artifacts,
-                        files_changed=files_changed,
-                        pending_approval=pending,
-                        elapsed_ms=round((time.perf_counter() - t0) * 1000, 2),
-                        blocker=pending.reason,
-                    )
-                obs = {"status": "error", "code": "TOOL_NOT_PERMITTED", "error": deny_reason or "Tool denied by policy."}
-                steps.append(AgenticStepRecord(
-                    step=step_num, action="call_tool", tool=tool_name,
-                    arguments=_sanitize_value(args), status="failed",
-                    observation=obs, error=obs["error"], rationale=rationale,
-                ))
-                transcript.append({"role": "tool_observation", "trusted": False, "tool": tool_name, "result": obs})
-                continue
-
-            step_t0 = time.perf_counter()
-            await _emit("tool.started", {"step": step_num, "toolName": tool_name, "arguments": _sanitize_value(args)})
-            try:
-                raw_obs = await self._invoke_tool(tdef, args)
-            except Exception as exec_exc:
-                err_msg = safe_error_text(exec_exc, [])
-                if not err_msg:
-                    err_msg = (
-                        f"Tool '{tool_name}' timed out or aborted after {int(self.per_tool_timeout_seconds)}s "
-                        "(reduce duration_seconds, resolution/fps, or heavy CSS/SVG filters)."
-                    )
-                raw_obs = {"status": "error", "code": "TOOL_EXEC_FAILED", "error": err_msg}
-            step_ms = round((time.perf_counter() - step_t0) * 1000, 2)
-            safe_obs = _sanitize_value(raw_obs)
-
-            is_err = safe_obs.get("status") == "error"
-            steps.append(AgenticStepRecord(
-                step=step_num,
-                action="call_tool",
-                tool=tool_name,
-                arguments=_sanitize_value(args),
-                status="failed" if is_err else "completed",
-                duration_ms=step_ms,
-                observation=safe_obs,
-                error=str(safe_obs.get("error")) if is_err else None,
-                rationale=rationale,
-            ))
-            if not is_err:
-                self._collect_artifacts(tool_name, args, safe_obs, artifacts, files_changed)
-                last_error_sig = None
-                consecutive_same_errors = 0
-                await _emit("tool.completed", {"step": step_num, "toolName": tool_name, "durationMs": step_ms, "status": "success"})
-                if artifacts:
-                    await _emit("artifact.ready", {"step": step_num, "artifact": artifacts[-1]})
+            if action == "call_tools" and isinstance(decision.get("calls"), list):
+                raw_calls = [c for c in decision["calls"][:6] if isinstance(c, dict)]
             else:
-                await _emit("tool.failed", {"step": step_num, "toolName": tool_name, "error": safe_obs.get("error")})
-                err_sig = f"{tool_name}:{safe_obs.get('code')}:{str(safe_obs.get('error'))[:80]}"
-                consecutive_same_errors = consecutive_same_errors + 1 if err_sig == last_error_sig else 1
-                last_error_sig = err_sig
-                if consecutive_same_errors >= self.max_consecutive_failures:
-                    return AgenticRunResult(
-                        run_id=rid,
-                        status="blocked",
-                        summary=f"Stopped after repeated identical failure on {tool_name}: {safe_obs.get('error')}",
-                        steps_executed=len(steps),
-                        steps=steps,
-                        artifacts=artifacts,
-                        files_changed=files_changed,
-                        elapsed_ms=round((time.perf_counter() - t0) * 1000, 2),
-                        blocker=str(safe_obs.get("error")),
-                    )
+                raw_calls = [{
+                    "tool": decision.get("tool"),
+                    "arguments": decision.get("arguments"),
+                    "rationale": decision.get("rationale"),
+                }]
 
-            # Treat repository/tool output explicitly as untrusted data for next planner step
-            transcript.append({
-                "role": "tool_observation",
-                "trusted": False,
-                "step": step_num,
-                "tool": tool_name,
-                "observation": safe_obs,
-            })
+            validated_calls: list[tuple[str, dict[str, Any], str, ToolDefinition]] = []
+            for call_item in raw_calls:
+                tool_name = str(call_item.get("tool") or "").strip()
+                args = call_item.get("arguments")
+                if not isinstance(args, dict):
+                    args = {}
+                rationale = str(call_item.get("rationale") or decision.get("rationale") or "")
+                tdef = registry.get(tool_name)
+                if tdef is None:
+                    obs = {"status": "error", "code": "UNKNOWN_TOOL", "error": f"Unknown tool '{tool_name}'."}
+                    steps.append(AgenticStepRecord(
+                        step=step_num, action="call_tool", tool=tool_name,
+                        arguments=_sanitize_value(args), status="failed",
+                        observation=obs, error=obs["error"], rationale=rationale,
+                    ))
+                    transcript.append({"role": "tool_observation", "trusted": False, "step": step_num, "tool": tool_name, "result": obs})
+                    sig = f"UNKNOWN:{tool_name}"
+                    consecutive_same_errors = consecutive_same_errors + 1 if sig == last_error_sig else 1
+                    last_error_sig = sig
+                    if consecutive_same_errors >= self.max_consecutive_failures:
+                        return AgenticRunResult(
+                            run_id=rid, status="blocked",
+                            summary=f"Blocked after repeated unknown tool '{tool_name}'.",
+                            steps_executed=len(steps), steps=steps, artifacts=artifacts,
+                            files_changed=files_changed,
+                            elapsed_ms=round((time.perf_counter() - t0) * 1000, 2),
+                            blocker=obs["error"],
+                        )
+                    continue
+
+                ok, pending, deny_reason = self._is_tool_permitted(tdef, args, permitted, approved)
+                if not ok:
+                    if pending is not None:
+                        await _emit("confirmation.required", pending.model_dump())
+                        steps.append(AgenticStepRecord(
+                            step=step_num, action="approval_gate", tool=tool_name,
+                            arguments=pending.arguments_preview, status="awaiting_approval",
+                            error=pending.reason, rationale=rationale,
+                        ))
+                        return AgenticRunResult(
+                            run_id=rid,
+                            status="awaiting_approval",
+                            summary=pending.reason,
+                            steps_executed=len(steps),
+                            steps=steps,
+                            artifacts=artifacts,
+                            files_changed=files_changed,
+                            pending_approval=pending,
+                            elapsed_ms=round((time.perf_counter() - t0) * 1000, 2),
+                            blocker=pending.reason,
+                        )
+                    obs = {"status": "error", "code": "TOOL_NOT_PERMITTED", "error": deny_reason or "Tool denied by policy."}
+                    steps.append(AgenticStepRecord(
+                        step=step_num, action="call_tool", tool=tool_name,
+                        arguments=_sanitize_value(args), status="failed",
+                        observation=obs, error=obs["error"], rationale=rationale,
+                    ))
+                    transcript.append({"role": "tool_observation", "trusted": False, "step": step_num, "tool": tool_name, "result": obs})
+                    continue
+
+                validated_calls.append((tool_name, args, rationale, tdef))
+
+            if not validated_calls:
+                continue
+
+            for tool_name, args, _rat, _tdef in validated_calls:
+                await _emit("tool.started", {"step": step_num, "toolName": tool_name, "arguments": _sanitize_value(args)})
+
+            can_parallel = len(validated_calls) > 1 and all(
+                td.is_read_only and td.is_concurrency_safe for _, _, _, td in validated_calls
+            )
+            if can_parallel:
+                batch_results = await asyncio.gather(
+                    *(_exec_tool_item(td, a) for _, a, _, td in validated_calls)
+                )
+            else:
+                batch_results = []
+                for _, a, _, td in validated_calls:
+                    batch_results.append(await _exec_tool_item(td, a))
+
+            for (tool_name, args, rationale, _tdef), (raw_obs, step_ms) in zip(validated_calls, batch_results):
+                vis = _extract_vision_bytes(raw_obs) if isinstance(raw_obs, dict) else None
+                if vis is not None:
+                    pending_vision_images.append(vis)
+                safe_obs = _sanitize_value(raw_obs)
+                is_err = safe_obs.get("status") == "error"
+                steps.append(AgenticStepRecord(
+                    step=step_num,
+                    action="call_tool",
+                    tool=tool_name,
+                    arguments=_sanitize_value(args),
+                    status="failed" if is_err else "completed",
+                    duration_ms=step_ms,
+                    observation=safe_obs,
+                    error=str(safe_obs.get("error")) if is_err else None,
+                    rationale=rationale,
+                ))
+                if not is_err:
+                    self._collect_artifacts(tool_name, args, safe_obs, artifacts, files_changed)
+                    last_error_sig = None
+                    consecutive_same_errors = 0
+                    await _emit("tool.completed", {"step": step_num, "toolName": tool_name, "durationMs": step_ms, "status": "success"})
+                    if artifacts:
+                        await _emit("artifact.ready", {"step": step_num, "artifact": artifacts[-1]})
+                else:
+                    await _emit("tool.failed", {"step": step_num, "toolName": tool_name, "error": safe_obs.get("error")})
+                    err_sig = f"{tool_name}:{safe_obs.get('code')}:{str(safe_obs.get('error'))[:80]}"
+                    consecutive_same_errors = consecutive_same_errors + 1 if err_sig == last_error_sig else 1
+                    last_error_sig = err_sig
+                    if consecutive_same_errors >= self.max_consecutive_failures:
+                        return AgenticRunResult(
+                            run_id=rid,
+                            status="blocked",
+                            summary=f"Stopped after repeated identical failure on {tool_name}: {safe_obs.get('error')}",
+                            steps_executed=len(steps),
+                            steps=steps,
+                            artifacts=artifacts,
+                            files_changed=files_changed,
+                            elapsed_ms=round((time.perf_counter() - t0) * 1000, 2),
+                            blocker=str(safe_obs.get("error")),
+                        )
+
+                # Treat repository/tool output explicitly as untrusted data for next planner step
+                transcript.append({
+                    "role": "tool_observation",
+                    "trusted": False,
+                    "step": step_num,
+                    "tool": tool_name,
+                    "observation": safe_obs,
+                })
 
         return AgenticRunResult(
             run_id=rid,

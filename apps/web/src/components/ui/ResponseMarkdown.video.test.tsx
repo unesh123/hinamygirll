@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ResponseMarkdown } from "./ResponseMarkdown";
+import { LiveArtifactPreview } from "./LiveArtifactPreview";
 import { toolRegistry } from "../../features/tools/toolRegistry";
 
 describe("ResponseMarkdown video playback & new tool metadata", () => {
@@ -29,11 +30,21 @@ describe("ResponseMarkdown video playback & new tool metadata", () => {
       "workspace_edit_file",
       "workspace_glob",
       "workspace_grep",
+      "workspace_verify_html",
       "mlai_list_routines",
       "mlai_run_routine",
     ]) {
       expect(toolRegistry[id]).toBeDefined();
       expect(toolRegistry[id]?.id).toBe(id);
     }
+  });
+
+  it("renders full <!DOCTYPE html> documents directly without double-wrapping inside body", () => {
+    const fullDoc = "<!DOCTYPE html><html><head><title>Solar</title></head><body><canvas id='c'></canvas></body></html>";
+    const markup = renderToStaticMarkup(<LiveArtifactPreview code={fullDoc} language="html" />);
+    expect(markup).toContain("<iframe");
+    expect(markup).not.toContain("cdn.tailwindcss.com");
+    expect(markup).toContain("Expand");
+    expect(markup).toContain("h-[520px]");
   });
 });

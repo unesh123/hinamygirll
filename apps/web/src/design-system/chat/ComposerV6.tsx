@@ -820,19 +820,29 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
         >
           {!compact && (
             <>
-          <div
+          <button
+            type="button"
             data-testid="badge-command-center"
+            onClick={() => onToggleGoalMode?.()}
+            title={isGoalMode ? "Always-On Agent Execution Active (click to return to Auto)" : "Command Center (click to toggle Always-On Agent Execution)"}
             style={{
               display: "inline-flex",
               alignItems: "center",
               gap: 6,
               padding: "3px 9px",
               borderRadius: 6,
-              background: isDark ? "rgba(255, 255, 255, 0.06)" : "var(--surface-subtle, #f8fafc)",
-              border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid var(--border-subtle, #e2e8f0)",
+              background: isGoalMode
+                ? (isDark ? "rgba(43, 127, 255, 0.18)" : "rgba(220, 95, 139, 0.14)")
+                : (isDark ? "rgba(255, 255, 255, 0.06)" : "var(--surface-subtle, #f8fafc)"),
+              border: isGoalMode
+                ? (isDark ? "1px solid rgba(43, 127, 255, 0.45)" : "1px solid rgba(220, 95, 139, 0.45)")
+                : (isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid var(--border-subtle, #e2e8f0)"),
               fontSize: 11,
               fontWeight: 550,
-              color: isDark ? "rgba(255, 255, 255, 0.7)" : "var(--text-secondary, #475569)",
+              color: isGoalMode
+                ? (isDark ? "#93c5fd" : "var(--accent-primary, #dc5f8b)")
+                : (isDark ? "rgba(255, 255, 255, 0.7)" : "var(--text-secondary, #475569)"),
+              cursor: onToggleGoalMode ? "pointer" : "default",
             }}
           >
             <span
@@ -840,12 +850,12 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 width: 6,
                 height: 6,
                 borderRadius: "50%",
-                background: backendConnected ? (isDark ? "#2b7fff" : "var(--accent-primary, #dc5f8b)") : "#ef4444",
+                background: backendConnected ? (isGoalMode ? "#10b981" : (isDark ? "#2b7fff" : "var(--accent-primary, #dc5f8b)")) : "#ef4444",
                 boxShadow: backendConnected ? (isDark ? "0 0 8px rgba(43, 127, 255, 0.5)" : "0 0 6px rgba(220, 95, 139, 0.4)") : "none",
               }}
             />
-            <span>Command Center</span>
-          </div>
+            <span>{isGoalMode ? "Command Center · Agent ON" : "Command Center"}</span>
+          </button>
 
           {contextCount > 0 && (
             <div
@@ -1049,6 +1059,8 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                   CREATE
                 </div>
                 {[
+                  { cmd: "/code", label: "Build & Execute", icon: FolderGit2 },
+                  { cmd: "/video", label: "Motion MP4", icon: Zap },
                   { cmd: "/image", label: "Image", icon: ImageIcon },
                   { cmd: "/document", label: "Document", icon: FileText },
                   { cmd: "/presentation", label: "Presentation", icon: Tv },
@@ -1192,6 +1204,8 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                   CREATE ARTIFACT
                 </div>
                 {[
+                  { cmd: "/code", label: "Build & Execute", icon: FolderGit2 },
+                  { cmd: "/video", label: "Motion MP4", icon: Zap },
                   { cmd: "/image", label: "Image", icon: ImageIcon },
                   { cmd: "/document", label: "Document", icon: FileText },
                   { cmd: "/presentation", label: "Presentation", icon: Tv },

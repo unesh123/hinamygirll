@@ -90,3 +90,17 @@ def test_decode_failure_does_not_register(tmp_path, monkeypatch):
         store(manager, b"\x00\x00\x00\x18ftypisom" + bytes(2048))
     assert not manager._assets
     assert not list(tmp_path.iterdir())
+
+
+def test_asset_metadata_persists_across_manager_restart(tmp_path, real_video):
+    manager1 = CreativeAssetManager(tmp_path / "assets")
+    meta = store(manager1, real_video)
+
+    # Simulate fresh server restart creating a new CreativeAssetManager instance
+    manager2 = CreativeAssetManager(tmp_path / "assets")
+    reloaded = manager2.get_asset_metadata(meta.asset_id, "test")
+    assert reloaded is not None
+    assert reloaded.asset_id == meta.asset_id
+    assert reloaded.sha256_hash == meta.sha256_hash
+    assert manager2.get_asset_bytes(meta.asset_id, "test") == real_video
+    assert manager2.get_asset_metadata(meta.asset_id, "other") is None

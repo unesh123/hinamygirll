@@ -569,6 +569,34 @@ export function useCompanionController({ conversationId, routing, languagePolicy
         setState("idle");
         throw new Error(payload?.detail || `Approval failed (${response.status})`);
       }
+      const res = payload?.result;
+      const nextAppr = res?.status === "awaiting_approval" ? res?.pending_approval : undefined;
+      if (nextAppr && nextAppr.arguments_hash) {
+        const nextStepId = String(nextAppr.approval_id || "approval");
+        pendingAgenticApprovalRef.current = {
+          runId: currentAgentRunId,
+          argumentsHash: String(nextAppr.arguments_hash),
+          tool: typeof nextAppr.tool === "string" ? nextAppr.tool : undefined,
+        };
+        setCurrentAgentConfirmationStepId(nextStepId);
+        setCurrentAgentRunId(currentAgentRunId);
+        setAgentSteps((current) => [
+          ...current.map((step) =>
+            step.id === currentAgentConfirmationStepId
+              ? { ...step, status: "done" as const, detail: "Approved and executed" }
+              : step,
+          ),
+          {
+            id: nextStepId,
+            label: `Approval required: ${String(nextAppr.tool || "tool")}`,
+            status: "pending" as const,
+            detail: String(nextAppr.reason || "Awaiting approval"),
+            requiresConfirmation: true,
+          },
+        ]);
+        setState("idle");
+        return;
+      }
       pendingAgenticApprovalRef.current = null;
       setCurrentAgentConfirmationStepId(undefined);
       setCurrentAgentRunId(undefined);
@@ -583,7 +611,6 @@ export function useCompanionController({ conversationId, routing, languagePolicy
             : step,
         ),
       );
-      const res = payload?.result;
       if (res) {
         const videoArts = Array.isArray(res.artifacts)
           ? res.artifacts

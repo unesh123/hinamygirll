@@ -686,6 +686,24 @@ export const toolRegistry: Record<string, ToolDefinition> = {
     },
   },
 
+  workspace_verify_html: {
+    id: "workspace_verify_html",
+    displayName: "Workspace: Verify HTML Render",
+    description: "Verify a workspace HTML page in network-isolated Chromium for DOM nodes, JS errors, and rendered pixels",
+    group: "code",
+    permission: "low",
+    requiresConfirmation: false,
+    cancellable: false,
+    rollbackAvailable: false,
+    resultType: "code",
+    voiceAliases: ["verify html page", "check webpage render"],
+    suggestedActions: [],
+    availability: "connected",
+    inputSchema: {
+      file_path: { type: "string", description: "Relative HTML file path", required: true },
+    },
+  },
+
   workspace_edit_file: {
     id: "workspace_edit_file",
     displayName: "Workspace: Edit File",
@@ -739,6 +757,97 @@ export const toolRegistry: Record<string, ToolDefinition> = {
     availability: "connected",
     inputSchema: {
       pattern: { type: "string", description: "Regex or substring query", required: true },
+    },
+  },
+
+  workspace_verify_url: {
+    id: "workspace_verify_url",
+    displayName: "Workspace: Verify Local URL",
+    description: "Verify a running localhost/127.0.0.1 server route in Chromium for HTTP status, JS errors, DOM, and pixels",
+    group: "code",
+    permission: "low",
+    requiresConfirmation: false,
+    cancellable: false,
+    rollbackAvailable: false,
+    resultType: "code",
+    voiceAliases: ["verify localhost url"],
+    suggestedActions: [],
+    availability: "connected",
+    inputSchema: {
+      url: { type: "string", description: "Loopback HTTP URL", required: true },
+    },
+  },
+
+  workspace_start_process: {
+    id: "workspace_start_process",
+    displayName: "Workspace: Start Background Server",
+    description: "Launch a bounded local dev server or daemon in the workspace with loopback readiness check",
+    group: "code",
+    permission: "confirm",
+    requiresConfirmation: true,
+    cancellable: false,
+    rollbackAvailable: true,
+    resultType: "code",
+    voiceAliases: ["start local server"],
+    suggestedActions: [],
+    availability: "connected",
+    inputSchema: {
+      command: { type: "string", description: "Safe server command", required: true },
+    },
+  },
+
+  workspace_process_logs: {
+    id: "workspace_process_logs",
+    displayName: "Workspace: Process Logs",
+    description: "Read recent stdout/stderr lines from a managed workspace background server",
+    group: "code",
+    permission: "low",
+    requiresConfirmation: false,
+    cancellable: false,
+    rollbackAvailable: false,
+    resultType: "code",
+    voiceAliases: ["check server logs"],
+    suggestedActions: [],
+    availability: "connected",
+    inputSchema: {
+      process_id: { type: "string", description: "Managed process ID", required: true },
+    },
+  },
+
+  workspace_stop_process: {
+    id: "workspace_stop_process",
+    displayName: "Workspace: Stop Background Server",
+    description: "Terminate a managed workspace background server",
+    group: "code",
+    permission: "low",
+    requiresConfirmation: false,
+    cancellable: false,
+    rollbackAvailable: false,
+    resultType: "code",
+    voiceAliases: ["stop local server"],
+    suggestedActions: [],
+    availability: "connected",
+    inputSchema: {
+      process_id: { type: "string", description: "Managed process ID", required: true },
+    },
+  },
+
+  workspace_spawn_subagent: {
+    id: "workspace_spawn_subagent",
+    displayName: "Agent: Spawn Subagent",
+    description: "Run an isolated read-and-verify specialist subagent with its own context window",
+    group: "system",
+    permission: "low",
+    requiresConfirmation: false,
+    cancellable: false,
+    rollbackAvailable: false,
+    resultType: "text",
+    voiceAliases: ["spawn subagent"],
+    suggestedActions: [],
+    availability: "connected",
+    inputSchema: {
+      role: { type: "string", description: "Subagent role", required: true },
+      task: { type: "string", description: "Subagent task", required: true },
     },
   },
 

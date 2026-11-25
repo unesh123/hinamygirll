@@ -22,10 +22,14 @@ import json
 import os
 import re
 import shlex
+import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+import uuid
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +46,13 @@ _SKIP_DIRS = frozenset({
     "node_modules",
     "__pycache__",
     ".pytest_cache",
+    ".pytest_tmp",
+    ".runtime",
+    ".ruff_cache",
+    ".mypy_cache",
+    ".turbo",
+    ".next",
+    "coverage",
     "dist",
     "build",
     ".hina",
@@ -386,9 +397,10 @@ _MAX_WRITE_BYTES = 512_000
 _SENSITIVE_WRITE_NAMES = frozenset({".env", ".env.local", ".env.production", "id_rsa", "id_ed25519"})
 _SENSITIVE_WRITE_EXTS = frozenset({".pem", ".key", ".p12", ".pfx"})
 _SHELL_METACHAR_RE = re.compile(r"[;&|`$<>]|&&|\|\|")
-_SAFE_VERIFY_COMMANDS = frozenset({"pytest", "python", "python3", "node", "npm", "pnpm", "npx", "tsc", "vitest", "git", "ffprobe", "ffmpeg", "ruff", "eslint"})
+_SAFE_VERIFY_COMMANDS = frozenset({"pytest", "python", "python3", "node", "npm", "pnpm", "npx", "tsc", "vitest", "vite", "git", "ffprobe", "ffmpeg", "ruff", "eslint", "mypy"})
 _SAFE_GIT_SUBCOMMANDS = frozenset({"status", "diff", "log", "branch", "show"})
-_SAFE_NODE_PM_SUBCOMMANDS = frozenset({"test", "typecheck", "lint"})
+_SAFE_NODE_PM_SUBCOMMANDS = frozenset({"test", "typecheck", "lint", "build"})
+_SAFE_SERVER_EXECUTABLES = frozenset({"python", "python3", "uvicorn", "node", "npm", "pnpm", "npx", "vite"})
 _UNSAFE_FLAGS = frozenset({"--force", "-f", "--hard", "push", "reset", "clean", "rm", "del", "erase"})
 
 
@@ -458,19 +470,54 @@ def is_safe_verify_command(command: str, explicit_args: list[str] | None = None)
             return True
         if lowered_rest[0] == "run" and len(lowered_rest) >= 2 and lowered_rest[1] in _SAFE_NODE_PM_SUBCOMMANDS | {"build"}:
             return True
-        if lowered_rest[0] == "exec" and len(lowered_rest) >= 2 and lowered_rest[1] in ("tsc", "vitest", "eslint"):
+        if lowered_rest[0] == "exec" and len(lowered_rest) >= 2 and lowered_rest[1] in ("tsc", "vitest", "eslint", "vite"):
             return True
         return False
+    if exe == "vite":
+        return bool(lowered_rest) and lowered_rest[0] == "build"
     if exe in ("python", "python3"):
         if not lowered_rest:
             return False
         if lowered_rest[0] == "-c":
             return True
         if lowered_rest[0] == "-m" and len(lowered_rest) >= 2:
-            return lowered_rest[1] in {"pytest", "unittest", "py_compile", "compileall", "json.tool"}
+            return lowered_rest[1] in {"pytest", "unittest", "py_compile", "compileall", "json.tool", "pip"}
         # Running a local .py script inside workspace root cleanly
         return not lowered_rest[0].startswith("-")
     return True
+
+
+def is_safe_server_command(command: str, explicit_args: list[str] | None = None) -> bool:
+    """True when starting a bounded local server or preview daemon cleanly inside workspace root."""
+    try:
+        argv = _parse_command_argv(command, explicit_args)
+    except ValueError:
+        return False
+    exe = Path(argv[0]).name.lower()
+    if exe.endswith(".exe") or exe.endswith(".cmd"):
+        exe = exe.rsplit(".", 1)[0]
+    if exe not in _SAFE_SERVER_EXECUTABLES:
+        return False
+    lowered = [a.lower() for a in argv[1:]]
+    if any(tok in _UNSAFE_FLAGS for tok in lowered):
+        return False
+    if exe in ("python", "python3"):
+        if "-m" in lowered:
+            idx = lowered.index("-m")
+            mod = lowered[idx + 1] if idx + 1 < len(lowered) else ""
+            return mod in {"http.server", "uvicorn", "flask"}
+        return bool(lowered) and not lowered[0].startswith("-")
+    if exe in ("npm", "pnpm"):
+        return bool(lowered) and (
+            lowered[0] in ("dev", "preview", "start")
+            or (lowered[0] == "run" and len(lowered) >= 2 and lowered[1] in ("dev", "preview", "start"))
+            or (lowered[0] == "exec" and len(lowered) >= 2 and lowered[1] == "vite")
+        )
+    if exe == "uvicorn":
+        return True
+    if exe in ("node", "vite", "npx"):
+        return bool(lowered) if exe == "node" else True
+    return False
 
 
 def _resolve_command_executable(argv: list[str], root: Path) -> list[str]:
@@ -584,6 +631,54 @@ async def workspace_write_file_handler(params: WorkspaceWriteFileParams) -> dict
                 "filePath": rel,
                 "error": f"JSON syntax error line {je.lineno}: {je.msg}",
             }
+    elif ext in (".js", ".mjs"):
+        import shutil as _shutil
+
+        node_bin = _shutil.which("node")
+        if node_bin:
+            fd_js, tmp_js = tempfile.mkstemp(prefix=".hinaa_chk_", suffix=ext)
+            try:
+                with os.fdopen(fd_js, "w", encoding="utf-8") as fh:
+                    fh.write(params.content)
+                chk = subprocess.run([node_bin, "--check", tmp_js], capture_output=True, text=True, timeout=8)
+                if chk.returncode != 0:
+                    return {
+                        "status": "error",
+                        "code": "SYNTAX_ERROR",
+                        "filePath": rel,
+                        "error": f"JavaScript syntax error: {(chk.stderr or chk.stdout or '').strip()[:300]}",
+                    }
+            finally:
+                if os.path.exists(tmp_js):
+                    os.unlink(tmp_js)
+    elif ext in (".html", ".htm"):
+        import shutil as _shutil
+
+        node_bin = _shutil.which("node")
+        if node_bin:
+            script_blocks = re.findall(
+                r"<script(?![^>]*\btype\s*=\s*[\"'](?:application/(?:json|ld\+json)|importmap)[\"'])[^>]*>([\s\S]*?)</script>",
+                params.content,
+                flags=re.IGNORECASE,
+            )
+            for idx_s, js_body in enumerate(script_blocks):
+                if not js_body.strip():
+                    continue
+                fd_js, tmp_js = tempfile.mkstemp(prefix=".hinaa_htmljs_", suffix=".js")
+                try:
+                    with os.fdopen(fd_js, "w", encoding="utf-8") as fh:
+                        fh.write(js_body)
+                    chk = subprocess.run([node_bin, "--check", tmp_js], capture_output=True, text=True, timeout=8)
+                    if chk.returncode != 0:
+                        return {
+                            "status": "error",
+                            "code": "SYNTAX_ERROR",
+                            "filePath": rel,
+                            "error": f"Inline <script> #{idx_s + 1} syntax error: {(chk.stderr or chk.stdout or '').strip()[:300]}",
+                        }
+                finally:
+                    if os.path.exists(tmp_js):
+                        os.unlink(tmp_js)
 
     prior = target.read_text(encoding="utf-8", errors="replace") if target.exists() and target.is_file() else ""
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -765,4 +860,245 @@ registry.register(
         effect=ToolEffect.EXECUTE_PROCESS,
     ),
     workspace_run_command_handler,
+)
+
+
+class _ManagedProcess:
+    def __init__(self, process_id: str, command: str, proc: subprocess.Popen[str], ready_port: int | None) -> None:
+        self.process_id = process_id
+        self.command = command
+        self.proc = proc
+        self.ready_port = ready_port
+        self.started_at = time.time()
+        self.lines: deque[str] = deque(maxlen=300)
+        self._lock = threading.Lock()
+        self._reader = threading.Thread(target=self._drain, daemon=True)
+        self._reader.start()
+
+    def _drain(self) -> None:
+        if not self.proc.stdout:
+            return
+        try:
+            for line in iter(self.proc.stdout.readline, ""):
+                if not line:
+                    break
+                with self._lock:
+                    self.lines.append(line.rstrip("\r\n"))
+        except Exception:
+            pass
+
+    def tail(self, n: int = 50) -> list[str]:
+        with self._lock:
+            return list(self.lines)[-max(1, n):]
+
+    def running(self) -> bool:
+        return self.proc.poll() is None
+
+
+_PROCESS_POOL: dict[str, _ManagedProcess] = {}
+_PROCESS_POOL_LOCK = threading.Lock()
+
+
+def _wait_loopback_port(port: int, timeout_s: float = 5.0) -> bool:
+    deadline = time.perf_counter() + timeout_s
+    while time.perf_counter() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.3):
+                return True
+        except OSError:
+            time.sleep(0.15)
+    return False
+
+
+class WorkspaceStartProcessParams(BaseModel):
+    command: str = Field(..., min_length=1, max_length=600, description="Safe local server command (e.g. 'python -m http.server 8123' or 'uvicorn app:app --port 8123').")
+    args: list[str] | None = Field(None, description="Optional explicit argument list.")
+    ready_port: int | None = Field(None, ge=1024, le=65535, description="Optional local loopback port to wait for readiness.")
+    ready_wait_ms: int = Field(2500, ge=200, le=10000, description="Milliseconds to wait for startup logs/port.")
+    workspace_root: str | None = Field(None, max_length=500, description="Optional workspace root override.")
+
+
+class WorkspaceProcessLogsParams(BaseModel):
+    process_id: str = Field(..., min_length=1, max_length=80, description="Managed background process id.")
+    tail: int = Field(50, ge=1, le=300, description="Trailing log lines to return.")
+
+
+class WorkspaceStopProcessParams(BaseModel):
+    process_id: str = Field(..., min_length=1, max_length=80, description="Managed background process id to terminate.")
+
+
+async def workspace_start_process_handler(params: WorkspaceStartProcessParams) -> dict[str, Any]:
+    import asyncio
+    from ..agent.runtime import _sanitize_value
+
+    try:
+        root = _resolve_workspace_root(params.workspace_root)
+        argv = _parse_command_argv(params.command, params.args)
+    except ValueError as err:
+        return {"status": "error", "code": "COMMAND_REJECTED", "error": str(err)}
+
+    if not is_safe_server_command(params.command, params.args):
+        return {
+            "status": "error",
+            "code": "SERVER_CMD_REJECTED",
+            "error": "Only bounded local dev servers (python -m http.server/uvicorn/flask, node, npm/pnpm dev/preview/vite) are allowed.",
+        }
+
+    with _PROCESS_POOL_LOCK:
+        for pid_k, mp in list(_PROCESS_POOL.items()):
+            if not mp.running() and time.time() - mp.started_at > 300:
+                _PROCESS_POOL.pop(pid_k, None)
+        live_count = sum(1 for mp in _PROCESS_POOL.values() if mp.running())
+        if live_count >= 6:
+            return {"status": "error", "code": "PROCESS_LIMIT_REACHED", "error": "Too many active background processes (max 6). Stop old ones first."}
+
+    exec_argv = _resolve_command_executable(argv, root)
+    try:
+        proc = subprocess.Popen(
+            exec_argv,
+            cwd=str(root),
+            env=_sanitized_command_env(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            shell=False,
+        )
+    except FileNotFoundError as fnf:
+        return {"status": "error", "code": "EXECUTABLE_NOT_FOUND", "error": f"Executable not found: {fnf.filename or argv[0]}"}
+
+    pid = f"proc-{uuid.uuid4().hex[:8]}"
+    managed = _ManagedProcess(pid, " ".join(argv), proc, params.ready_port)
+    with _PROCESS_POOL_LOCK:
+        _PROCESS_POOL[pid] = managed
+
+    listening = False
+    if params.ready_port is not None:
+        listening = await asyncio.to_thread(_wait_loopback_port, params.ready_port, params.ready_wait_ms / 1000.0)
+    else:
+        await asyncio.sleep(min(params.ready_wait_ms, 2000) / 1000.0)
+
+    exit_code = proc.poll()
+    recent = _sanitize_value("\n".join(managed.tail(40)))
+    if exit_code is not None and exit_code != 0:
+        return {
+            "status": "error",
+            "code": "PROCESS_EXITED",
+            "processId": pid,
+            "pid": proc.pid,
+            "exitCode": exit_code,
+            "recentOutput": recent,
+            "error": f"Background process exited early with code {exit_code}: {recent[-300:]}",
+        }
+    return {
+        "status": "success",
+        "processId": pid,
+        "pid": proc.pid,
+        "command": managed.command,
+        "running": managed.running(),
+        "readyPort": params.ready_port,
+        "listening": listening,
+        "recentOutput": recent,
+    }
+
+
+async def workspace_process_logs_handler(params: WorkspaceProcessLogsParams) -> dict[str, Any]:
+    from ..agent.runtime import _sanitize_value
+
+    with _PROCESS_POOL_LOCK:
+        managed = _PROCESS_POOL.get(params.process_id)
+    if managed is None:
+        return {"status": "error", "code": "PROCESS_NOT_FOUND", "error": f"No managed process {params.process_id}"}
+    return {
+        "status": "success",
+        "processId": managed.process_id,
+        "pid": managed.proc.pid,
+        "running": managed.running(),
+        "exitCode": managed.proc.poll(),
+        "output": _sanitize_value("\n".join(managed.tail(params.tail))),
+    }
+
+
+async def workspace_stop_process_handler(params: WorkspaceStopProcessParams) -> dict[str, Any]:
+    import asyncio
+
+    with _PROCESS_POOL_LOCK:
+        managed = _PROCESS_POOL.get(params.process_id)
+    if managed is None:
+        return {"status": "error", "code": "PROCESS_NOT_FOUND", "error": f"No managed process {params.process_id}"}
+    if managed.running():
+        managed.proc.terminate()
+        try:
+            await asyncio.to_thread(managed.proc.wait, 3)
+        except subprocess.TimeoutExpired:
+            managed.proc.kill()
+            await asyncio.to_thread(managed.proc.wait, 2)
+    return {
+        "status": "success",
+        "processId": managed.process_id,
+        "running": managed.running(),
+        "exitCode": managed.proc.poll(),
+    }
+
+
+registry.register(
+    ToolDefinition(
+        name="workspace_start_process",
+        display_name="Workspace: Start Background Server/Daemon",
+        description="Start a bounded local dev server or backend daemon inside workspace root with loopback readiness check and log capture.",
+        parameters={
+            "command": {"type": "string", "description": "Safe local server command (e.g. 'python -m http.server 8123')."},
+            "ready_port": {"type": "integer", "description": "Optional localhost port to wait on before returning."},
+            "ready_wait_ms": {"type": "integer", "description": "Startup wait milliseconds (default 2500)."},
+            "workspace_root": {"type": "string", "description": "Optional workspace root override."},
+        },
+        required_parameters=["command"],
+        is_read_only=False,
+        is_concurrency_safe=False,
+        requires_confirmation=True,
+        risk_tier=RiskTier.TIER_3_PROCESS,
+        risk_level="high",
+        effect=ToolEffect.EXECUTE_PROCESS,
+    ),
+    workspace_start_process_handler,
+)
+
+registry.register(
+    ToolDefinition(
+        name="workspace_process_logs",
+        display_name="Workspace: Read Background Process Logs",
+        description="Inspect recent stdout/stderr lines and status of a managed background process.",
+        parameters={
+            "process_id": {"type": "string", "description": "Process ID returned by workspace_start_process."},
+            "tail": {"type": "integer", "description": "Number of trailing log lines (default 50)."},
+        },
+        required_parameters=["process_id"],
+        is_read_only=True,
+        is_concurrency_safe=True,
+        requires_confirmation=False,
+        risk_tier=RiskTier.TIER_0_READ_ONLY,
+        risk_level="low",
+        effect=ToolEffect.READ,
+    ),
+    workspace_process_logs_handler,
+)
+
+registry.register(
+    ToolDefinition(
+        name="workspace_stop_process",
+        display_name="Workspace: Stop Background Process",
+        description="Terminate a managed background server/daemon started in the workspace.",
+        parameters={
+            "process_id": {"type": "string", "description": "Process ID returned by workspace_start_process."},
+        },
+        required_parameters=["process_id"],
+        is_read_only=False,
+        is_concurrency_safe=False,
+        requires_confirmation=False,
+        risk_tier=RiskTier.TIER_1_REVERSIBLE,
+        risk_level="medium",
+        effect=ToolEffect.EXECUTE_PROCESS,
+    ),
+    workspace_stop_process_handler,
 )

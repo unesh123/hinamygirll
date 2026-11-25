@@ -141,3 +141,30 @@ def test_workspace_coding_tools_policy_audit():
     assert audit["unmapped_policy"] == []
     for tool_name in ("workspace_read_file", "workspace_edit_file", "workspace_glob", "workspace_grep"):
         assert registry.get_tool(tool_name) is not None
+
+
+@pytest.mark.asyncio
+async def test_workspace_write_html_rejects_broken_inline_script(ws):
+    import shutil
+    if not shutil.which("node"):
+        pytest.skip("node required for HTML inline JS syntax check")
+    from hinaa_api.tools.workspace_coding_tools import WorkspaceWriteFileParams, workspace_write_file_handler
+
+    bad = await workspace_write_file_handler(
+        WorkspaceWriteFileParams(
+            file_path="bad_page.html",
+            content="<!doctype html><html><body><script>const x = { a: };</script></body></html>",
+        )
+    )
+    assert bad["status"] == "error"
+    assert bad["code"] == "SYNTAX_ERROR"
+    assert not (ws / "bad_page.html").exists()
+
+    good = await workspace_write_file_handler(
+        WorkspaceWriteFileParams(
+            file_path="good_page.html",
+            content="<!doctype html><html><body><script type=\"application/json\">{\"raw\": :}</script><script>const x = 1;</script></body></html>",
+        )
+    )
+    assert good["status"] == "success"
+    assert good["isHtml"] is True

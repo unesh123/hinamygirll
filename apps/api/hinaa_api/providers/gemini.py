@@ -181,13 +181,22 @@ class GeminiLLMProvider:
         system_prompt: str,
         user_prompt: str,
         max_tokens: int = 8192,
+        images: list[tuple[str, bytes]] | None = None,
     ) -> str:
         """Direct raw completion for bounded coding/studio agent loops without companion persona schema."""
         client = genai.Client(api_key=self._key)
+        contents: Any = user_prompt
+        if images:
+            parts: list[Any] = [user_prompt]
+            for mime_type, raw_bytes in images[:4]:
+                if raw_bytes:
+                    parts.append(types.Part.from_bytes(data=raw_bytes, mime_type=mime_type or "image/jpeg"))
+            if len(parts) > 1:
+                contents = parts
         try:
             response = await client.aio.models.generate_content(
                 model=self._model,
-                contents=user_prompt,
+                contents=contents,
                 config=types.GenerateContentConfig(
                     system_instruction=system_prompt,
                     temperature=0.2,

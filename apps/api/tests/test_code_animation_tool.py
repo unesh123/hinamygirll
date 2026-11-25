@@ -103,6 +103,46 @@ async def test_render_code_animation_html_playwright_ffmpeg_e2e(monkeypatch, tmp
     assert res["renderer"] == "playwright_chromium_ffmpeg"
     assert res["output"]["resolution"] == "320x320"
     assert res["output"]["video_codec"] == "h264"
+    assert res["output"]["audio_codec"] == "aac"
+    assert res["output"]["audio_channels"] == 2
+    assert res["output"]["qc"]["sampled_frames"] >= 2
     assert abs(res["output"]["duration_sec"] - 1.0) < 0.35
     assert res["output"]["checksum_sha256"]
     assert res["output"]["size_bytes"] > 2000
+
+
+@pytest.mark.asyncio
+async def test_workspace_verify_html_catches_errors_and_verifies_canvas(tmp_path) -> None:
+    if not await asyncio.to_thread(_has_render_toolchain):
+        pytest.skip("Playwright Chromium required")
+    from hinaa_api.tools.code_animation_tool import WorkspaceVerifyHtmlParams, workspace_verify_html_handler
+
+    good_html = tmp_path / "good.html"
+    good_html.write_text(
+        """<!DOCTYPE html><html><body style="margin:0;background:#081020">
+        <canvas id="c" width="400" height="300"></canvas>
+        <h1 style="color:#fff">Solar Sim</h1>
+        <script>
+          const ctx = document.getElementById('c').getContext('2d');
+          ctx.fillStyle = '#38bdf8'; ctx.fillRect(40, 40, 220, 120);
+        </script></body></html>""",
+        encoding="utf-8",
+    )
+    ok_res = await workspace_verify_html_handler(
+        WorkspaceVerifyHtmlParams(file_path="good.html", wait_ms=250, workspace_root=str(tmp_path))
+    )
+    assert ok_res["status"] == "success"
+    assert ok_res["canvasCount"] == 1
+    assert ok_res["hasVisualRender"] is True
+    assert ok_res["pageErrors"] == []
+
+    bad_html = tmp_path / "bad.html"
+    bad_html.write_text(
+        """<!DOCTYPE html><html><body><div>Err</div><script>throw new Error('boom');</script></body></html>""",
+        encoding="utf-8",
+    )
+    bad_res = await workspace_verify_html_handler(
+        WorkspaceVerifyHtmlParams(file_path="bad.html", wait_ms=200, workspace_root=str(tmp_path))
+    )
+    assert bad_res["status"] == "error"
+    assert bad_res["pageErrors"] and "boom" in bad_res["pageErrors"][0]

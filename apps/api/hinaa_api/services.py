@@ -7205,19 +7205,32 @@ class ConversationService:
         _req_agentic = getattr(request, "agenticMode", None)
         _text_clean = (request.text or "").strip()
         _AUTO_AGENTIC_RE = re.compile(
-            r"(?i)(?:^/(?:code|agent)\b|\b(?:workspace|repository|repo\b|codebase|pytest|vitest|py_compile|"
-            r"tsc\b|playwright|ffmpeg|render_code_animation|kinetic[\s-]+typography|motion\s+(?:video|graphics|reel)|"
-            r"full[- ]?page\s+html|html\s+(?:file|page|app|site|landing)|"
-            r"(?:create|write|build|make|scaffold|generate|edit|fix|debug|refactor|render|export)\s+(?:a|an|the|this|my|full[- ]?page)?\s*"
-            r"(?:[a-z0-9_-]+\s+){0,4}(?:html|python|script|app|file|module|component|project|site|landing\s+page|game|dashboard|mp4|video|reel|animation)|"
-            r"run\s+(?:the\s+)?(?:tests?|pytest|build|linter|typecheck|command))\b)"
+            r"(?i)(?:^/(?:code|agent|site|website|video|motion)\b|\b(?:"
+            r"workspace|repository|repo\b|codebase|pytest|vitest|py_compile|"
+            r"tsc\b|eslint|ruff|playwright|ffmpeg|render_code_animation|studiofx|"
+            r"kinetic[\s-]+typography|motion[\s-]+(?:video|graphics|reel)|"
+            r"full[- ]?page\s+html|html\s+(?:file|page|app|site|landing)|\bmp4\b|"
+            r"(?:create|write|build|make|design|scaffold|generate|implement|develop|edit|fix|debug|refactor|upgrade|patch|render|export)\b[^.?!\n]{0,100}\b"
+            r"(?:html|webpage|web\s*page|website|web\s*app|landing\s+page|portfolio|dashboard|visualizer|simulation|game|"
+            r"python|script|program|cli|api|server|backend|frontend|module|component|project|site|file|"
+            r"mp4|video|reel|animation|motion\s+graphics|kinetic\s+intro|typography)|"
+            r"(?:inspect|debug|trace|fix|check|audit|find|read|analyze|explain)\b[^.?!]{0,90}\b"
+            r"(?:in\s+(?:our|the|this)\s+(?:code|repo|codebase|project|file|api|app|ui|server|backend|frontend)|"
+            r"line\s+numbers?|\.py\b|\.tsx?\b|\.jsx?\b|\.html?\b|\.css\b|[A-Z][a-z]+[A-Z][A-Za-z0-9_]*)|"
+            r"(?:run|execute)\b[^.?!]{0,60}\b(?:the\s+)?(?:tests?|pytest|vitest|build|linter|typecheck|command|script|python|calculation|code)"
+            r")\b)"
         )
-        _CAPABILITY_Q_RE = re.compile(r"(?i)^\s*(?:what\s+kind\s+of|what\s+types?\s+of|explain\s+what)\b")
+        _CAPABILITY_Q_RE = re.compile(
+            r"(?i)^\s*(?:what\s+(?:kind|types?)\s+of\b|explain\s+what\s+(?:you|hina|html|<)|why\s+is\s+the\s+website\s+broken\b|what\s+does\s+<)"
+        )
         _NON_AGENTIC_GUARD_RE = re.compile(
-            r"(?i)(?:^/(?:image|search|pdf|walk|roam)\b|\b(?:play|listen\s+to|put\s+on)\s+(?:a|the|my|some)?\s*(?:song|music|track)\b|\b(?:spotify|youtube)\s+play\b|\bremind\s+me\b)"
+            r"(?i)(?:^/(?:image|search|pdf|walk|roam)\b|"
+            r"\b(?:generate|create|make|draw|paint|render)\s+(?:an?\s+)?(?:image|picture|photo|portrait|illustration|sketch|artwork)\b|"
+            r"\b(?:play|listen\s+to|put\s+on)\s+(?:a|the|my|some)?\s*(?:song|music|track)\b|"
+            r"\b(?:spotify|youtube)\s+play\b|\bremind\s+me\b)"
         )
         _RETRY_FOLLOWUP_RE = re.compile(
-            r"(?i)^(?:ok(?:ay)?[\s,]+|please[\s,]+|now[\s,]+)*(?:try\s+again|retry(?:\s+(?:it|that|now))?|do\s+(?:it|that)(?:\s+(?:again|now))?|run\s+(?:it|that)(?:\s+now)?|render\s+(?:it|that|one)(?:\s+now)?|make\s+(?:it|that|one)(?:\s+now)?|create\s+(?:it|that|one)(?:\s+now)?|build\s+(?:it|that|one)(?:\s+now)?|go\s+ahead(?:\s+and\s+(?:render|create|build|do)\s+it)?)\s*[!.]*$"
+            r"(?i)^(?:ok(?:ay)?[\s,]+|please[\s,]+|now[\s,]+|bro[\s,]+)*(?:try\s+again|retry(?:\s+(?:it|that|now))?|do\s+(?:it|that)(?:\s+(?:again|now|properly))?|execute(?:\s+(?:it|that))?(?:\s+now)?|run\s+(?:it|that)(?:\s+now)?|render\s+(?:it|that|one)(?:\s+now)?|make\s+(?:it|that|one)(?:\s+(?:now|better|high\s+level))?|create\s+(?:it|that|one)(?:\s+now)?|build\s+(?:it|that|one)(?:\s+(?:now|properly))?|upgrade(?:\s+(?:it|that))?(?:\s+now)?|go\s+ahead(?:\s+and\s+(?:execute|render|create|build|do)\s+it)?)\s*[!.]*$"
         )
         _has_visual_attachment = bool(
             getattr(request, "imageUrl", None)
@@ -7288,7 +7301,7 @@ class ConversationService:
             from .runtime_paths import project_root
 
             raw_goal = _promoted_retry_goal or _text_clean
-            goal_text = re.sub(r"(?i)^/(?:code|agent|goal)\s+", "", raw_goal).strip() or raw_goal
+            goal_text = re.sub(r"(?i)^/(?:code|agent|goal|site|website|video|motion)\s+", "", raw_goal).strip() or raw_goal
             # Expose the clean unified workspace + studio toolset without overlapping legacy :8765 duplicates
             _LEGACY_DUPES = frozenset({
                 "shell_run", "file_list", "file_read", "file_write", "ultra_file_write",
@@ -7309,6 +7322,12 @@ class ConversationService:
                 "workspace_glob",
                 "workspace_grep",
                 "workspace_run_command",
+                "workspace_verify_html",
+                "workspace_verify_url",
+                "workspace_start_process",
+                "workspace_process_logs",
+                "workspace_stop_process",
+                "workspace_spawn_subagent",
                 "render_code_animation",
                 "mlai_list_routines",
                 "mlai_run_routine",
@@ -7329,6 +7348,7 @@ class ConversationService:
                     user_id=user_id or "default_user",
                     allowed_tools=allowed_for_agentic,
                     workspace_root=ws_dir,
+                    max_steps=16,
                     history=recent_hist,
                     run_id=correlation_id,
                     on_event=_on_agentic_event,
@@ -7373,19 +7393,9 @@ class ConversationService:
 
         _INSTANT_ACTION_TOOLS = frozenset({
             "computer_operator",
-            "terminal_hands",
-            "shell_run",
-            "ultra_file_write",
-            "file_list",
-            "server_start",
-            "video_create",
-            "render_code_animation",
-            "browser_screenshot",
-            "agent_spawn",
             "reminder.create",
             "youtube_playback_request",
             "ui_control",
-            "design_website",
             "browser_navigate",
             "browser_execute_task",
             "browser_press_key",
