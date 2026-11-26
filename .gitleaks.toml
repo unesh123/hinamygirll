@@ -14,6 +14,7 @@ paths = [
   '''pnpm-lock\.yaml''',
   '''apps/api/uv\.lock''',
   '''docs/.*''',
+  '''scripts/run_p13_benchmark\.py''',
   # Vendored third-party skill docs; their examples use placeholders like YOUR_SECRET_KEY.
   '''\.agents/skills/.*''',
 ]

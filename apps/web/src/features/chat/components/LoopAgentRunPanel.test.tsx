@@ -77,4 +77,50 @@ describe("LoopAgentRunPanel", () => {
       expect(screen.getByText(/gate FAILED/)).toBeInTheDocument();
     });
   });
+
+  it("renders Foundry live preview with desktop/mobile switcher and Approve/Deny banner", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, approved: true }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<LoopAgentRunPanel taskId="loop_preview1" />);
+    const source = MockEventSource.instances[0];
+    source.emit("preview_ready", {
+      url: "/api/v1/foundry/sites/site_abc123/preview",
+      site_id: "site_abc123",
+      brand: "Aura Bakery",
+      size_kb: 14.2,
+      archetype: "bakery",
+    });
+    source.emit("approval_required", {
+      approval_id: "appr_deadbeef",
+      tool: "write_file",
+      turn: 1,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Foundry Preview")).toHaveAttribute(
+        "src",
+        "/api/v1/foundry/sites/site_abc123/preview",
+      );
+      expect(screen.getByText(/Approval needed · write_file/)).toBeInTheDocument();
+    });
+
+    screen.getByRole("button", { name: /390px/i }).click();
+    await waitFor(() => {
+      expect(screen.getByTitle("Foundry Preview")).toHaveStyle({ width: "390px" });
+    });
+
+    screen.getByRole("button", { name: /Approve/i }).click();
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/loop/loop_preview1/approve",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    vi.unstubAllGlobals();
+    vi.stubGlobal("EventSource", MockEventSource);
+  });
 });

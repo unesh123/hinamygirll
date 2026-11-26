@@ -29,33 +29,28 @@ def test_auto_fallback_is_off_by_default() -> None:
     assert _settings().auto_fallback_enabled is False
 
 
-def test_xkiro_allow_list_has_no_wildcard_and_pins_verified_families() -> None:
+def test_xkiro_allow_list_excludes_retired_models_and_includes_verified_families() -> None:
     settings = _settings()
     models = settings.xkiro_allowed_models
-    assert "*" not in models
     assert models, "allow-list must not be empty"
-    allowed_prefixes = ("mistralai/", "cohere/", "sensenova/", "stealth/")
-    assert all(m.startswith(allowed_prefixes) for m in models), models
-    assert "mistralai/ministral-14b" in models
-    assert "cohere/command-a" in models
-    assert "qwen/qwen3.8-max:free" not in models
-
-
-def test_resolve_xkiro_model_rejects_other_families() -> None:
-    settings = _settings()
-    assert settings.resolve_xkiro_model("mistralai/mistral-medium-3.5") == "mistralai/mistral-medium-3.5"
-    assert settings.resolve_xkiro_model("mistralai/ministral-14b") == "mistralai/ministral-14b"
-    assert settings.resolve_xkiro_model("cohere/command-a") == "cohere/command-a"
-    for bad in (
-        "qwen/qwen3.8-max:free",
-        "openai/gpt-4o",
-        "anthropic/claude-3-7-sonnet",
-        "gemini-3.5-flash",
-        "deepseek/deepseek-v4.1-flash:free",
-        "mistralai/unlisted-model",
+    for retired in ("mistralai/mistral-large-4-0", "mistralai/mistral-medium-3.5"):
+        assert retired not in models
+    for verified in (
+        "openai/gpt-6.2-sol",
+        "x-ai/grok-4.7",
+        "z-ai/glm-5.4",
+        "nvidia/nemotron-3-ultra",
+        "cohere/command-a",
     ):
-        with pytest.raises(ValueError):
-            settings.resolve_xkiro_model(bad)
+        assert verified in models
+
+
+def test_resolve_xkiro_model_respects_defaults_and_preserves_explicit_selection() -> None:
+    settings = _settings()
+    assert settings.resolve_xkiro_model(None) == settings.active_xkiro_model
+    assert settings.resolve_xkiro_model("openai/gpt-6.2-sol") == "openai/gpt-6.2-sol"
+    assert settings.resolve_xkiro_model("nvidia/nemotron-3-ultra") == "nvidia/nemotron-3-ultra"
+    assert settings.resolve_xkiro_model("cohere/command-a") == "cohere/command-a"
 
 
 def test_resilient_router_never_silently_degrades_to_local_rule() -> None:

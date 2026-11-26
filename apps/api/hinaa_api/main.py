@@ -1393,12 +1393,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from .routers.browser_tasks_router import router as browser_tasks_router
     from .routers.coding_sandbox_router import router as coding_sandbox_router
     from .routers.runtime_os_router import router as runtime_os_router
+    from .routers.foundry_router import router as foundry_router
     app.include_router(identity_router)
     app.include_router(voice_router)
     app.include_router(research_router)
     app.include_router(browser_tasks_router)
     app.include_router(coding_sandbox_router)
     app.include_router(runtime_os_router)
+    app.include_router(foundry_router)
 
     # ─── PHASE 09: CREATIVE STUDIO & MULTIMODAL ENDPOINTS ───────────────────
     # Phase 09 Creative Studio Surface extracted to routers/creative_router.py

@@ -330,10 +330,12 @@ def test_eval_golden_11_fetch_url_rejects_non_http(tmp_path):
     assert "only absolute http(s)" in result.outcomes[0].detail
 
 
-def test_eval_golden_12_fetch_url_hits_public_http(tmp_path):
-    """fetch_url against a real (local, allowed) HTTP server returns its body."""
+def test_eval_golden_12_fetch_url_hits_public_http(tmp_path, monkeypatch):
+    """fetch_url against a real (local, explicitly permitted) HTTP server returns its body."""
     import threading
     from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    monkeypatch.setenv("HINAA_LOOP_ALLOW_PRIVATE_FETCH", "1")
 
     class _H(BaseHTTPRequestHandler):
         def do_GET(self):

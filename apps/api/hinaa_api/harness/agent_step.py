@@ -23,23 +23,28 @@ source of truth for success; the agent step only proposes changes.
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import ipaddress
 import json
 import logging
 import os
 import re
+import socket
 import subprocess
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
 from .loop_engine import EvidenceReceipt, LoopTaskSpec
 from .loop_events import EVENT_BUS
 from .loop_tools import describe_tools, validate_action
+from .media_ingest import load_media_insights
 
 logger = logging.getLogger("hinaa.harness.agent_step")
 
@@ -52,24 +57,133 @@ _SYSTEM_PROMPT = (
     '{"type": "write_file", "path": "<relative path>", "content": "<full file content>", "confirm": true}, '
     '{"type": "delete_file", "path": "<relative path>", "confirm": true}, '
     '{"type": "run_command", "command": "<shell command>", "confirm": true}, '
+    '{"type": "build_website", "brief": "<brand + goal>", "confirm": true}, '
+    '{"type": "run_dev_server", "command": "<cmd>", "subdir": ".", "port": 3005, "confirm": true}, '
+    '{"type": "screenshot_page", "url": "http://127.0.0.1:3005/", "label": "home"}, '
     '{"type": "read_file", "path": "<relative path>", "max_bytes": 16000}, '
+    '{"type": "digest_document", "path": "<relative path>", "query": "<focus>", "max_chunks": 6}, '
+    '{"type": "list_media"}, '
+    '{"type": "describe_media", "media_id": "<med_...>"}, '
+    '{"type": "review_diff", "focus": "<area>"}, '
     '{"type": "list_files", "pattern": "**/*"}, '
     '{"type": "search_files", "query": "<literal text>", "glob": "**/*"}, '
     '{"type": "fetch_url", "url": "https://...", "max_chars": 12000}, '
     '{"type": "browser_check", "url": "http://127.0.0.1:3000", "viewport_width": 1280, "viewport_height": 800}'
     "]}\n"
     "Tools:\n" + describe_tools() + "\n"
-    "Rules: inspect first with read_file/list_files/search_files (no confirm needed); every "
-    "side-effecting action MUST carry \"confirm\": true or it is refused; paths are "
+    "Rules: inspect first with read_file/list_files/search_files/digest_document/list_media (no confirm needed); "
+    "every side-effecting action MUST carry \"confirm\": true or it is refused; paths are "
     "relative to the workspace root and must stay inside it; write the complete final "
     "content of any file you touch; keep actions minimal; never invent a verification "
-    "result."
+    "result or fabricate assets/metrics."
 )
 
 _MAX_ACTIONS_PER_TURN = 8
 _MAX_FILE_BYTES = 512_000
 _COMMAND_TIMEOUT_SECONDS = 60.0
 _OBSERVATION_CHARS = 6_000
+_MAX_PROMPT_CHARS = 36_000
+
+_SECRET_PATTERNS = (
+    re.compile(r"\bsk-(?:ant-[A-Za-z0-9_-]{8,}|proj-[A-Za-z0-9_-]{10,}|live-[A-Za-z0-9_-]{10,}|[A-Za-z0-9_-]{20,})"),
+    re.compile(r"\bAIza[0-9A-Za-z_-]{20,}\b"),
+    re.compile(r"\bgh[po]_[0-9A-Za-z]{20,}\b"),
+    re.compile(r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b"),
+    re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._-]{16,}"),
+)
+
+_BLOCKED_FETCH_HOSTS = frozenset({"localhost", "localhost.localdomain", "metadata.google.internal"})
+
+
+def scrub_secrets(value: Any) -> Any:
+    """Recursively mask API tokens and bearer secrets before writing traces or SSE payloads."""
+    if isinstance(value, str):
+        out = value
+        for pat in _SECRET_PATTERNS:
+            out = pat.sub("[REDACTED]", out)
+        return out
+    if isinstance(value, dict):
+        return {k: scrub_secrets(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [scrub_secrets(item) for item in value]
+    return value
+
+
+def _is_blocked_ip(ip_text: str) -> bool:
+    try:
+        ip_obj = ipaddress.ip_address(ip_text)
+    except ValueError:
+        return False
+    return (
+        ip_obj.is_private
+        or ip_obj.is_loopback
+        or ip_obj.is_link_local
+        or ip_obj.is_reserved
+        or ip_obj.is_multicast
+        or ip_obj.is_unspecified
+    )
+
+
+def _check_fetch_url_safety(url: str) -> Optional[str]:
+    """Validate scheme, optional egress allowlist, and block private/SSRF targets."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc or not parsed.hostname:
+        return "only absolute http(s) URLs are allowed"
+    host = parsed.hostname.lower().strip(".")
+    allowlist_raw = os.environ.get("HINAA_LOOP_EGRESS_ALLOWLIST", "").strip()
+    if allowlist_raw:
+        allowed = [item.strip().lower() for item in allowlist_raw.split(",") if item.strip()]
+        if allowed and not any(host == dom or host.endswith("." + dom) for dom in allowed):
+            return f"egress blocked: host {host!r} not in HINAA_LOOP_EGRESS_ALLOWLIST"
+    if os.environ.get("HINAA_LOOP_ALLOW_PRIVATE_FETCH") == "1":
+        return None
+    if host in _BLOCKED_FETCH_HOSTS or host.endswith(".local") or host.endswith(".internal"):
+        return f"ssrf blocked: host {host!r} is restricted"
+    if _is_blocked_ip(host):
+        return f"ssrf blocked: address {host!r} is private or link-local"
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        return None
+    for info in infos:
+        resolved_ip = info[4][0]
+        if _is_blocked_ip(resolved_ip):
+            return f"ssrf blocked: {host!r} resolves to private/link-local address {resolved_ip}"
+    return None
+
+
+def _is_screenshot_url_allowed(url: str) -> Optional[str]:
+    """Allow local loopback dev servers and non-metadata http(s) URLs for visual screenshots."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return "only absolute http(s) URLs can be screenshotted"
+    host = parsed.hostname.lower().strip(".")
+    if host in {"127.0.0.1", "localhost", "::1"}:
+        return None
+    return _check_fetch_url_safety(url)
+
+
+_APPROVAL_WAITERS: Dict[tuple[str, str], asyncio.Future] = {}
+
+
+def compute_approval_id(task_id: str, turn: int, action: Dict[str, Any]) -> str:
+    """Derive a server-bound canonical hash ID for an approval request (never model-controlled)."""
+    canonical = json.dumps({"task_id": task_id, "turn": turn, "action": action}, sort_keys=True, default=str)
+    return "appr_" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
+
+
+def resolve_approval(task_id: str, approval_id: str, approved: bool) -> bool:
+    """Resolve a live pending approval future matching (task_id, approval_id)."""
+    fut = _APPROVAL_WAITERS.get((task_id, approval_id))
+    if fut is None or fut.done():
+        return False
+    fut.set_result(bool(approved))
+    return True
+
+
+def list_pending_approvals(task_id: str) -> List[str]:
+    """Return active approval_ids currently waiting on human confirmation for a task."""
+    return [aid for (tid, aid), fut in _APPROVAL_WAITERS.items() if tid == task_id and not fut.done()]
 _TRACE_LINE_KEYS = (
     "ts",
     "task_id",
@@ -272,24 +386,74 @@ class LLMAgentStep:
         timeout_seconds: float = 120.0,
         client: Optional[httpx.AsyncClient] = None,
         fallback_providers: Optional[List[LoopProvider]] = None,
+        state_dir: Optional[Path] = None,
+        require_human_approval: bool = False,
+        approval_timeout_seconds: float = 300.0,
     ) -> None:
         self.provider = provider
         self._fallback_providers = list(fallback_providers or [])
         self.workspace = Path(workspace_dir)
         self.trace_path = Path(trace_path)
         self.trace_path.parent.mkdir(parents=True, exist_ok=True)
+        self._state_dir = Path(state_dir) if state_dir is not None else self.trace_path.parent
         self._max_output_tokens = max_output_tokens
         self._timeout_seconds = timeout_seconds
         self._client = client
         self._owns_client = client is None
+        self._require_human_approval = require_human_approval
+        self._approval_timeout_seconds = approval_timeout_seconds
         self._observations: List[str] = []
+        self._pending_vision_images: List[Path] = []
+        self._spawned_servers: List[subprocess.Popen] = []
+        self._current_task_id: str = ""
+        self._current_turn: int = 0
 
     async def aclose(self) -> None:
+        for proc in self._spawned_servers:
+            try:
+                if proc.poll() is None:
+                    proc.terminate()
+            except OSError:
+                pass
+        self._spawned_servers.clear()
         if self._owns_client and self._client is not None:
             await self._client.aclose()
             self._client = None
 
     # -- model call ---------------------------------------------------------
+
+    @staticmethod
+    def _budget_prompt(parts: List[str], max_chars: int = _MAX_PROMPT_CHARS) -> str:
+        """Assemble prompt parts with middle-out compaction so long runs stay inside context budget."""
+        joined = "\n\n".join(parts)
+        if len(joined) <= max_chars or len(parts) <= 2:
+            return joined if len(joined) <= max_chars else (
+                joined[: max_chars // 2]
+                + f"\n...[truncated middle {len(joined) - max_chars} chars]...\n"
+                + joined[-(max_chars // 2 - 80):]
+            )
+        head = "\n\n".join(parts[:2])
+        tail = "\n\n".join(parts[-2:]) if len(parts) >= 4 else parts[-1]
+        middle = "\n\n".join(parts[2:-2]) if len(parts) >= 4 else ""
+        fixed_len = len(head) + len(tail) + 64
+        if fixed_len >= max_chars:
+            head_budget = max(400, int(max_chars * 0.35))
+            tail_budget = max(400, max_chars - head_budget - 80)
+            return (
+                head[:head_budget]
+                + f"\n...[truncated middle {max(0, len(joined) - head_budget - tail_budget)} chars]...\n"
+                + tail[-tail_budget:]
+            )
+        avail_mid = max_chars - fixed_len
+        if len(middle) <= avail_mid:
+            return f"{head}\n\n{middle}\n\n{tail}" if middle else f"{head}\n\n{tail}"
+        keep_half = max(0, (avail_mid - 64) // 2)
+        trimmed = (
+            (middle[:keep_half] if keep_half else "")
+            + f"\n...[truncated middle {len(middle) - 2 * keep_half} chars]...\n"
+            + (middle[-keep_half:] if keep_half else "")
+        )
+        return f"{head}\n\n{trimmed}\n\n{tail}"
 
     def _build_user_prompt(self, spec: LoopTaskSpec, turn: int, last_receipt: Optional[EvidenceReceipt]) -> str:
         parts = [
@@ -303,6 +467,10 @@ class LLMAgentStep:
             parts.append("Target files: " + ", ".join(spec.target_files))
         if spec.constraints:
             parts.append("Constraints:\n" + "\n".join(f"- {c}" for c in spec.constraints))
+        media_items = load_media_insights(self._state_dir, spec.task_id) if spec.task_id else []
+        if media_items:
+            brief_media = "; ".join(f"{m.media_id} ({m.kind}: {m.summary[:100]})" for m in media_items[:8])
+            parts.append(f"Attached media insights ({len(media_items)} total): {brief_media}")
         parts.append("Verification command: " + " ".join(spec.verification_command))
         if last_receipt is not None and not last_receipt.passed:
             err = last_receipt.stderr_snippet or last_receipt.stdout_snippet or "Non-zero exit code"
@@ -314,31 +482,62 @@ class LLMAgentStep:
             parts.append("Last verification passed on baseline; no work needed.")
         if self._observations:
             parts.append("Tool results from your previous turn:\n" + "\n\n".join(self._observations))
-        return "\n\n".join(parts)
+        return self._budget_prompt(parts)
 
-    async def _call_single_provider(self, prov: LoopProvider, user_prompt: str) -> tuple[str, int, int, float]:
+    @staticmethod
+    def _encode_vision_parts(vision_paths: List[Path], protocol: str) -> List[Dict[str, Any]]:
+        parts: List[Dict[str, Any]] = []
+        for path in vision_paths[:2]:
+            if not path.is_file() or path.stat().st_size > 4_000_000:
+                continue
+            ext = path.suffix.lower()
+            mime = "image/jpeg" if ext in {".jpg", ".jpeg"} else "image/webp" if ext == ".webp" else "image/png"
+            b64 = base64.b64encode(path.read_bytes()).decode("ascii")
+            if protocol == "anthropic":
+                parts.append(
+                    {"type": "image", "source": {"type": "base64", "media_type": mime, "data": b64}}
+                )
+            else:
+                parts.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
+        return parts
+
+    async def _call_single_provider(
+        self,
+        prov: LoopProvider,
+        user_prompt: str,
+        *,
+        vision_paths: Optional[List[Path]] = None,
+        system_prompt: str = _SYSTEM_PROMPT,
+    ) -> tuple[str, int, int, float]:
         if self._client is None:
             self._client = httpx.AsyncClient()
             self._owns_client = True
         started = time.perf_counter()
+        v_parts = self._encode_vision_parts(vision_paths or [], prov.protocol)
         if prov.protocol == "anthropic":
             url = f"{prov.base_url}/v1/messages"
             headers = {"x-api-key": prov.api_key, "anthropic-version": "2023-06-01"}
+            msg_content: Any = (
+                [{"type": "text", "text": user_prompt}, *v_parts] if v_parts else user_prompt
+            )
             payload: Dict[str, Any] = {
                 "model": prov.model,
                 "max_tokens": self._max_output_tokens,
-                "system": _SYSTEM_PROMPT,
-                "messages": [{"role": "user", "content": user_prompt}],
+                "system": system_prompt,
+                "messages": [{"role": "user", "content": msg_content}],
             }
         else:
             url = f"{prov.base_url}/chat/completions"
             headers = {"Authorization": f"Bearer {prov.api_key}"}
+            msg_content = (
+                [{"type": "text", "text": user_prompt}, *v_parts] if v_parts else user_prompt
+            )
             payload = {
                 "model": prov.model,
                 "max_tokens": self._max_output_tokens,
                 "messages": [
-                    {"role": "system", "content": _SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": msg_content},
                 ],
             }
 
@@ -377,12 +576,23 @@ class LLMAgentStep:
                 await asyncio.sleep(1.0)
         raise RuntimeError(f"LLM call failed for {prov.name} ({prov.model}): {last_error}")
 
-    async def _call_model(self, user_prompt: str) -> tuple[str, int, int, float]:
+    async def _call_model(
+        self,
+        user_prompt: str,
+        *,
+        vision_paths: Optional[List[Path]] = None,
+        system_prompt: str = _SYSTEM_PROMPT,
+    ) -> tuple[str, int, int, float]:
         candidates = [self.provider, *self._fallback_providers]
         errors: List[str] = []
         for idx, cand in enumerate(candidates):
             try:
-                res = await self._call_single_provider(cand, user_prompt)
+                res = await self._call_single_provider(
+                    cand,
+                    user_prompt,
+                    vision_paths=vision_paths,
+                    system_prompt=system_prompt,
+                )
                 if idx > 0:
                     self.provider = cand
                 return res
@@ -429,10 +639,44 @@ class LLMAgentStep:
         )
         return ActionOutcome(action=action, status="applied", detail=detail)
 
+    async def _await_human_approval(self, tool_name: str, action: Dict[str, Any]) -> Optional[str]:
+        """Suspend execution on a side-effecting tool until POST /approve resolves its server hash ID."""
+        task_id = self._current_task_id or "loop"
+        approval_id = compute_approval_id(task_id, self._current_turn, action)
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[bool] = loop.create_future()
+        _APPROVAL_WAITERS[(task_id, approval_id)] = fut
+        try:
+            await EVENT_BUS.publish(
+                task_id,
+                "approval_required",
+                {
+                    "approval_id": approval_id,
+                    "turn": self._current_turn,
+                    "tool": tool_name,
+                    "action": scrub_secrets(action),
+                },
+            )
+            approved = await asyncio.wait_for(fut, timeout=self._approval_timeout_seconds)
+            return None if approved else "blocked: human approval denied"
+        except asyncio.TimeoutError:
+            return "blocked: human approval timed out"
+        finally:
+            _APPROVAL_WAITERS.pop((task_id, approval_id), None)
+
     async def _apply_action(self, action: Dict[str, Any]) -> ActionOutcome:
         spec, args, error = validate_action(action)
         if error is not None or spec is None:
-            return ActionOutcome(action=action if isinstance(action, dict) else {}, status="blocked" if isinstance(error, str) and error.startswith("blocked:") else "error", detail=error or "invalid action")
+            return ActionOutcome(
+                action=action if isinstance(action, dict) else {},
+                status="blocked" if isinstance(error, str) and error.startswith("blocked:") else "error",
+                detail=error or "invalid action",
+            )
+
+        if self._require_human_approval and spec.side_effect:
+            gate_err = await self._await_human_approval(spec.name, action)
+            if gate_err is not None:
+                return ActionOutcome(action=action, status="blocked", detail=gate_err)
 
         if spec.name == "read_file":
             path = _confined_path(self.workspace, args.path)  # type: ignore[attr-defined]
@@ -469,12 +713,26 @@ class LLMAgentStep:
             return ActionOutcome(action=action, status="applied", detail="\n".join(matches) or "no matches")
 
         if spec.name == "fetch_url":
-            parsed = urlparse(args.url)  # type: ignore[attr-defined]
-            if parsed.scheme not in ("http", "https") or not parsed.netloc:
-                return ActionOutcome(action=action, status="blocked", detail="only absolute http(s) URLs are allowed")
+            cur_url = args.url  # type: ignore[attr-defined]
+            ssrf_err = _check_fetch_url_safety(cur_url)
+            if ssrf_err is not None:
+                return ActionOutcome(action=action, status="blocked", detail=ssrf_err)
             try:
-                async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as fetch_client:
-                    response = await fetch_client.get(args.url)  # type: ignore[attr-defined]
+                async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as fetch_client:
+                    response = None
+                    for _ in range(4):
+                        response = await fetch_client.get(cur_url)
+                        if response.status_code in (301, 302, 303, 307, 308):
+                            loc = response.headers.get("location", "").strip()
+                            if not loc:
+                                break
+                            cur_url = urljoin(cur_url, loc)
+                            hop_err = _check_fetch_url_safety(cur_url)
+                            if hop_err is not None:
+                                return ActionOutcome(action=action, status="blocked", detail=hop_err)
+                            continue
+                        break
+                assert response is not None
                 response.raise_for_status()
             except httpx.HTTPError as exc:
                 return ActionOutcome(action=action, status="error", detail=f"fetch failed: {exc}")
@@ -483,6 +741,51 @@ class LLMAgentStep:
 
         if spec.name == "browser_check":
             return await self._browser_check(action, args)
+
+        if spec.name == "build_website":
+            return await self._build_website(action, args)
+
+        if spec.name == "run_dev_server":
+            return await self._run_dev_server(action, args)
+
+        if spec.name == "screenshot_page":
+            return await self._screenshot_page(action, args)
+
+        if spec.name == "list_media":
+            items = load_media_insights(self._state_dir, self._current_task_id or "loop")
+            kind_filter = (args.kind or "").strip().lower()  # type: ignore[attr-defined]
+            if kind_filter:
+                items = [m for m in items if m.kind.lower() == kind_filter]
+            brief = [
+                {
+                    "media_id": m.media_id,
+                    "filename": m.filename,
+                    "kind": m.kind,
+                    "size_bytes": m.size_bytes,
+                    "summary": m.summary,
+                }
+                for m in items[:50]
+            ]
+            return ActionOutcome(action=action, status="applied", detail=json.dumps(brief))
+
+        if spec.name == "describe_media":
+            media_id = args.media_id.strip()  # type: ignore[attr-defined]
+            items = load_media_insights(self._state_dir, self._current_task_id or "loop")
+            found = next((m for m in items if m.media_id == media_id), None)
+            if found is None:
+                return ActionOutcome(action=action, status="skipped", detail=f"media_id {media_id!r} not found")
+            return ActionOutcome(
+                action=action,
+                status="applied",
+                detail=json.dumps(found.model_dump(exclude={"stored_path"})),
+            )
+
+        if spec.name == "digest_document":
+            return self._digest_document(action, args)
+
+        if spec.name == "review_diff":
+            diff_text = self._collect_workspace_diff(args.focus)  # type: ignore[attr-defined]
+            return ActionOutcome(action=action, status="applied", detail=diff_text)
 
         if spec.name == "write_file":
             path = _confined_path(self.workspace, args.path)  # type: ignore[attr-defined]
@@ -530,19 +833,253 @@ class LLMAgentStep:
 
         return ActionOutcome(action=action, status="error", detail=f"unhandled tool: {spec.name!r}")
 
+    async def _build_website(self, action: Dict[str, Any], args: Any) -> ActionOutcome:
+        try:
+            from ..foundry.service import get_foundry_service
+
+            rec = get_foundry_service().create_site(
+                args.brief,
+                palette=args.palette,
+                logos=list(args.logos or []),
+            )
+        except Exception as exc:
+            return ActionOutcome(action=action, status="error", detail=f"build_website failed: {exc}")
+        preview_url = f"/api/v1/foundry/sites/{rec.site_id}/preview"
+        if self._current_task_id:
+            await EVENT_BUS.publish(
+                self._current_task_id,
+                "preview_ready",
+                {
+                    "site_id": rec.site_id,
+                    "url": preview_url,
+                    "brand": rec.brand,
+                    "size_kb": rec.size_kb,
+                    "archetype": rec.archetype,
+                    "turn": self._current_turn,
+                },
+            )
+        return ActionOutcome(
+            action=action,
+            status="applied",
+            detail=json.dumps(
+                {
+                    "site_id": rec.site_id,
+                    "preview_url": preview_url,
+                    "brand": rec.brand,
+                    "size_kb": rec.size_kb,
+                    "archetype": rec.archetype,
+                }
+            ),
+        )
+
+    async def _run_dev_server(self, action: Dict[str, Any], args: Any) -> ActionOutcome:
+        if os.environ.get("HINAA_LOOP_ALLOW_COMMANDS") != "1":
+            return ActionOutcome(
+                action=action,
+                status="blocked",
+                detail="shell disabled; set HINAA_LOOP_ALLOW_COMMANDS=1 to enable run_dev_server",
+            )
+        subdir = _confined_path(self.workspace, args.subdir)
+        if subdir is None or not subdir.is_dir():
+            return ActionOutcome(action=action, status="blocked", detail="subdir outside workspace or missing")
+        port = int(args.port)
+        url = f"http://127.0.0.1:{port}/"
+        try:
+            proc = subprocess.Popen(
+                args.command,
+                cwd=str(subdir),
+                shell=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except OSError as exc:
+            return ActionOutcome(action=action, status="error", detail=f"failed to start dev server: {exc}")
+        self._spawned_servers.append(proc)
+        reachable = False
+        async with httpx.AsyncClient(timeout=1.0) as probe:
+            for _ in range(10):
+                if proc.poll() is not None:
+                    break
+                try:
+                    resp = await probe.get(url)
+                    if resp.status_code < 500:
+                        reachable = True
+                        break
+                except httpx.HTTPError:
+                    pass
+                await asyncio.sleep(0.35)
+        if self._current_task_id:
+            await EVENT_BUS.publish(
+                self._current_task_id,
+                "preview_ready",
+                {"url": url, "port": port, "pid": proc.pid, "reachable": reachable, "turn": self._current_turn},
+            )
+        return ActionOutcome(
+            action=action,
+            status="applied",
+            detail=json.dumps({"preview_url": url, "port": port, "pid": proc.pid, "reachable": reachable}),
+        )
+
+    async def _screenshot_page(self, action: Dict[str, Any], args: Any) -> ActionOutcome:
+        url_err = _is_screenshot_url_allowed(args.url)
+        if url_err is not None:
+            return ActionOutcome(action=action, status="blocked", detail=url_err)
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            return ActionOutcome(action=action, status="error", detail="playwright not installed")
+        safe_task = re.sub(r"[^A-Za-z0-9._-]+", "_", self._current_task_id or "loop")
+        safe_label = re.sub(r"[^A-Za-z0-9._-]+", "_", args.label or "page")[:40]
+        evidence_dir = self.workspace / "docs" / "evidence" / safe_task
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+        desktop_path = evidence_dir / f"{safe_label}_desktop.png"
+        mobile_path = evidence_dir / f"{safe_label}_mobile.png"
+        console_errors: List[str] = []
+        overflow: Dict[str, bool] = {}
+        try:
+            async with async_playwright() as pw:
+                browser = await pw.chromium.launch(headless=True)
+                try:
+                    for key, w, h, target_path in (
+                        ("desktop", 1280, 800, desktop_path),
+                        ("mobile", 390, 844, mobile_path),
+                    ):
+                        page = await browser.new_page(viewport={"width": w, "height": h})
+                        page.on(
+                            "console",
+                            lambda msg: console_errors.append(msg.text[:200]) if msg.type == "error" else None,
+                        )
+                        await page.goto(args.url, timeout=30_000, wait_until="domcontentloaded")
+                        overflow[key] = bool(
+                            await page.evaluate(
+                                "document.documentElement.scrollWidth > document.documentElement.clientWidth"
+                            )
+                        )
+                        await page.screenshot(path=str(target_path), full_page=False)
+                        await page.close()
+                finally:
+                    await browser.close()
+        except Exception as exc:
+            return ActionOutcome(action=action, status="error", detail=f"screenshot_page failed: {exc}")
+
+        self._pending_vision_images.extend([desktop_path, mobile_path])
+        rel_desktop = desktop_path.relative_to(self.workspace).as_posix()
+        rel_mobile = mobile_path.relative_to(self.workspace).as_posix()
+        if self._current_task_id:
+            await EVENT_BUS.publish(
+                self._current_task_id,
+                "evidence_captured",
+                {
+                    "turn": self._current_turn,
+                    "url": args.url,
+                    "screenshots": [rel_desktop, rel_mobile],
+                    "overflow": overflow,
+                    "console_errors": console_errors[:10],
+                },
+            )
+        return ActionOutcome(
+            action=action,
+            status="applied",
+            detail=json.dumps(
+                {
+                    "screenshots": [rel_desktop, rel_mobile],
+                    "overflow": overflow,
+                    "console_errors": console_errors[:10],
+                }
+            ),
+        )
+
+    def _digest_document(self, action: Dict[str, Any], args: Any) -> ActionOutcome:
+        path = _confined_path(self.workspace, args.path)
+        if path is None:
+            return ActionOutcome(action=action, status="blocked", detail="path outside workspace")
+        if not path.is_file():
+            return ActionOutcome(action=action, status="skipped", detail="file not found")
+        headings: List[str] = []
+        matching: List[str] = []
+        samples: List[str] = []
+        query = (args.query or "").strip().lower()
+        max_chunks = int(args.max_chunks)
+        line_count = 0
+        word_count = 0
+        buf: List[str] = []
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                line_count += 1
+                word_count += len(line.split())
+                s = line.strip()
+                if s.startswith("#") and len(headings) < 40:
+                    headings.append(s[:120])
+                buf.append(line.rstrip())
+                if len(buf) >= 20:
+                    chunk = "\n".join(buf)[:650]
+                    buf.clear()
+                    if query and query in chunk.lower() and len(matching) < max_chunks:
+                        matching.append(f"[lines {line_count - 19}-{line_count}]\n{chunk}")
+                    elif not query and len(samples) < max_chunks and (line_count // 20) % 5 == 1:
+                        samples.append(f"[lines {line_count - 19}-{line_count}]\n{chunk}")
+                if line_count >= 50_000:
+                    break
+        if buf:
+            chunk = "\n".join(buf)[:650]
+            if query and query in chunk.lower() and len(matching) < max_chunks:
+                matching.append(f"[tail]\n{chunk}")
+            elif not query and len(samples) < max_chunks:
+                samples.append(f"[tail]\n{chunk}")
+        excerpts = matching if matching else samples
+        payload = {
+            "path": args.path,
+            "lines_scanned": line_count,
+            "words_scanned": word_count,
+            "headings": headings,
+            "excerpts": excerpts[:max_chunks],
+        }
+        return ActionOutcome(action=action, status="applied", detail=json.dumps(payload)[:5500])
+
+    def _collect_workspace_diff(self, focus: str = "") -> str:
+        try:
+            st = subprocess.run(
+                ["git", "status", "--short"],
+                cwd=str(self.workspace),
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            df = subprocess.run(
+                ["git", "diff", "--unified=2"],
+                cwd=str(self.workspace),
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            raw = f"STATUS:\n{st.stdout[:1200]}\n\nDIFF:\n{df.stdout[:4200]}"
+            if focus:
+                raw = f"FOCUS: {focus}\n" + raw
+            return scrub_secrets(raw)
+        except Exception as exc:
+            return f"diff inspection unavailable: {exc}"
+
     # -- trace --------------------------------------------------------------
 
     def _append_trace(self, record: Dict[str, Any]) -> None:
-        line = json.dumps({k: record.get(k) for k in _TRACE_LINE_KEYS}, ensure_ascii=False, default=str)
+        sanitized = scrub_secrets({k: record.get(k) for k in _TRACE_LINE_KEYS})
+        line = json.dumps(sanitized, ensure_ascii=False, default=str)
         with self.trace_path.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
 
     # -- public entry -------------------------------------------------------
 
     async def run(self, spec: LoopTaskSpec, turn: int, last_receipt: Optional[EvidenceReceipt]) -> AgentStepResult:
+        self._current_task_id = spec.task_id
+        self._current_turn = turn
         user_prompt = self._build_user_prompt(spec, turn, last_receipt)
+        vision_imgs = list(self._pending_vision_images[:2])
+        self._pending_vision_images.clear()
         try:
-            text, input_tokens, output_tokens, latency_ms = await self._call_model(user_prompt)
+            text, input_tokens, output_tokens, latency_ms = await self._call_model(
+                user_prompt,
+                vision_paths=vision_imgs,
+            )
         except Exception as exc:
             err_msg = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
             result = AgentStepResult(
@@ -576,7 +1113,7 @@ class LLMAgentStep:
             await EVENT_BUS.publish(
                 spec.task_id,
                 "turn_failed",
-                {"turn": turn, "error": err_msg[:500]},
+                {"turn": turn, "error": scrub_secrets(err_msg[:500])},
             )
             return result
 
@@ -646,22 +1183,54 @@ class LLMAgentStep:
         await EVENT_BUS.publish(
             spec.task_id,
             "turn_completed",
-            {
-                "turn": turn,
-                "thought": result.thought,
-                "provider": self.provider.name,
-                "model": self.provider.model,
-                "latency_ms": round(latency_ms, 2),
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "actions_applied": applied,
-                "actions_blocked": blocked,
-                "outcomes": [
-                    {"status": o.status, "detail": o.detail[:300]} for o in outcomes
-                ],
-            },
+            scrub_secrets(
+                {
+                    "turn": turn,
+                    "thought": result.thought,
+                    "provider": self.provider.name,
+                    "model": self.provider.model,
+                    "latency_ms": round(latency_ms, 2),
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "actions_applied": applied,
+                    "actions_blocked": blocked,
+                    "outcomes": [
+                        {"status": o.status, "detail": o.detail[:600], "tool": o.action.get("type")}
+                        for o in outcomes
+                    ],
+                }
+            ),
         )
         return result
+
+    async def run_diff_review(self, spec: LoopTaskSpec, focus: str = "") -> Dict[str, Any]:
+        """Fresh-context post-gate self-review examining only workspace diff and goal."""
+        diff_bundle = self._collect_workspace_diff(focus)
+        reviewer_system = (
+            "You are a strict senior code reviewer in a fresh context window. "
+            "Review ONLY the workspace diff against the goal. Return ONLY JSON: "
+            '{"approved": true|false, "severity": "none"|"minor"|"critical", "findings": ["..."], "summary": "..."}'
+        )
+        prompt = f"Goal: {spec.goal_title}\n\n{diff_bundle}"
+        try:
+            raw, _, _, _ = await self._call_model(prompt, system_prompt=reviewer_system)
+            parsed = _extract_json_object(raw) or {}
+            verdict = {
+                "approved": bool(parsed.get("approved", True)),
+                "severity": str(parsed.get("severity", "none")),
+                "findings": list(parsed.get("findings") or [])[:10],
+                "summary": str(parsed.get("summary") or raw[:300]),
+            }
+        except Exception as exc:
+            verdict = {
+                "approved": True,
+                "severity": "none",
+                "findings": [],
+                "summary": f"Reviewer skipped: {exc}",
+            }
+        if spec.task_id:
+            await EVENT_BUS.publish(spec.task_id, "turn_reviewed", scrub_secrets(verdict))
+        return verdict
 
     def as_engine_step(
         self, spec: LoopTaskSpec
@@ -681,6 +1250,9 @@ def build_llm_agent_step(
     trace_dir: Optional[Path] = None,
     settings: Any = None,
     client: Optional[httpx.AsyncClient] = None,
+    *,
+    state_dir: Optional[Path] = None,
+    require_human_approval: bool = False,
 ) -> Optional[LLMAgentStep]:
     """Build a real agent step for a task, or None when no provider is configured."""
     providers = resolve_loop_providers(settings)
@@ -700,5 +1272,7 @@ def build_llm_agent_step(
         fallback_providers=providers[1:],
         workspace_dir=workspace,
         trace_path=trace_dir / f"{spec.task_id}_trace.jsonl",
+        state_dir=state_dir or trace_dir,
         client=client,
+        require_human_approval=require_human_approval,
     )

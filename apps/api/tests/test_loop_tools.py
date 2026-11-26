@@ -10,7 +10,7 @@ from hinaa_api.harness.loop_tools import (
 )
 
 
-def test_registry_has_nine_tools_with_approval_flags():
+def test_registry_has_expected_tools_with_approval_flags():
     assert set(TOOL_REGISTRY) == {
         "write_file",
         "delete_file",
@@ -20,6 +20,13 @@ def test_registry_has_nine_tools_with_approval_flags():
         "search_files",
         "fetch_url",
         "browser_check",
+        "run_dev_server",
+        "screenshot_page",
+        "build_website",
+        "list_media",
+        "describe_media",
+        "digest_document",
+        "review_diff",
     }
     side_effects = {name: spec.side_effect for name, spec in TOOL_REGISTRY.items()}
     assert side_effects == {
@@ -31,6 +38,13 @@ def test_registry_has_nine_tools_with_approval_flags():
         "search_files": False,
         "fetch_url": False,
         "browser_check": False,
+        "run_dev_server": True,
+        "screenshot_page": False,
+        "build_website": True,
+        "list_media": False,
+        "describe_media": False,
+        "digest_document": False,
+        "review_diff": False,
     }
 
 

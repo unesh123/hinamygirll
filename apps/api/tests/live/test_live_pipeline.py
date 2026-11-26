@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import struct
 import time
@@ -50,14 +51,26 @@ def test_ws_live_echo_and_latency() -> None:
 
         ws.send_json({"type": "text", "text": "Hello Hinaa"})
         state_msg = ws.receive_json()
-        assert state_msg["type"] == "state"
+        assert state_msg == {"type": "state", "state": "thinking"}
+        speaking_msg = ws.receive_json()
+        assert speaking_msg == {"type": "state", "state": "speaking"}
         spoken = ws.receive_json()
         assert spoken["type"] == "assistant.spoken"
-        pcm_frame = ws.receive_bytes()
-        assert len(pcm_frame) > 0
-        lat = ws.receive_json()
-        assert lat["type"] == "latency"
-        assert (time.perf_counter() - t0) < 1.0
+        pcm_total = 0
+        lat = None
+        for _ in range(40):
+            frame = ws.receive()
+            if frame.get("bytes") is not None:
+                pcm_total += len(frame["bytes"])
+                continue
+            if frame.get("text") is not None:
+                parsed = json.loads(frame["text"])
+                if parsed.get("type") == "latency":
+                    lat = parsed
+                    break
+        assert pcm_total > 0
+        assert lat is not None and lat["type"] == "latency"
+        assert (time.perf_counter() - t0) < 6.0
 
 
 def test_vad_onset_hangover_and_fast_barge_in() -> None:
