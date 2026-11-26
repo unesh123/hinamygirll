@@ -858,8 +858,12 @@ class OpenAILLMProvider:
             self._raise_for_status(response)
             data = response.json()
             choices = data.get("choices") or []
-            content = choices[0].get("message", {}).get("content") if choices else None
-            return content if isinstance(content, str) else ""
+            msg = choices[0].get("message", {}) if choices else {}
+            content = msg.get("content")
+            if isinstance(content, str) and content.strip():
+                return content
+            reasoning = msg.get("reasoning") or msg.get("reasoning_content")
+            return reasoning if isinstance(reasoning, str) else ""
         if last_resp is not None:
             self._raise_for_status(last_resp)
         return ""
@@ -1171,6 +1175,47 @@ class OpenAILLMProvider:
             raise HinaaError("ENDPOINT_MISMATCH", msg, 404, user_action_required=True)
 
         provider_text = safe_error_text(response.text, [self._key]).lower()
+        upstream_msg = ""
+        try:
+            err_json = response.json()
+            if isinstance(err_json, dict):
+                err_obj = err_json.get("error")
+                if isinstance(err_obj, dict):
+                    upstream_msg = safe_error_text(str(err_obj.get("message") or ""), [self._key]).strip()
+                elif isinstance(err_obj, str):
+                    upstream_msg = safe_error_text(err_obj, [self._key]).strip()
+        except Exception:
+            upstream_msg = ""
+
+        if response.status_code == 402 or any(
+            m in provider_text for m in ("insufficient_balance", "not part of the free tier", "payment required")
+        ):
+            msg = upstream_msg or (
+                f"{self._provider_label()} declined model '{self._model}' (HTTP {response.status_code} quota/plan limit)."
+            )
+            raise HinaaError(
+                "PROVIDER_QUOTA_OR_TIER",
+                msg,
+                402,
+                retryable=False,
+                user_action_required=True,
+            )
+
+        if response.status_code == 403 and any(
+            marker in provider_text for marker in ("ip_not_allowed", "ip not allowed", "ip address is not allowed")
+        ):
+            msg = (
+                f"{self._provider_label()} blocked this machine's public IP (HTTP 403 IP_NOT_ALLOWED). "
+                f"Allowlist your IP in {self._provider_label()} dashboard."
+            )
+            raise HinaaError(
+                "PROVIDER_IP_NOT_ALLOWED",
+                msg,
+                403,
+                retryable=False,
+                user_action_required=True,
+            )
+
         if response.status_code == 403 and any(
             marker in provider_text
             for marker in (

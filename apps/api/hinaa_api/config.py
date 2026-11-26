@@ -380,7 +380,7 @@ class Settings(BaseSettings):
         "auto,claude-fable-5-1,claude-fable-5,claude-opus-5-5,claude-opus-5,claude-sonnet-5,gpt-6-astra,gpt-6-sol,deepseek-ai/DeepSeek-V4.1-Flash,qwen3.8-max",
         validation_alias=AliasChoices("TOKENTABLE_ALLOWED_MODELS", "TOKEN_TABLE_ALLOWED_MODELS"),
     )
-    # XKiro Multi-Model AI Gateway — verified Mistral & Cohere models (no wildcard)
+    # XKiro Multi-Model AI Gateway — verified live HTTP 200 models first
     xkiro_api_key: SecretStr | None = Field(
         None,
         validation_alias=AliasChoices("XKIRO_API_KEY", "XK_IRO_API_KEY"),
@@ -394,12 +394,16 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("XKIRO_BASE_URL", "XK_IRO_BASE_URL"),
     )
     xkiro_model: str = Field(
-        "mistralai/mistral-medium-3.5",
+        "openai/gpt-6.2-sol",
         validation_alias=AliasChoices("XKIRO_MODEL", "XK_IRO_MODEL"),
     )
     xkiro_allowed_models_raw: str = Field(
-        "mistralai/mistral-medium-3.5,mistralai/mistral-small-2603,mistralai/codestral-2508,mistralai/ministral-14b,cohere/command-a,cohere/command-a-reasoning,sensenova/sensenova-6.8-flash-lite,stealth/big-pickle",
+        "openai/gpt-6.2-sol,openai/gpt-6.1-terra,openai/gpt-6-sol,openai/gpt-6-luna,openai/gpt-5.6-sol,openai/gpt-5.6-terra,openai/gpt-5.6-luna,x-ai/grok-4.7,x-ai/grok-4.6,x-ai/grok-4.5,z-ai/glm-5.4,z-ai/glm-5.3-flash,z-ai/glm-5.2,z-ai/glm-5.1,z-ai/glm-5-turbo,nvidia/nemotron-3.5-super-vl,nvidia/nemotron-3-ultra,nvidia/nemotron-3-nano-omni,cohere/command-a-plus,cohere/north-mini-code,cohere/command-a-reasoning,cohere/command-a-vision,cohere/command-a,sensenova/sensenova-6.8-flash-lite,*",
         validation_alias=AliasChoices("XKIRO_ALLOWED_MODELS", "XK_IRO_ALLOWED_MODELS"),
+    )
+    xkiro_daily_image_limit: int = Field(
+        25,
+        validation_alias=AliasChoices("XKIRO_DAILY_IMAGE_LIMIT", "HINAA_XKIRO_DAILY_IMAGE_LIMIT"),
     )
     # Video generation (fal.ai) — the paid MP4 path. The key is never in
     # chat or the frontend; it lives in the backend env. Without it the video
@@ -497,7 +501,7 @@ class Settings(BaseSettings):
         "gpt-4o-mini,gpt-4o,claude-3-5-sonnet,gemini-1.5-flash,*",
         validation_alias=AliasChoices("RESPAN_AI_ALLOWED_MODELS", "RESPAN_ALLOWED_MODELS"),
     )
-    # Coarena AI Gateway — free frontier models (claude-sonnet-5-5, gemini-4-argon, etc.)
+    # Coarena AI Gateway — free frontier models (deepseek-v4-1-flash-1017, gemini-3-8-flash, gpt-6-luna)
     coarena_api_key: SecretStr | None = Field(
         None,
         validation_alias=AliasChoices("COARENA_API_KEY", "COARENA_KEY"),
@@ -507,11 +511,11 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("COARENA_BASE_URL"),
     )
     coarena_model: str = Field(
-        "claude-sonnet-5-5",
+        "deepseek-v4-1-flash-1017",
         validation_alias=AliasChoices("COARENA_MODEL"),
     )
     coarena_allowed_models_raw: str = Field(
-        "claude-sonnet-5-5,claude-opus-5-5,claude-fable-5,claude-fable-5-1,claude-fable-5-2,claude-haiku-5-5,gemini-4-argon,gemini-4-carbon,gemini-3-8-flash,grok-4-7,deepseek-v4-1-flash-1017,glm-5-3-flash,hy4,kimi-k3,kimi-k3-1-pro,mimo-v2-6-pro,minimax-m3-1-flash,qwen3-8-2-4t-a95b,*",
+        "deepseek-v4-1-flash-1017,gemini-3-8-flash,gpt-6-luna,claude-sonnet-5-5,claude-opus-5-5,claude-fable-5,claude-fable-5-1,claude-fable-5-2,claude-haiku-5-5,gemini-4-argon,gemini-4-carbon,grok-4-7,glm-5-3-flash,hy4,kimi-k3,kimi-k3-1-pro,mimo-v2-6-pro,minimax-m3-1-flash,qwen3-8-2-4t-a95b,*",
         validation_alias=AliasChoices("COARENA_ALLOWED_MODELS"),
     )
     # Top-Tools AI Gateway — OpenAI-compatible Pro gateway (Top-Tools-Ai-Pro 1M context, vision, tool calls)
@@ -1793,15 +1797,60 @@ class Settings(BaseSettings):
 
     @property
     def active_xkiro_model(self) -> str:
-        return self.xkiro_model or "mistralai/mistral-medium-3.5"
+        retired = {"mistralai/mistral-large-4-0", "mistralai/mistral-medium-3.5"}
+        raw = (self.xkiro_model or "").strip()
+        if not raw or raw in retired:
+            return "openai/gpt-6.2-sol"
+        return raw
 
     @property
     def xkiro_allowed_models(self) -> list[str]:
-        configured = [m.strip() for m in self.xkiro_allowed_models_raw.split(",") if m.strip()]
-        models = configured or [self.active_xkiro_model]
+        retired = {"mistralai/mistral-large-4-0", "mistralai/mistral-medium-3.5"}
+        verified_defaults = (
+            "openai/gpt-6.2-sol",
+            "openai/gpt-6.1-terra",
+            "openai/gpt-6-sol",
+            "openai/gpt-6-luna",
+            "openai/gpt-5.6-sol",
+            "openai/gpt-5.6-terra",
+            "openai/gpt-5.6-luna",
+            "x-ai/grok-4.7",
+            "x-ai/grok-4.6",
+            "z-ai/glm-5.4",
+            "z-ai/glm-5.3-flash",
+            "nvidia/nemotron-3.5-super-vl",
+            "nvidia/nemotron-3-ultra",
+            "cohere/command-a-plus",
+            "cohere/north-mini-code",
+            "cohere/command-a-reasoning",
+            "cohere/command-a",
+        )
+        configured = [
+            m.strip()
+            for m in self.xkiro_allowed_models_raw.split(",")
+            if m.strip() and m.strip() not in retired
+        ]
+        models = list(configured)
+        for verified in verified_defaults:
+            if verified not in models:
+                models.append(verified)
         if self.active_xkiro_model and self.active_xkiro_model not in models:
             models.insert(0, self.active_xkiro_model)
+        if "*" not in models:
+            models.append("*")
         return list(dict.fromkeys(models))
+
+    @property
+    def active_browser_use_base_url(self) -> str:
+        raw = (self.browser_use_base_url or "").strip().rstrip("/")
+        lowered = raw.lower()
+        if not raw or "browserbase.com" in lowered or "cloud.browser-use.com" in lowered:
+            return "https://api.browser-use.com/api/v4"
+        if lowered.endswith("/api/v2"):
+            return f"{raw[:-7]}/api/v4"
+        if "api.browser-use.com" in lowered and not lowered.endswith("/api/v4"):
+            return "https://api.browser-use.com/api/v4"
+        return raw
 
     def resolve_xkiro_model(self, requested: str | None = None) -> str:
         req = (requested or "").strip()
@@ -2048,7 +2097,7 @@ class Settings(BaseSettings):
 
     @property
     def active_coarena_model(self) -> str:
-        return self.coarena_model or "claude-sonnet-5-5"
+        return self.coarena_model or "deepseek-v4-1-flash-1017"
 
     @property
     def coarena_allowed_models(self) -> list[str]:

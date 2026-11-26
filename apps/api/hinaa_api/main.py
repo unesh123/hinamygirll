@@ -4841,6 +4841,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         from .agent.live_agentic_service import (
             get_agentic_store,
+            is_active_agentic_run,
             launch_background_agentic_job,
             run_agentic_job,
         )
@@ -4849,20 +4850,40 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         rec = store.load(run_id)
         if rec is None:
             raise HTTPException(status_code=404, detail="Agentic run not found")
+        approved_hash = str(body.get("argumentsHash") or body.get("arguments_hash") or "").strip()
         pending = rec.result.pending_approval
         if pending is None:
-            raise HTTPException(status_code=400, detail="Run has no pending approval")
-        approved_hash = str(body.get("argumentsHash") or body.get("arguments_hash") or "").strip()
-        if not approved_hash or approved_hash != pending.arguments_hash:
+            if rec.result.status in ("completed", "failed", "cancelled", "stopped"):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Run already {rec.result.status} — no pending approval remains.",
+                )
+            can_recover_interrupted = (
+                rec.result.status == "running"
+                and bool(approved_hash)
+                and (approved_hash in rec.approved_hashes or not is_active_agentic_run(run_id))
+            )
+            if not can_recover_interrupted:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Run is currently executing without a pending approval prompt.",
+                )
+        elif not approved_hash or approved_hash != pending.arguments_hash:
             raise HTTPException(status_code=403, detail="Approval bound hash mismatch")
+
         if body.get("approved", True) is False:
             rec.result.status = "cancelled"
             rec.result.summary = "Approval denied by user."
+            rec.result.pending_approval = None
             store.save(rec)
             return rec.model_dump(mode="json")
 
         approved_hashes = set(rec.approved_hashes)
-        approved_hashes.add(approved_hash)
+        if approved_hash:
+            approved_hashes.add(approved_hash)
+        rec.approved_hashes = sorted(approved_hashes)
+        rec.result.pending_approval = None
+        store.save(rec)
         if body.get("background") is True:
             updated = launch_background_agentic_job(
                 goal=rec.goal,
@@ -4878,7 +4899,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 run_id=rec.run_id,
                 store=store,
             )
-            return updated.model_dump(mode="json")
+            return {**updated.model_dump(mode="json"), "background": True}
         updated = await run_agentic_job(
             goal=rec.goal,
             router=service.router,

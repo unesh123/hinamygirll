@@ -7,12 +7,12 @@
 .shell-skip:focus { top: 8px; }
 
 .shell-bar {
-  flex: none; display: flex; align-items: center; gap: var(--ds-space-3); min-height: 48px; padding: 0 var(--ds-space-3);
+  flex: none; display: flex; align-items: center; gap: var(--ds-space-2); min-height: 48px; padding: 0 var(--ds-space-3);
   background: var(--ds-bg-raised); border-bottom: 1px solid var(--ds-border); position: relative; z-index: 20;
 }
 .shell-bar__brand { font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ds-accent); text-decoration: none; padding: 4px 6px; border-radius: var(--ds-radius-sm); }
-.shell-bar__nav { display: flex; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-.shell-bar__link { padding: 6px 10px; border-radius: var(--ds-radius-md); color: var(--ds-text-muted); text-decoration: none; font-size: var(--ds-fs-sm); font-weight: 600; white-space: nowrap; }
+.shell-bar__nav { display: flex; gap: 1px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.shell-bar__link { padding: 4px 5.5px; border-radius: var(--ds-radius-md); color: var(--ds-text-muted); text-decoration: none; font-size: 11.5px; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
 .shell-bar__link:hover { background: var(--ds-surface-hover); color: var(--ds-text); }
 .shell-bar__link.is-active { color: var(--ds-accent); background: var(--ds-accent-soft); }
 .shell-bar__tools { display: flex; align-items: center; gap: var(--ds-space-2); margin-left: auto; }

@@ -192,7 +192,7 @@ def test_registry_reports_the_brain_choice_and_video_status() -> None:
     asked = _settings(HINAA_PRIMARY_BRAIN="claude")
     registry2 = build_capability_registry(asked)
     assert "staying on the pinned Qwen" in registry2.primary_brain_reason
-    assert registry2.default_brain == "mistralai/mistral-medium-3.5"
+    assert registry2.default_brain == "openai/gpt-6.2-sol"
 
 
 def test_self_state_layer_tells_the_truth(monkeypatch) -> None:

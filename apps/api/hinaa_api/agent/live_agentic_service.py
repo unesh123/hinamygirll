@@ -26,6 +26,7 @@ from .agentic_runner import (
     DEFAULT_AGENTIC_TOOLS,
     AgenticLoopRunner,
     AgenticRunResult,
+    PendingApprovalRecord,
     PlannerCallback,
 )
 
@@ -617,13 +618,49 @@ async def run_agentic_job(
                     f"{effective_goal}\n\n[Prior conversation context (reference only — do NOT quote greetings inside visuals/code)]:\n"
                     + "\n".join(recent[-4:])
                 )
+        async def _wrapped_on_event(evt_name: str, evt_payload: dict[str, Any]) -> None:
+            if evt_name == "confirmation.required":
+                try:
+                    pending_rec = PendingApprovalRecord(
+                        approval_id=str(evt_payload.get("approval_id") or ""),
+                        tool=str(evt_payload.get("tool") or ""),
+                        scope=str(evt_payload.get("scope") or "workspace_command"),
+                        arguments_hash=str(evt_payload.get("arguments_hash") or ""),
+                        arguments_preview=dict(evt_payload.get("arguments_preview") or {}),
+                        reason=str(evt_payload.get("reason") or "Approval required"),
+                        rollback_hint=str(evt_payload.get("rollback_hint") or "Deny or undo step if unintended."),
+                    )
+                    st.save(
+                        PersistedAgenticRun(
+                            run_id=rid,
+                            user_id=user_id,
+                            goal=goal,
+                            provider_mode=provider_mode,
+                            brain_model=brain_model,
+                            allowed_tools=sorted(permitted),
+                            approved_hashes=sorted(approved),
+                            workspace_root=workspace_root,
+                            result=AgenticRunResult(
+                                run_id=rid,
+                                status="awaiting_approval",
+                                summary=pending_rec.reason,
+                                pending_approval=pending_rec,
+                                blocker=pending_rec.reason,
+                            ),
+                        )
+                    )
+                except Exception:
+                    pass
+            if on_event is not None:
+                await on_event(evt_name, evt_payload)
+
         result = await runner.run(
             goal=effective_goal,
             planner=planner,
             allowed_tools=permitted,
             approved_hashes=approved,
             cancel_event=cancel_ev,
-            on_event=on_event,
+            on_event=_wrapped_on_event,
             run_id=rid,
             steer_queue=q_steer,
             initial_images=initial_images,
@@ -813,7 +850,11 @@ def launch_background_agentic_job(
         )
 
     async def _runner_bg() -> PersistedAgenticRun:
+        bg_state = {"confirmation_emitted": False}
+
         async def _on_evt(evt_name: str, evt_payload: dict[str, Any]) -> None:
+            if evt_name == "confirmation.required":
+                bg_state["confirmation_emitted"] = True
             await _publish_bg_event(rid, evt_name, evt_payload)
             if evt_name == "agentic.started":
                 await _emit_progress(
@@ -906,7 +947,8 @@ def launch_background_agentic_job(
                     f"Approval needed for `{res.pending_approval.tool}` — click Allow or Deny in Upper HUD.",
                     force=True,
                 )
-                await _publish_bg_event(rid, "confirmation.required", {"runId": rid, **res.pending_approval.model_dump()})
+                if not bg_state["confirmation_emitted"]:
+                    await _publish_bg_event(rid, "confirmation.required", {"runId": rid, **res.pending_approval.model_dump()})
             elif res.status in ("failed", "blocked", "budget_exhausted"):
                 await _emit_progress("failed", str(res.summary or "Build stopped.")[:180], force=True)
                 await _publish_bg_event(
@@ -1034,20 +1076,30 @@ def describe_active_agentic_run(run_id: str, store: AgenticRunStore | None = Non
     return "\n".join(bits)
 
 
+def is_active_agentic_run(run_id: str) -> bool:
+    task = _BG_TASKS.get(run_id)
+    if task is not None and not task.done():
+        return True
+    return run_id in _ACTIVE_CANCELS
+
+
 async def subscribe_agentic_events(run_id: str, store: AgenticRunStore | None = None):
     """Yield `(event_name, payload)` for a background run until terminal completion."""
     sub_q: asyncio.Queue[tuple[str, dict[str, Any]] | None] = asyncio.Queue()
     _EVENT_SUBSCRIBERS.setdefault(run_id, []).append(sub_q)
     try:
-        for past_item in list(_EVENT_HISTORY.get(run_id, [])):
+        past_events = list(_EVENT_HISTORY.get(run_id, []))
+        for past_item in past_events:
             yield past_item
         if run_id not in _BG_TASKS:
             st = store or get_agentic_store()
             rec = st.load(run_id)
             if rec is not None and rec.result.status != "running":
                 res = rec.result
+                seen_confirm = any(evt_n == "confirmation.required" for evt_n, _ in past_events)
                 if res.status == "awaiting_approval" and res.pending_approval is not None:
-                    yield ("confirmation.required", {"runId": run_id, **res.pending_approval.model_dump()})
+                    if not seen_confirm:
+                        yield ("confirmation.required", {"runId": run_id, **res.pending_approval.model_dump()})
                 elif res.status in ("failed", "blocked", "budget_exhausted"):
                     yield ("agent.run.failed", {"runId": run_id, "status": res.status, "summary": res.summary})
                 else:

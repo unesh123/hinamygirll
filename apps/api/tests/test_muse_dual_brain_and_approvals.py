@@ -290,3 +290,102 @@ async def test_muse_dual_brain_stream_turn_launches_background_and_steers(tmp_pa
 
     # Wait briefly so background builder finishes before tmp_path teardown
     await asyncio.sleep(0.4)
+
+
+@pytest.mark.asyncio
+async def test_confirmation_persists_before_event_and_recovers_interrupted_run(
+    tmp_path, monkeypatch
+) -> None:
+    from hinaa_api.agent.live_agentic_service import run_agentic_job
+
+    monkeypatch.setenv("HINAA_AGENTIC_RUNS_DIR", str(tmp_path / "runs"))
+    monkeypatch.setenv("HINAA_LOCAL_WORKSPACE_DIR", str(tmp_path))
+    monkeypatch.setattr("hinaa_api.agent.live_agentic_service._STORE_SINGLETON", None)
+    monkeypatch.setenv("HINAA_AUTO_APPROVE", "false")
+    monkeypatch.setenv("HINAA_FULL_AUTONOMY", "false")
+
+    store = AgenticRunStore(tmp_path / "runs")
+    cmd_args = {"command": "echo hi", "cwd": str(tmp_path)}
+    expected_hash = _hash_args("workspace_run_command", cmd_args)
+    seen_pending_during_event: list[bool] = []
+
+    def _gate_planner(**_kwargs):
+        async def _planner(_transcript, _step_num: int, images=None):
+            return {
+                "action": "call_tool",
+                "tool": "workspace_run_command",
+                "arguments": dict(cmd_args),
+                "rationale": "Run echo test",
+            }
+        return _planner
+
+    monkeypatch.setattr("hinaa_api.agent.live_agentic_service.make_provider_planner", _gate_planner)
+
+    async def _on_evt(evt_name: str, _payload: dict) -> None:
+        if evt_name == "confirmation.required":
+            saved = store.load("run-persist-race-1")
+            seen_pending_during_event.append(
+                bool(saved and saved.result.pending_approval and saved.result.pending_approval.arguments_hash == expected_hash)
+            )
+
+    service = ConversationService(Settings(_env_file=None, provider_mode="mock"))
+    await run_agentic_job(
+        goal="Run echo test",
+        router=service.router,
+        settings=Settings(_env_file=None, provider_mode="mock", auto_approve=False, full_autonomy=False),
+        provider_mode="mock",
+        allowed_tools={"workspace_run_command"},
+        workspace_root=str(tmp_path),
+        run_id="run-persist-race-1",
+        store=store,
+        on_event=_on_evt,
+    )
+    assert seen_pending_during_event == [True]
+
+    # Interrupted running record recovery + completed 409 check
+    store.save(
+        PersistedAgenticRun(
+            run_id="run-interrupted-1",
+            goal="Interrupted build",
+            provider_mode="mock",
+            allowed_tools=["workspace_run_command"],
+            approved_hashes=[],
+            workspace_root=str(tmp_path),
+            result=AgenticRunResult(run_id="run-interrupted-1", status="running", summary="Interrupted mid-step"),
+        )
+    )
+    store.save(
+        PersistedAgenticRun(
+            run_id="run-done-1",
+            goal="Finished build",
+            provider_mode="mock",
+            result=AgenticRunResult(run_id="run-done-1", status="completed", summary="All done"),
+        )
+    )
+
+    monkeypatch.setattr(
+        "hinaa_api.agent.live_agentic_service.launch_background_agentic_job",
+        lambda **kw: PersistedAgenticRun(
+            run_id=kw["run_id"],
+            goal=kw["goal"],
+            provider_mode=kw["provider_mode"],
+            allowed_tools=sorted(kw["allowed_tools"]),
+            approved_hashes=sorted(kw["approved_hashes"]),
+            workspace_root=kw["workspace_root"],
+            result=AgenticRunResult(run_id=kw["run_id"], status="running", summary="Resumed cleanly"),
+        ),
+    )
+    app = create_app(Settings(_env_file=None, provider_mode="mock"))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        ok_resp = await client.post(
+            "/api/v1/agent/agentic-runs/run-interrupted-1/approve",
+            json={"approved": True, "argumentsHash": expected_hash, "background": True},
+        )
+        assert ok_resp.status_code == 200, ok_resp.text
+        assert expected_hash in ok_resp.json()["approved_hashes"]
+
+        conflict_resp = await client.post(
+            "/api/v1/agent/agentic-runs/run-done-1/approve",
+            json={"approved": True, "argumentsHash": expected_hash},
+        )
+        assert conflict_resp.status_code == 409

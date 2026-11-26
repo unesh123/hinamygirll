@@ -59,6 +59,8 @@ DEFAULT_AGENTIC_TOOLS: frozenset[str] = frozenset({
     "web_extract",
     "web_answer",
     "image_search",
+    "image_generate",
+    "browser_cloud_agent",
     "render_code_animation",
     "create_lyric_video",
     "create_motion_video",

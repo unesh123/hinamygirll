@@ -361,6 +361,22 @@ def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
             availability="healthy" if bool(settings.magnific_api_key and settings.magnific_api_key.get_secret_value()) else "unavailable",
             description="Magnific upscaling and relighting endpoint.",
         ),
+        ModelCapabilityRecord(
+            id=getattr(settings, "openai_image_model", None) or "openai/gpt-image-2.5",
+            display_name="XKiro GPT Image 2.5 (25/day)",
+            provider="xkiro",
+            kind="image",
+            input_modalities=["text"],
+            output_modalities=["image"],
+            image_generation=True,
+            availability="healthy"
+            if (
+                getattr(settings, "xkiro_configured", False)
+                or bool(getattr(settings, "openai_image_api_key", None) and settings.openai_image_api_key.get_secret_value())
+            )
+            else "unavailable",
+            description="XKiro unified /images/generations endpoint (openai/gpt-image-2.5, 25 images/day limit).",
+        ),
 
         # Voice & Speech Engines
         ModelCapabilityRecord(
@@ -441,13 +457,77 @@ def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
         add_brain(model_id, "cx-gateway", has_cx, vision=True)
     add_brain(settings.groq_model, "groq", settings.groq_configured)
     has_xkiro = bool(settings.active_xkiro_key and settings.active_xkiro_key.get_secret_value())
+    _xkiro_maintenance_or_quota = frozenset({
+        "deepseek/deepseek-v4.1-flash",
+        "deepseek/deepseek-v4-flash-0731",
+        "moonshotai/kimi-k3-agent",
+        "moonshotai/kimi-k2.8-preview-agent",
+        "stealth/big-pickle",
+    })
     for model_id in getattr(settings, "xkiro_allowed_models", []):
         if model_id != "*":
-            add_brain(model_id, "xkiro", has_xkiro)
+            if model_id in _xkiro_maintenance_or_quota and model_id not in known_ids:
+                models.append(
+                    ModelCapabilityRecord(
+                        id=model_id,
+                        display_name=f"Xkiro · {model_id}",
+                        provider="xkiro",
+                        kind="brain",
+                        input_modalities=["text", "document"],
+                        output_modalities=["text"],
+                        document=True,
+                        availability="degraded",
+                        description="Upstream XKiro maintenance/free-quota exhausted (HTTP 503); pick GPT-6.2 Sol, Grok 4.7, GLM 5.4, or CanTrustAI DeepSeek.",
+                    )
+                )
+                known_ids.add(model_id)
+            else:
+                add_brain(model_id, "xkiro", has_xkiro)
+    has_cantrust = bool(getattr(settings, "cantrust_configured", False))
+    for model_id in getattr(settings, "cantrust_allowed_models", []):
+        if model_id != "*":
+            add_brain(model_id, "cantrustai", has_cantrust, vision=False)
+    has_coarena = bool(getattr(settings, "coarena_configured", False))
+    _coarena_free = frozenset({"deepseek-v4-1-flash-1017", "gemini-3-8-flash", "gpt-6-luna"})
+    for model_id in getattr(settings, "coarena_allowed_models", []):
+        if model_id != "*":
+            if has_coarena and model_id not in _coarena_free and model_id not in known_ids:
+                models.append(
+                    ModelCapabilityRecord(
+                        id=model_id,
+                        display_name=f"Coarena · {model_id}",
+                        provider="coarena",
+                        kind="brain",
+                        input_modalities=["text", "image", "document"],
+                        output_modalities=["text"],
+                        vision=True,
+                        document=True,
+                        availability="degraded",
+                        description="Paid Coarena tier required; free tier supports deepseek-v4-1-flash-1017, gemini-3-8-flash, and gpt-6-luna.",
+                    )
+                )
+                known_ids.add(model_id)
+            else:
+                add_brain(model_id, "coarena", has_coarena, vision=("gemini" in model_id or "gpt-6" in model_id or "claude" in model_id))
     has_apmix = bool(settings.active_apmix_key and settings.active_apmix_key.get_secret_value())
     for model_id in getattr(settings, "apmix_allowed_models", []):
         if model_id != "*":
-            add_brain(model_id, "apmix", has_apmix, vision=True)
+            if model_id not in known_ids:
+                models.append(
+                    ModelCapabilityRecord(
+                        id=model_id,
+                        display_name=f"Apmix · {model_id}",
+                        provider="apmix",
+                        kind="brain",
+                        input_modalities=["text", "image", "document"],
+                        output_modalities=["text"],
+                        vision=True,
+                        document=True,
+                        availability="degraded" if has_apmix else "unavailable",
+                        description="Upstream APMIX catalog is currently empty (/v1/models returned 0 models).",
+                    )
+                )
+                known_ids.add(model_id)
     has_oxion = bool(settings.active_oxion_key and settings.active_oxion_key.get_secret_value())
     for model_id in getattr(settings, "oxion_allowed_models", []):
         if model_id != "*":
@@ -472,7 +552,9 @@ def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
     elif effective_mode == "claude":
         default_brain = settings.active_claude_model
     elif effective_mode == "xkiro":
-        default_brain = settings.xkiro_model
+        default_brain = settings.active_xkiro_model
+    elif effective_mode == "cantrustai":
+        default_brain = settings.active_cantrust_model
     elif effective_mode == "coarena":
         default_brain = settings.active_coarena_model
     elif effective_mode == "toptools":

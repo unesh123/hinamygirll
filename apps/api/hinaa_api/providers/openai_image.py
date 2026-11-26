@@ -11,13 +11,62 @@ from __future__ import annotations
 import base64
 import logging
 import os
+from datetime import datetime, timezone
+import json
+from pathlib import Path
 from typing import Optional, Any, Dict
 import httpx
 from pydantic import BaseModel
 
 from ..config import Settings, get_settings
+from ..runtime_paths import project_root
 
 logger = logging.getLogger("hinaa.providers.openai_image")
+
+
+def _xkiro_quota_path() -> Path:
+    override = os.getenv("HINAA_XKIRO_IMAGE_QUOTA_FILE")
+    p = Path(override) if override else (project_root() / ".hina" / "xkiro_image_quota.json")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def get_xkiro_image_quota_status(limit: int = 25) -> Dict[str, Any]:
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    cap = max(1, int(limit or 25))
+    path = _xkiro_quota_path()
+    used = 0
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and data.get("date") == today:
+                used = max(0, int(data.get("used") or 0))
+        except Exception:
+            used = 0
+    return {
+        "provider": "xkiro",
+        "date": today,
+        "used": used,
+        "limit": cap,
+        "remaining": max(0, cap - used),
+    }
+
+
+def record_xkiro_image_use(limit: int = 25) -> Dict[str, Any]:
+    status = get_xkiro_image_quota_status(limit=limit)
+    next_used = status["used"] + 1
+    payload = {"date": status["date"], "used": next_used, "limit": status["limit"]}
+    path = _xkiro_quota_path()
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
+    return {
+        "provider": "xkiro",
+        "date": status["date"],
+        "used": next_used,
+        "limit": status["limit"],
+        "remaining": max(0, status["limit"] - next_used),
+    }
 
 
 class OpenAIImageResult(BaseModel):
@@ -37,12 +86,19 @@ class OpenAIImageProvider:
             if getattr(self.settings, "openai_image_api_key", None)
             else None
         )
+        has_xkiro_cfg = bool(getattr(self.settings, "xkiro_configured", False))
+        xkiro_key = (
+            self.settings.active_xkiro_key.get_secret_value()
+            if has_xkiro_cfg and getattr(self.settings, "active_xkiro_key", None)
+            else None
+        )
         self._key = (
             os.getenv("OPENAI_IMAGE_API_KEY")
             or os.getenv("IMAGE_PROXY_API_KEY")
             or os.getenv("OPENAI_API_KEY")
             or settings_img_key
             or (self.settings.openai_api_key.get_secret_value() if self.settings.openai_api_key else None)
+            or xkiro_key
         )
         if self._key:
             self._key = self._key.strip()
@@ -52,6 +108,7 @@ class OpenAIImageProvider:
             or os.getenv("IMAGE_PROXY_BASE_URL")
             or os.getenv("OPENAI_BASE_URL")
             or getattr(self.settings, "openai_image_base_url", None)
+            or (getattr(self.settings, "active_xkiro_base_url", None) if has_xkiro_cfg else None)
             or "https://api.openai.com/v1"
         )
         self.base_url = str(raw_base).strip().rstrip("/")
@@ -62,7 +119,7 @@ class OpenAIImageProvider:
             os.getenv("OPENAI_IMAGE_MODEL")
             or os.getenv("IMAGE_MODEL")
             or getattr(self.settings, "openai_image_model", None)
-            or ("gpt-image-2.5-sunburst" if "api.openai.com" in self.base_url else "")
+            or ("gpt-image-2.5-sunburst" if "api.openai.com" in self.base_url else ("openai/gpt-image-2.5" if "xkiro.com" in self.base_url.lower() else ""))
         ).strip()
 
     def available(self) -> bool:
@@ -106,6 +163,13 @@ class OpenAIImageProvider:
             full_prompt = f"{prompt} [Negative: {negative_prompt}]"
 
         is_xkiro = "xkiro.com" in self.base_url.lower()
+        daily_limit = int(getattr(self.settings, "xkiro_daily_image_limit", 25) or 25)
+        if is_xkiro:
+            quota = get_xkiro_image_quota_status(limit=daily_limit)
+            if quota["remaining"] <= 0:
+                raise RuntimeError(
+                    f"XKiro daily image limit reached ({quota['used']}/{quota['limit']} used on {quota['date']} UTC)."
+                )
         payload: Dict[str, Any] = {
             "model": self.model,
             "prompt": full_prompt,
@@ -192,7 +256,10 @@ class OpenAIImageProvider:
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
-                return await _run_single(client, payload)
+                out = await _run_single(client, payload)
+                if is_xkiro:
+                    record_xkiro_image_use(limit=daily_limit)
+                return out
             except Exception as primary_err:
                 if is_xkiro and self.model != "sensenova/sensenova-u1.5-lite":
                     logger.warning(
@@ -205,5 +272,7 @@ class OpenAIImageProvider:
                         "prompt": full_prompt,
                         "n": 1,
                     }
-                    return await _run_single(client, fallback_payload)
+                    out = await _run_single(client, fallback_payload)
+                    record_xkiro_image_use(limit=daily_limit)
+                    return out
                 raise

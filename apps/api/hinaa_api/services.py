@@ -6388,11 +6388,16 @@ class ConversationService:
         # the whitelist its own words earned: passing () here told her the turn
         # had no tools while the injector below filed the action anyway.
         is_voice_turn = request.responseMode == "concise_voice"
-        live_allowed_tools = (
+        raw_allowed_tools = (
             ()
             if is_voice_turn
             else self._turn_tool_whitelist(request.text, gate_decision.intent, history=session_history)
         )
+        # During Muse dual-brain co-build or live agent steering, never hijack the turn with single-file template design_website
+        if muse_context or getattr(request, "activeAgentRunId", None):
+            live_allowed_tools = tuple(t for t in raw_allowed_tools if t != "design_website")
+        else:
+            live_allowed_tools = raw_allowed_tools
         from .prompts.skill_doctrine import doctrine_for_turn
         from .skills.loader import skill_block_for_turn
         prompt = build_turn_prompt(
@@ -7029,9 +7034,11 @@ class ConversationService:
                     result.value.displayText = f"### {'📊 Presentation' if is_slides else '📄 Document'}: {clean_title}\n\nGenerating your {clean_title} {'presentation slides' if is_slides else 'PDF document'} now! The download and preview card will be ready in a moment."
                     result.value.spokenText = f"Generating your {clean_title} {'presentation slides' if is_slides else 'PDF document'} for you right now."
 
-            # Deterministic Website Design Guarantee
+            # Deterministic Website Design Guarantee (disabled when Muse dual-brain workspace builder owns the build)
             if (
                 "design_website" in live_allowed_tools
+                and not muse_context
+                and not getattr(request, "activeAgentRunId", None)
             ) and not any(t.toolName == "design_website" for t in result.value.toolRequests):
                 clean_web_title = (re.search(r"(?i)\b(?:for|about|on)\s+([a-zA-Z0-9\s:_-]{3,60}?)(?:\s*[,.!?]|\s*$)", request.text) or None)
                 web_title = clean_web_title.group(1).strip().title() if clean_web_title else "Web Application"
@@ -7565,13 +7572,13 @@ class ConversationService:
                 "mlai_run_routine",
             })
             if re.search(
-                r"(?i)\b(?:react|vite|three\.?js|webgl|typescript|multi[- ]?file|multi[- ]?page|package\.json|src/|ai\s+agent|full[- ]?stack|backend|frontend|storefront|sora|dashboard|interactive)\b",
+                r"(?i)\b(?:react|vite|three\.?js|webgl|typescript|multi[- ]?file|multi[- ]?page|package\.json|src/|ai\s+agent|full[- ]?stack|backend|frontend|storefront|sora|dashboard|interactive|game|3d|blender|canvas|physics|editor|advanced|full[- ]?fledged)\b",
                 goal_text,
             ):
                 allowed_for_agentic.discard("design_website")
             ws_dir = _os.environ.get("HINAA_LOCAL_WORKSPACE_DIR") or str(project_root())
             _MUSE_COBUILD_RE = re.compile(
-                r"(?i)\b(?:website|web\s*page|webpage|web\s*app|webapp|landing\s*page|ui\b|clone|scrape|merlin|dashboard|portfolio|frontend|old[- ]?new|sora|storefront|platform|ai\s+agents?|agent|vite|react|three\.?js)\b"
+                r"(?i)\b(?:website|web\s*page|webpage|web\s*app|webapp|landing\s*page|ui\b|clone|scrape|merlin|dashboard|portfolio|frontend|old[- ]?new|sora|storefront|platform|ai\s+agents?|agent|vite|react|three\.?js|game|3d)\b"
             )
             _EXPLICIT_VIDEO_RENDER_RE = re.compile(
                 r"(?i)\b(?:render_code_animation|kinetic[\s-]+typography|bridal\s+reel|(?:create|render|export|make)\s+(?:an?\s+)?(?:\w+\s+){0,3}(?:mp4|motion\s+video|animation\s+reel))\b"
@@ -7583,6 +7590,7 @@ class ConversationService:
                 and bool(_MUSE_COBUILD_RE.search(goal_text))
             )
             if _should_muse_dual_brain:
+                allowed_for_agentic.discard("design_website")
                 launch_background_agentic_job(
                     goal=goal_text,
                     router=self.router,

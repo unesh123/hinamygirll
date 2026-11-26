@@ -734,14 +734,19 @@ async def image_generate_handler(
     asyncio.create_task(run_image_job(generation_set_id, params))
 
     active_renderer = "comfyui-local"
+    xkiro_quota: dict[str, Any] | None = None
     if cloud_ready:
         try:
-            from ..providers.openai_image import OpenAIImageProvider
+            from ..providers.openai_image import OpenAIImageProvider, get_xkiro_image_quota_status
             o_cand = OpenAIImageProvider(get_settings())
             if (_reference_candidate(params) or params.reference_query):
                 active_renderer = "magnific-flux" if gateway_carries_reference else "comfyui-local"
             elif o_cand.available():
                 active_renderer = f"openai-proxy ({o_cand.model})"
+                if "xkiro.com" in o_cand.base_url.lower():
+                    xkiro_quota = get_xkiro_image_quota_status(
+                        limit=int(getattr(get_settings(), "xkiro_daily_image_limit", 25) or 25)
+                    )
             elif MagnificProvider(get_settings()).available():
                 active_renderer = "magnific-flux"
             else:
@@ -754,7 +759,7 @@ async def image_generate_handler(
         except Exception:
             active_renderer = "magnific-flux"
 
-    return {
+    out_payload: Dict[str, Any] = {
         "status": "processing",
         "job_id": generation_set_id,
         "total": total_count,
@@ -767,6 +772,9 @@ async def image_generate_handler(
         "prompt": params.prompt,
         "enhanced_prompt": final_prompt,
     }
+    if xkiro_quota is not None:
+        out_payload["xkiro_quota"] = xkiro_quota
+    return out_payload
 
 
 registry.register(image_generate_def, image_generate_handler)

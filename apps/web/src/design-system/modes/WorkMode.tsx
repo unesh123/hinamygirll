@@ -136,6 +136,8 @@ const LOCAL_COMMAND_ACTIONS: Record<string, string> = {
 import { GenericResultRenderer } from "../../features/chat/components/GenericResultRenderer";
 import { ResponseRenderer } from "../../components/ui/ResponseRenderer";
 import { AgentActivityCard, type ActivityStep } from "../../features/chat/components/AgentActivityCard";
+import { ActivityFeedV2 } from "../../features/chat/components/ActivityFeedV2";
+import { LoopAgentRunPanel } from "../../features/chat/components/LoopAgentRunPanel";
 import { SearchingLoader, WebSearchLoader } from "../../components/ui/SearchingLoader";
 import { AvatarModelPicker } from "../../features/avatar/AvatarModelPicker";
 import { AVATAR_REGISTRY, DEFAULT_AVATAR_FILE } from "../../features/avatar/avatarRegistry";
@@ -165,6 +167,8 @@ function getProviderDisplayName(mode?: string): string {
     case "apmix": return "APMIX.AI";
     case "oxion": return "Oxion AI";
     case "coarena": return "Coarena AI";
+    case "cantrustai":
+    case "cantrust": return "CanTrustAI (DeepSeek)";
     case "toptools": return "Top-Tools AI";
     case "tokenrouter": return "TokenRouter";
     default:
@@ -358,6 +362,29 @@ export function WorkMode({
   const [visibleWindowCount, setVisibleWindowCount] = useState(80);
   const [upperBuildExpanded, setUpperBuildExpanded] = useState(false);
   const [dismissedBuildRunId, setDismissedBuildRunId] = useState<string | null>(null);
+  const [activeLoopTaskId, setActiveLoopTaskId] = useState<string | null>(null);
+
+  const launchLoopTask = useCallback(async (goalText: string) => {
+    const clean = goalText.trim();
+    if (!clean) return;
+    try {
+      const res = await fetch("/api/loop/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          goal_title: clean,
+          verification_command: ["true"],
+          max_turns: 8,
+        }),
+      });
+      if (res.ok) {
+        const payload = (await res.json()) as { task_id?: string };
+        if (payload.task_id) setActiveLoopTaskId(payload.task_id);
+      }
+    } catch {
+      // Non-fatal if loop harness isn't reachable
+    }
+  }, []);
   const deduplicatedMessages = useMemo(() => {
     const seen = new Set<string>();
     const deduped: TranscriptMessage[] = [];
@@ -665,6 +692,13 @@ export function WorkMode({
 
       if (text === "/walk" || text === "/roam") {
         window.dispatchEvent(new CustomEvent("hinaa:toggle-walk-mode"));
+        onInputChange("");
+        return;
+      }
+
+      if (/^\/loop\s+\S/i.test(text)) {
+        const goalTxt = text.replace(/^\/loop\s+/i, "").trim();
+        void launchLoopTask(goalTxt);
         onInputChange("");
         return;
       }
@@ -1603,38 +1637,16 @@ export function WorkMode({
                 {upperBuildExpanded && convertedActivitySteps.length > 0 && (
                   <div
                     style={{
-                      maxHeight: 160,
+                      maxHeight: 240,
                       overflowY: "auto",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 4,
                       paddingTop: 6,
                       borderTop: isDark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(15,23,42,0.08)",
                     }}
                   >
-                    {convertedActivitySteps.map((s) => (
-                      <div
-                        key={s.id}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 8,
-                          fontSize: 11,
-                          color: isDark ? "#cbd5e1" : "#334155",
-                        }}
-                      >
-                        <span style={{ fontWeight: s.status === "running" ? 700 : 500, color: isDark ? "#f8fafc" : "#0f172a" }}>
-                          {s.status === "completed" ? "✓ " : s.status === "running" ? "▸ " : s.status === "failed" ? "✕ " : "• "}
-                          {s.title}
-                        </span>
-                        {s.message && (
-                          <span style={{ opacity: 0.75, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "55%" }}>
-                            {s.message}
-                          </span>
-                        )}
-                      </div>
-                    ))}
+                    <ActivityFeedV2
+                      steps={convertedActivitySteps}
+                      orientation={isMobile ? "stacked" : "auto"}
+                    />
                   </div>
                 )}
               </div>
@@ -1853,6 +1865,16 @@ export function WorkMode({
             <div role="status" aria-label="Your live transcript" style={{ alignSelf: "flex-end", marginLeft: "auto", maxWidth: "85%", padding: "12px 16px", borderRadius: 16, background: "var(--bg-surface-raised)", border: "1px solid var(--border-subtle)", color: "var(--text-primary)", overflowWrap: "anywhere" }}>
               <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 4 }}>You · transcribing</div>
               <div style={{ whiteSpace: "pre-wrap" }}>{partialTranscript}</div>
+            </div>
+          )}
+
+          {/* Live Autonomous Engineering Loop Feed (Phase 2-5 SSE Harness) */}
+          {activeLoopTaskId && (
+            <div style={{ marginBottom: 10 }}>
+              <LoopAgentRunPanel
+                taskId={activeLoopTaskId}
+                onFinished={() => {}}
+              />
             </div>
           )}
 
