@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Loader2, CheckCircle2, XCircle, StopCircle, Sparkles, Wrench, FileSearch, Globe } from "lucide-react";
+import { ActivityFeedV2 } from "./ActivityFeedV2";
 
 export interface ActivityStep {
   id: string;
@@ -289,8 +290,12 @@ export function AgentActivityCard({
         data-tool-activity="true"
         role="status"
         aria-live="polite"
-        style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 6 }}
+        style={{ marginTop: 6 }}
       >
+        {steps.length > 1 ? (
+          <ActivityFeedV2 steps={steps} orientation="stacked" />
+        ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
         {effectiveSteps.map((st) => {
           const isDone = st.status === "completed";
           const isFail = st.status === "failed";
@@ -347,6 +352,8 @@ export function AgentActivityCard({
             </div>
           );
         })}
+        </div>
+        )}
       </div>
     </div>
   );

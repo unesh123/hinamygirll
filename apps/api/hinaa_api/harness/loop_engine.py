@@ -23,6 +23,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from ..runtime_paths import project_root
+from .loop_events import EVENT_BUS
 
 logger = logging.getLogger("hinaa.harness.loop_engine")
 
@@ -227,6 +228,20 @@ class LoopEngine:
         # Initial baseline gate verification (non-blocking in threadpool)
         initial_receipt = await asyncio.to_thread(self.execute_hard_gate, spec.verification_command, cwd, 0)
         receipts.append(initial_receipt)
+        await EVENT_BUS.publish(
+            spec.task_id,
+            "turn_verified",
+            {
+                "turn": 0,
+                "passed": initial_receipt.passed,
+                "exit_code": initial_receipt.exit_code,
+                "command": initial_receipt.command,
+                "stdout_snippet": initial_receipt.stdout_snippet[:400],
+                "stderr_snippet": initial_receipt.stderr_snippet[:400],
+                "duration_ms": initial_receipt.duration_ms,
+                "files_changed": initial_receipt.files_changed[:20],
+            },
+        )
         await asyncio.to_thread(self._write_ledger_disk, spec, receipts, "IN_PROGRESS")
 
         if initial_receipt.passed:
@@ -267,6 +282,22 @@ class LoopEngine:
                 spec.timeout_per_turn_seconds,
             )
             receipts.append(receipt)
+
+            # Stream the objective verdict to live SSE subscribers.
+            await EVENT_BUS.publish(
+                spec.task_id,
+                "turn_verified",
+                {
+                    "turn": turn,
+                    "passed": receipt.passed,
+                    "exit_code": receipt.exit_code,
+                    "command": receipt.command,
+                    "stdout_snippet": receipt.stdout_snippet[:400],
+                    "stderr_snippet": receipt.stderr_snippet[:400],
+                    "duration_ms": receipt.duration_ms,
+                    "files_changed": receipt.files_changed[:20],
+                },
+            )
 
             # Check if passed
             if receipt.passed:
