@@ -87,6 +87,7 @@ def test_m10_01():
         pytest.skip("phase-09-checkpoint tag is not available in this clone")
 
 
+@pytest.mark.skipif(bool(os.environ.get("HINAA_TEST_DATABASE_URL")), reason="SQLite PRAGMA WAL/foreign_keys specific")
 def test_m10_02(temp_repo: MemoryRepository):
     """Verify SQLite database initialization with WAL mode and foreign keys enabled."""
     with temp_repo._get_connection() as conn:

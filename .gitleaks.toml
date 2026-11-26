@@ -21,6 +21,7 @@ paths = [
 regexes = [
   # localStorage key names, not credentials
   '''hinaa\.[a-z0-9.-]+\.v[0-9]+''',
+  '''neon_velocity_save_v1''',
   # Fake JWT ({"sub":"1234567890"}) used as scrubber benchmark input
   '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.doNotLeakThisSignature''',
 ]
