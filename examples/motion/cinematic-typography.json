@@ -1,0 +1,34 @@
+{
+  "version":1,
+  "safe_margin":0.08,
+  "accents":[0.15,0.65,1.15,1.65,2.15,2.65,3.15,3.65,4.15,4.65,5.15,5.65,6.15,6.65,7.15,7.65],
+  "scenes":[
+    {"duration":2,"background":"#ede8dc","accent":"#1e6383","camera":"dolly","camera_amount":0.035,
+     "layers":[
+       {"kind":"line","x":0.5,"y":0.24,"size":0.79,"stroke":"#18252e","start":0.05},
+       {"kind":"text","text":"HINA / MOTION STUDIO","y":0.29,"size":0.027,"font":"mono","weight":400,"color":"#18252e","motion":"tracking"},
+       {"kind":"text","text":"MOVE","y":0.46,"size":0.265,"color":"#18252e","motion":"letter_stagger","motion_blur":true},
+       {"kind":"text","text":"WITH INTENTION.","y":0.6,"size":0.052,"color":"#1e6383","motion":"mask_rise","start":0.55}
+     ]},
+    {"duration":2,"background":"#101b26","accent":"#8bddf5","camera":"pan_right","camera_amount":0.04,"transition":"diagonal",
+     "layers":[
+       {"kind":"text","text":"EVERY","x":0.12,"y":0.35,"align":"left","size":0.19,"color":"#8bddf5","motion":"perspective"},
+       {"kind":"text","text":"FRAME","x":0.12,"y":0.48,"align":"left","size":0.19,"motion":"mask_rise","start":0.18},
+       {"kind":"text","text":"HAS A PURPOSE.","x":0.12,"y":0.65,"align":"left","size":0.045,"font":"mono","weight":400,"motion":"word_reveal","start":0.48,"stagger":0.13},
+       {"kind":"line","x":0.5,"y":0.75,"size":0.76,"stroke":"#8bddf5","start":0.7}
+     ]},
+    {"duration":2,"background":"#d74a3f","accent":"#f7f0e6","camera":"static","transition":"whip","transition_duration":0.28,
+     "layers":[
+       {"kind":"text","text":"BREAK","y":0.39,"size":0.22,"motion":"slash","start":0.05},
+       {"kind":"text","text":"THE","y":0.52,"size":0.15,"outline":true,"motion":"tracking","start":0.24},
+       {"kind":"text","text":"PATTERN.","y":0.65,"size":0.18,"motion":"blur_rise","start":0.45}
+     ]},
+    {"duration":2,"background":"#ede8dc","accent":"#1e6383","camera":"dolly","camera_amount":0.025,"transition":"iris",
+     "layers":[
+       {"kind":"text","text":"MAKE IT","y":0.38,"size":0.15,"color":"#18252e","motion":"mask_rise"},
+       {"kind":"text","text":"MATTER.","y":0.52,"size":0.21,"color":"#18252e","motion":"letter_stagger","start":0.14,"motion_blur":true},
+       {"kind":"text","text":"EDITABLE. LOCAL. YOURS.","y":0.69,"size":0.032,"font":"mono","weight":400,"color":"#1e6383","motion":"tracking","start":0.5},
+       {"kind":"line","x":0.5,"y":0.77,"size":0.8,"stroke":"#18252e","start":0.7}
+     ]}
+  ]
+}
