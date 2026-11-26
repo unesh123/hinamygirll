@@ -826,6 +826,16 @@ class Settings(BaseSettings):
     deepgram_tts_model_hiro: str = Field("aura-2-odysseus-en", alias="DEEPGRAM_TTS_MODEL_HIRO")
     # Deepgram Aura deep velvety feminine voice for Hinaa (aura-2-athena-en)
     deepgram_tts_model_hinaa: str = Field("aura-2-athena-en", alias="DEEPGRAM_TTS_MODEL_HINAA")
+    deepgram_tts_model_cute: str = Field("aura-2-thalia-en", alias="DEEPGRAM_TTS_MODEL_CUTE")
+    edge_tts_voice_hinaa: str = Field("en-US-AnaNeural", alias="EDGE_TTS_VOICE_HINAA")
+    heygen_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("HEYGEN_API_KEY", "Heygen_API_KEY"),
+    )
+    heygen_base_url: str = Field(
+        "https://api.heygen.com",
+        validation_alias=AliasChoices("HEYGEN_BASE_URL", "Heygen_BASE_URL"),
+    )
     # /v1/listen only accepts prerecorded models; flux is realtime-only and 404s here.
     deepgram_stt_model: str = Field("nova-2-general", alias="DEEPGRAM_STT_MODEL")
     allowed_origins: Annotated[list[str], NoDecode] = Field(
@@ -1430,6 +1440,10 @@ class Settings(BaseSettings):
     @property
     def deepgram_configured(self) -> bool:
         return bool(self.deepgram_api_key and self.deepgram_api_key.get_secret_value())
+
+    @property
+    def heygen_configured(self) -> bool:
+        return bool(self.heygen_api_key and self.heygen_api_key.get_secret_value())
 
     @property
     def active_openai_key(self) -> SecretStr | None:

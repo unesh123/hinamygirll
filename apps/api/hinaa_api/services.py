@@ -1841,20 +1841,20 @@ class ProviderRouter:
         )
 
     def tts(self, mode: str, companion_id: CompanionId | None = None, voice_engine: str | None = None) -> TTSProvider:
+        from .providers.edge_tts_provider import EdgeNeuralTTSProvider
+
         effective_engine = (voice_engine or "").lower().strip()
 
-        # Primary neural voice: ElevenLabs (Aisha / Sweet Girlfriend)
-        if self.settings.elevenlabs_configured and (
-            effective_engine == "elevenlabs"
-            or not effective_engine
-            or effective_engine == "auto"
-            or self.settings.voice_provider in ("auto", "elevenlabs")
-        ):
-            return make_elevenlabs_provider(
-                self.elevenlabs_config(), mode=self.settings.elevenlabs_transport
+        if effective_engine in ("edge", "edge-tts", "ana", "ava", "jenny", "cute-girl") or effective_engine.startswith("edge:"):
+            custom_voice = effective_engine.split(":", 1)[1].strip() if ":" in effective_engine else ""
+            default_v = (
+                custom_voice
+                or getattr(self.settings, "edge_tts_voice_hinaa", "en-US-AnaNeural")
+                or "en-US-AnaNeural"
             )
+            return EdgeNeuralTTSProvider(default_voice=default_v)
 
-        if effective_engine.startswith("deepgram") and self.settings.deepgram_configured:
+        if (effective_engine.startswith("deepgram") or effective_engine in ("thalia", "luna")) and self.settings.deepgram_configured:
             assert self.settings.deepgram_api_key
             if self._deepgram_tts_provider is None:
                 self._deepgram_tts_provider = DeepgramTTSProvider(
@@ -1884,6 +1884,28 @@ class ProviderRouter:
             return self.mock_tts
         if mode == "local":
             return self.local_tts
+
+        # Primary neural voice when not overridden by another engine: ElevenLabs (falls back on cooldown/401 to Deepgram -> Edge)
+        if self.settings.elevenlabs_configured and (
+            effective_engine == "elevenlabs"
+            or not effective_engine
+            or effective_engine == "auto"
+        ):
+            if effective_engine != "elevenlabs" and voice_on_cooldown(_ELEVENLABS_PROVIDER):
+                if self.settings.deepgram_configured:
+                    assert self.settings.deepgram_api_key
+                    if self._deepgram_tts_provider is None:
+                        self._deepgram_tts_provider = DeepgramTTSProvider(
+                            api_key=self.settings.deepgram_api_key.get_secret_value(),
+                            base_url=self.settings.deepgram_base_url,
+                        )
+                    return self._deepgram_tts_provider
+                return EdgeNeuralTTSProvider(
+                    default_voice=getattr(self.settings, "edge_tts_voice_hinaa", "en-US-AnaNeural")
+                )
+            return make_elevenlabs_provider(
+                self.elevenlabs_config(), mode=self.settings.elevenlabs_transport
+            )
 
         # Deepgram Aura fallback when ElevenLabs is unconfigured
         if (
@@ -8063,6 +8085,37 @@ class ConversationService:
             "totalDurationMs": int((time.time() - start_time) * 1000),
         })
 
+    def _pick_deepgram_voice(self, companion_id: CompanionId, voice_engine: str | None = None) -> str:
+        if companion_id == "hiro":
+            return self.settings.deepgram_tts_model_hiro
+        eng = (voice_engine or "").lower().strip()
+        if eng == "thalia":
+            return "aura-2-thalia-en"
+        if eng == "luna":
+            return "aura-2-luna-en"
+        if eng == "athena":
+            return "aura-2-athena-en"
+        if eng.startswith("deepgram:") and eng.split(":", 1)[1].strip():
+            return eng.split(":", 1)[1].strip()
+        return getattr(self.settings, "deepgram_tts_model_cute", None) or self.settings.deepgram_tts_model_hinaa
+
+    async def _synthesize_edge_neural(
+        self,
+        text: str,
+        companion_id: CompanionId,
+        voice_override: str | None = None,
+    ) -> ProviderResult[bytes] | None:
+        from .providers.edge_tts_provider import EdgeNeuralTTSProvider
+
+        default_voice = voice_override or getattr(self.settings, "edge_tts_voice_hinaa", "en-US-AnaNeural")
+        edge_provider = EdgeNeuralTTSProvider(default_voice=default_voice)
+        try:
+            async with asyncio.timeout(max(15.0, self.settings.provider_timeout_seconds)):
+                return await edge_provider.synthesize(text, voice=voice_override or "", companion_id=companion_id)
+        except Exception as err:
+            logger.warning("Edge Neural TTS synthesis failed (%s): %s", type(err).__name__, err)
+            return None
+
     async def synthesize(self, request: SpeechRequest) -> ProviderResult[bytes]:
         # The speaker button reads the same text the bubble shows, so the voice
         # channel gets the shaping the Talk path already applies: emoji and the
@@ -8072,12 +8125,21 @@ class ConversationService:
         try:
             async with asyncio.timeout(12.0 if request.realtime else max(25.0, self.settings.provider_timeout_seconds)):
                 provider = self.router.tts(request.providerMode, request.companionId, request.voiceEngine)
-                if isinstance(provider, DeepgramTTSProvider):
-                    dg_voice = (
-                        self.settings.deepgram_tts_model_hiro
-                        if request.companionId == "hiro"
-                        else self.settings.deepgram_tts_model_hinaa
+                from .providers.edge_tts_provider import EdgeNeuralTTSProvider
+
+                if isinstance(provider, EdgeNeuralTTSProvider):
+                    return await provider.synthesize(
+                        text,
+                        voice=getattr(provider, "_default_voice", ""),
+                        companion_id=request.companionId,
                     )
+
+                if isinstance(provider, DeepgramTTSProvider):
+                    if re.search(r"[\u0900-\u097F]", text):
+                        edge_dev = await self._synthesize_edge_neural(text, request.companionId)
+                        if edge_dev is not None:
+                            return edge_dev
+                    dg_voice = self._pick_deepgram_voice(request.companionId, request.voiceEngine)
                     try:
                         return await provider.synthesize(text, voice=dg_voice)
                     except Exception as dg_err:
@@ -8106,7 +8168,10 @@ class ConversationService:
                                 )
                             except Exception as fa_err:
                                 logger.warning("Secondary Fish Audio fallback failed: %s", fa_err)
-                        if self.settings.elevenlabs_configured:
+                        edge_fb = await self._synthesize_edge_neural(text, request.companionId)
+                        if edge_fb is not None:
+                            return edge_fb
+                        if self.settings.elevenlabs_configured and not voice_on_cooldown(_ELEVENLABS_PROVIDER):
                             try:
                                 el_provider = make_elevenlabs_provider(
                                     self.elevenlabs_config(), mode=self.settings.elevenlabs_transport
@@ -8170,15 +8235,17 @@ class ConversationService:
                     except Exception as fa_err:
                         logger.warning("Fish Audio synthesis failed (%s), falling back to secondary voice: %s", type(fa_err).__name__, fa_err)
                         if self.settings.deepgram_configured:
-                            dg_voice = (
-                                self.settings.deepgram_tts_model_hiro
-                                if request.companionId == "hiro"
-                                else self.settings.deepgram_tts_model_hinaa
-                            )
+                            dg_voice = self._pick_deepgram_voice(request.companionId, request.voiceEngine)
                             dg = self._get_deepgram_tts_provider()
                             if dg is not None:
-                                return await dg.synthesize(text, voice=dg_voice)
-                            raise
+                                try:
+                                    return await dg.synthesize(text, voice=dg_voice)
+                                except Exception as dg_err:
+                                    logger.warning("Fish->Deepgram fallback failed (%s): %s", type(dg_err).__name__, dg_err)
+                        edge_fb = await self._synthesize_edge_neural(text, request.companionId)
+                        if edge_fb is not None:
+                            return edge_fb
+                        raise
                 return await provider.synthesize(text, voice)
         except TimeoutError as error:
             raise HinaaError(
@@ -8265,12 +8332,16 @@ class ConversationService:
         cause: Exception,
         turn_id: str | None = None,
     ) -> ProviderResult[bytes] | None:
-        """Last-resort voice. Returns None when there is nothing to fall back to."""
-        if not self.settings.deepgram_configured or not is_fallback_worthy(cause):
+        """Last-resort voice. Falls back from Deepgram Aura to free Edge Neural."""
+        if not is_fallback_worthy(cause):
             return None
-        return await self._deepgram_voice(
-            text=text, companion_id=companion_id, turn_id=turn_id
-        )
+        if self.settings.deepgram_configured and not re.search(r"[\u0900-\u097F]", text):
+            dg_res = await self._deepgram_voice(
+                text=text, companion_id=companion_id, turn_id=turn_id
+            )
+            if dg_res is not None:
+                return dg_res
+        return await self._synthesize_edge_neural(text, companion_id)
 
     async def _deepgram_voice(
         self,
@@ -8279,18 +8350,18 @@ class ConversationService:
         companion_id: CompanionId,
         turn_id: str | None = None,
     ) -> ProviderResult[bytes] | None:
-        """Speak with the configured Aura fallback voice, or None if it fails."""
+        """Speak with the configured Aura fallback voice, or Edge Neural if it fails."""
         if not self.settings.deepgram_configured:
-            return None
+            return await self._synthesize_edge_neural(text, companion_id)
         assert self.settings.deepgram_api_key
         voice = fallback_voice_id(
             companion_id,
-            hinaa_voice=self.settings.deepgram_tts_model_hinaa,
+            hinaa_voice=getattr(self.settings, "deepgram_tts_model_cute", None) or self.settings.deepgram_tts_model_hinaa,
             hiro_voice=self.settings.deepgram_tts_model_hiro,
         )
         provider = self._get_deepgram_tts_provider()
         if provider is None:
-            return None
+            return await self._synthesize_edge_neural(text, companion_id)
         ledger = get_run_ledger()
         started = time.perf_counter()
         try:
@@ -8312,7 +8383,7 @@ class ConversationService:
             )
             return result
         except Exception as error:
-            logger.error("Voice fallback also failed: %s", error)
+            logger.error("Deepgram fallback failed, trying Edge Neural: %s", error)
             ledger.record_tts(
                 provider="deepgram-fallback",
                 voice_id=voice,
@@ -8323,7 +8394,7 @@ class ConversationService:
                 error=str(error),
                 turn_id=turn_id,
             )
-            return None
+            return await self._synthesize_edge_neural(text, companion_id)
 
     async def synthesize_text(
         self,
@@ -8339,31 +8410,37 @@ class ConversationService:
         live: bool = False,
         voice_engine: str | None = None,
     ) -> ProviderResult[bytes]:
+        from .providers.edge_tts_provider import EdgeNeuralTTSProvider
+
         provider = self.router.tts(mode, companion_id, voice_engine)
+        if isinstance(provider, EdgeNeuralTTSProvider):
+            return await provider.synthesize(
+                text,
+                voice=getattr(provider, "_default_voice", ""),
+                companion_id=companion_id,
+            )
         if isinstance(provider, DeepgramTTSProvider):
             has_devanagari = bool(re.search(r"[\u0900-\u097F]", text))
-            if has_devanagari and self.settings.azure_configured:
-                # Deepgram Aura is English-only and cannot pronounce Devanagari.
-                # Azure hi-IN-SwaraNeural is the authentic native Indian Hindi voice!
-                try:
-                    azure_voice = (
-                        self.settings.azure_speech_male_voice
-                        if companion_id == "hiro"
-                        else self.settings.azure_speech_female_voice
-                    )
-                    azure_provider = AzureSpeechProvider(
-                        self.settings.azure_speech_key.get_secret_value(),
-                        self.settings.azure_speech_region,
-                    )
-                    return await azure_provider.synthesize_calibrated(text, azure_voice, 1.15, 0.5, 1.0)
-                except Exception as az_err:
-                    logger.warning("Azure Hindi speech synthesis attempt: %s", az_err)
+            if has_devanagari:
+                if self.settings.azure_configured:
+                    try:
+                        azure_voice = (
+                            self.settings.azure_speech_male_voice
+                            if companion_id == "hiro"
+                            else self.settings.azure_speech_female_voice
+                        )
+                        azure_provider = AzureSpeechProvider(
+                            self.settings.azure_speech_key.get_secret_value(),
+                            self.settings.azure_speech_region,
+                        )
+                        return await azure_provider.synthesize_calibrated(text, azure_voice, 1.15, 0.5, 1.0)
+                    except Exception as az_err:
+                        logger.warning("Azure Hindi speech synthesis attempt: %s", az_err)
+                edge_dev = await self._synthesize_edge_neural(text, companion_id)
+                if edge_dev is not None:
+                    return edge_dev
 
-            dg_voice = (
-                self.settings.deepgram_tts_model_hiro
-                if companion_id == "hiro"
-                else self.settings.deepgram_tts_model_hinaa
-            )
+            dg_voice = self._pick_deepgram_voice(companion_id, voice_engine)
             try:
                 async with asyncio.timeout(max(30.0, self.settings.provider_timeout_seconds)):
                     return await provider.synthesize(text, voice=dg_voice)
@@ -8389,6 +8466,9 @@ class ConversationService:
                         return await fa.synthesize(text, voice=voice_id)
                     except Exception:
                         pass
+                edge_fb = await self._synthesize_edge_neural(text, companion_id)
+                if edge_fb is not None:
+                    return edge_fb
                 if self.settings.azure_configured:
                     try:
                         azure_voice = (
@@ -8413,11 +8493,20 @@ class ConversationService:
                 else self.settings.fish_audio_voice_ids[1]
             )
             if not voice_id:
+                edge_fb = await self._synthesize_edge_neural(text, companion_id)
+                if edge_fb is not None:
+                    return edge_fb
                 raise HinaaError("TTS_FAILED", "Fish Audio voice id is not configured.", 503, True)
             try:
                 async with asyncio.timeout(self.settings.provider_timeout_seconds):
                     return await provider.synthesize(text, voice=voice_id, language_hint=language.split("-")[0] if language != "mixed" else "auto")
             except Exception as error:
+                dg_fb = await self._deepgram_voice(text=text, companion_id=companion_id)
+                if dg_fb is not None:
+                    return dg_fb
+                edge_fb = await self._synthesize_edge_neural(text, companion_id)
+                if edge_fb is not None:
+                    return edge_fb
                 raise HinaaError("TTS_FAILED", f"Fish Audio TTS failed: {error}", 503, True) from error
         if isinstance(
             provider,

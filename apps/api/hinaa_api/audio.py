@@ -71,7 +71,7 @@ def pcm_to_wav(
 def ensure_wav_or_mp3(data: bytes, sample_rate: int = 24_000) -> tuple[bytes, str]:
     if data.startswith(b"RIFF"):
         return data, "audio/wav"
-    if data.startswith(b"ID3") or data[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xfa"):
+    if data.startswith(b"ID3") or (len(data) >= 2 and data[0] == 0xFF and (data[1] & 0xE0) == 0xE0 and (data[1] & 0x06) != 0x00):
         return data, "audio/mpeg"
     if data.startswith(b"OggS"):
         return data, "audio/ogg"

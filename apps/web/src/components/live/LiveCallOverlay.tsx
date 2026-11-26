@@ -1,7 +1,7 @@
-import { useEffect } from "react";
-import { Mic, PhoneOff, Radio, Square, Volume2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Mic, MicOff, PhoneOff, Radio, Send, Square, Volume2, VolumeX } from "lucide-react";
 import { AgentActivityFeed } from "../../features/chat/components/AgentActivityFeed";
-import { useLiveCall } from "../../live/useLiveCall";
+import { useLiveCall, type LiveVoiceEngine } from "../../live/useLiveCall";
 
 export interface LiveCallOverlayProps {
   onClose?: () => void;
@@ -10,6 +10,7 @@ export interface LiveCallOverlayProps {
 
 export function LiveCallOverlay({ onClose, autoConnect = false }: LiveCallOverlayProps) {
   const live = useLiveCall();
+  const [draftUtterance, setDraftUtterance] = useState("");
 
   useEffect(() => {
     if (autoConnect) {
@@ -22,11 +23,14 @@ export function LiveCallOverlay({ onClose, autoConnect = false }: LiveCallOverla
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if (e.code === "Space" && !e.repeat) {
         e.preventDefault();
         live.setIsPushToTalkActive(true);
         live.setMicLevel(0.65);
+        if (!live.micActive) {
+          void live.startMic();
+        }
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -44,6 +48,20 @@ export function LiveCallOverlay({ onClose, autoConnect = false }: LiveCallOverla
   }, [live]);
 
   const orbScale = 1 + Math.min(0.32, live.micLevel * 0.45);
+  const voicePresets: Array<{ id: LiveVoiceEngine; label: string }> = [
+    { id: "thalia", label: "Thalia (Cute Fast)" },
+    { id: "ana", label: "Ana Neural (Free)" },
+    { id: "luna", label: "Luna (Warm)" },
+    { id: "browser", label: "Browser Voice" },
+  ];
+
+  const handleSubmitDraft = (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = draftUtterance.trim();
+    if (!clean) return;
+    live.sendTextUtterance(clean);
+    setDraftUtterance("");
+  };
 
   return (
     <section
@@ -171,17 +189,112 @@ export function LiveCallOverlay({ onClose, autoConnect = false }: LiveCallOverla
         </div>
       </div>
 
+      <div
+        data-testid="live-voice-presets"
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
+        }}
+      >
+        {voicePresets.map((preset) => {
+          const active = live.voiceEngine === preset.id;
+          return (
+            <button
+              key={preset.id}
+              type="button"
+              data-testid={`live-voice-preset-${preset.id}`}
+              onClick={() => live.setVoiceEngine(preset.id)}
+              style={{
+                padding: "4px 10px",
+                borderRadius: "var(--radius-pill, 9999px)",
+                border: `1px solid ${active ? "var(--accent-primary, #bd406f)" : "var(--border-subtle, #ebe4e9)"}`,
+                background: active ? "var(--accent-primary, #bd406f)" : "transparent",
+                color: active ? "#ffffff" : "var(--text-secondary)",
+                fontSize: 11,
+                fontWeight: active ? 600 : 500,
+                cursor: "pointer",
+              }}
+            >
+              {preset.label}
+            </button>
+          );
+        })}
+        {live.lastAudioProvider && (
+          <span
+            data-testid="live-audio-provider-badge"
+            style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: 4 }}
+          >
+            {live.lastAudioProvider}
+          </span>
+        )}
+      </div>
+
       {live.steps.length > 0 && (
         <div style={{ width: "100%", maxWidth: 560 }}>
           <AgentActivityFeed steps={live.steps} variant="inline" />
         </div>
       )}
 
+      <form
+        onSubmit={handleSubmitDraft}
+        style={{
+          width: "100%",
+          maxWidth: 520,
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
+        <input
+          type="text"
+          value={draftUtterance}
+          onChange={(e) => setDraftUtterance(e.target.value)}
+          placeholder="Say or type anything for Hina to speak back…"
+          aria-label="Live call message input"
+          data-testid="live-call-text-input"
+          style={{
+            flex: 1,
+            padding: "8px 12px",
+            borderRadius: "var(--radius-pill, 9999px)",
+            border: "1px solid var(--border-strong, #c5b7c1)",
+            background: "var(--bg-canvas, transparent)",
+            color: "var(--text-primary)",
+            fontSize: 13,
+          }}
+        />
+        <button
+          type="submit"
+          data-testid="live-call-send-btn"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "8px 14px",
+            borderRadius: "var(--radius-pill, 9999px)",
+            border: "none",
+            background: "var(--accent-primary, #bd406f)",
+            color: "#ffffff",
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          <Send size={13} /> Speak
+        </button>
+      </form>
+
       <footer style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: 10 }}>
         {live.callState === "idle" || live.callState === "error" ? (
           <button
             type="button"
-            onClick={live.connect}
+            data-testid="live-start-call-btn"
+            onClick={() => {
+              live.connect();
+              void live.startMic();
+            }}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -202,6 +315,7 @@ export function LiveCallOverlay({ onClose, autoConnect = false }: LiveCallOverla
           <>
             <button
               type="button"
+              onClick={() => (live.micActive ? live.stopMic() : void live.startMic())}
               onMouseDown={() => live.setIsPushToTalkActive(true)}
               onMouseUp={() => live.setIsPushToTalkActive(false)}
               style={{
@@ -210,15 +324,35 @@ export function LiveCallOverlay({ onClose, autoConnect = false }: LiveCallOverla
                 gap: 8,
                 padding: "9px 16px",
                 borderRadius: "var(--radius-pill, 9999px)",
-                border: `1px solid ${live.isPushToTalkActive ? "var(--accent-primary, #bd406f)" : "var(--border-strong, #c5b7c1)"}`,
-                background: "transparent",
+                border: `1px solid ${live.micActive || live.isPushToTalkActive ? "var(--accent-primary, #bd406f)" : "var(--border-strong, #c5b7c1)"}`,
+                background: live.micActive ? "rgba(189, 64, 111, 0.14)" : "transparent",
                 color: "var(--text-primary)",
                 fontSize: 12,
                 fontWeight: 600,
                 cursor: "pointer",
               }}
             >
-              <Mic size={14} /> {live.isPushToTalkActive ? "Recording…" : "Hold to Talk"}
+              {live.micActive ? <Mic size={14} /> : <MicOff size={14} />}
+              {live.micActive ? "Mic Live (Click Mute)" : "Enable Mic"}
+            </button>
+            <button
+              type="button"
+              onClick={() => live.setAudioMuted(!live.audioMuted)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "9px 14px",
+                borderRadius: "var(--radius-pill, 9999px)",
+                border: "1px solid var(--border-strong, #c5b7c1)",
+                background: "transparent",
+                color: "var(--text-secondary)",
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              {live.audioMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+              {live.audioMuted ? "Unmute Audio" : "Audio On"}
             </button>
             <button
               type="button"

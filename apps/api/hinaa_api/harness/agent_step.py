@@ -198,6 +198,17 @@ def resolve_loop_provider(settings: Any = None) -> Optional[LoopProvider]:
             model="gemini-2.5-flash",
         )
 
+    xkiro_key = getattr(settings, "active_xkiro_key", None) or getattr(settings, "xkiro_api_key", None)
+    xkiro_base = getattr(settings, "active_xkiro_base_url", None) or getattr(settings, "xkiro_base_url", None)
+    if xkiro_key is not None and _secret(xkiro_key).strip() and xkiro_base:
+        return LoopProvider(
+            name="xkiro",
+            protocol="openai",
+            base_url=str(xkiro_base).strip().rstrip("/"),
+            api_key=_secret(xkiro_key).strip(),
+            model=str(getattr(settings, "active_xkiro_model", "openai/gpt-6.2-sol")),
+        )
+
     return None
 
 
