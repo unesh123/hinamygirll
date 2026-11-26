@@ -55,7 +55,9 @@ export function Composer({
     [value, disabled, isGenerating, onSend],
   );
 
-  const canSend = value.trim().length > 0 && !disabled && !isGenerating;
+  const overHardLimit = value.length > 8000;
+  const nearSoftLimit = value.length >= 2000;
+  const canSend = value.trim().length > 0 && !disabled && !isGenerating && !overHardLimit;
 
   return (
     <form
@@ -87,6 +89,20 @@ export function Composer({
         autoComplete="off"
         spellCheck
       />
+
+      {nearSoftLimit && (
+        <span
+          data-testid="composer-char-guard"
+          style={{
+            fontSize: 11,
+            fontFamily: "var(--font-mono)",
+            color: overHardLimit ? "var(--status-err)" : "var(--status-warn)",
+            paddingRight: 6,
+          }}
+        >
+          {value.length}/8000
+        </span>
+      )}
 
       <button
         type="submit"

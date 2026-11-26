@@ -29,6 +29,7 @@ from ..tools.policy import (
 )
 from ..tools.registry import RiskTier, ToolDefinition, registry
 from .runtime import _sanitize_value
+from .tool_labels import describe_tool_call
 
 logger = logging.getLogger("hinaa.agent.agentic_runner")
 
@@ -681,6 +682,18 @@ class AgenticLoopRunner:
                 )
 
             action = str(decision.get("action") or "").strip().lower()
+            raw_thought = str(
+                decision.get("thought")
+                or decision.get("reasoning")
+                or (
+                    decision.get("rationale")
+                    if decision.get("rationale") not in (None, "", "XML tool invocation")
+                    else ""
+                )
+            ).strip()
+            if raw_thought and action != "_parse_error":
+                await _emit("thought.delta", {"step": step_num, "text": raw_thought})
+                await _emit("thought.done", {"step": step_num, "summary": raw_thought[:200]})
             if action == "_parse_error":
                 err_txt = str(decision.get("error") or "Invalid tool call format.")
                 steps.append(AgenticStepRecord(
@@ -805,7 +818,8 @@ class AgenticLoopRunner:
                 ok, pending, deny_reason = self._is_tool_permitted(tdef, args, permitted, approved)
                 if not ok:
                     if pending is not None:
-                        await _emit("confirmation.required", pending.model_dump())
+                        meta = describe_tool_call(tool_name, args)
+                        await _emit("confirmation.required", {**pending.model_dump(), **meta})
                         steps.append(AgenticStepRecord(
                             step=step_num, action="approval_gate", tool=tool_name,
                             arguments=pending.arguments_preview, status="awaiting_approval",
@@ -846,12 +860,24 @@ class AgenticLoopRunner:
             if not validated_calls:
                 continue
 
-            for tool_name, args, _rat, _tdef in validated_calls:
-                await _emit("tool.started", {"step": step_num, "toolName": tool_name, "arguments": _sanitize_value(args)})
-
             can_parallel = len(validated_calls) > 1 and all(
                 td.is_read_only and td.is_concurrency_safe for _, _, _, td in validated_calls
             )
+            parallel_group = f"batch-{step_num}" if can_parallel else None
+
+            for tool_name, args, _rat, _tdef in validated_calls:
+                meta = describe_tool_call(tool_name, args)
+                started_payload: dict[str, Any] = {
+                    "step": step_num,
+                    "toolName": tool_name,
+                    "arguments": _sanitize_value(args),
+                    "label": meta["label"],
+                    "target": meta["target"],
+                    "lane": meta["lane"],
+                }
+                if parallel_group:
+                    started_payload["parallelGroup"] = parallel_group
+                await _emit("tool.started", started_payload)
             if can_parallel:
                 batch_results = await asyncio.gather(
                     *(_exec_tool_item(td, a) for _, a, _, td in validated_calls)
@@ -882,11 +908,34 @@ class AgenticLoopRunner:
                     self._collect_artifacts(tool_name, args, safe_obs, artifacts, files_changed)
                     last_error_sig = None
                     consecutive_same_errors = 0
-                    await _emit("tool.completed", {"step": step_num, "toolName": tool_name, "durationMs": step_ms, "status": "success"})
+                    meta = describe_tool_call(tool_name, args)
+                    await _emit(
+                        "tool.completed",
+                        {
+                            "step": step_num,
+                            "toolName": tool_name,
+                            "durationMs": step_ms,
+                            "status": "success",
+                            "label": meta["label"],
+                            "target": meta["target"],
+                            "lane": meta["lane"],
+                        },
+                    )
                     if artifacts:
                         await _emit("artifact.ready", {"step": step_num, "artifact": artifacts[-1]})
                 else:
-                    await _emit("tool.failed", {"step": step_num, "toolName": tool_name, "error": safe_obs.get("error")})
+                    meta = describe_tool_call(tool_name, args)
+                    await _emit(
+                        "tool.failed",
+                        {
+                            "step": step_num,
+                            "toolName": tool_name,
+                            "error": safe_obs.get("error"),
+                            "label": meta["label"],
+                            "target": meta["target"],
+                            "lane": meta["lane"],
+                        },
+                    )
                     err_sig = f"{tool_name}:{safe_obs.get('code')}:{str(safe_obs.get('error'))[:80]}"
                     consecutive_same_errors = consecutive_same_errors + 1 if err_sig == last_error_sig else 1
                     last_error_sig = err_sig

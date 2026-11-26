@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Globe, Wrench, FileSearch, Brain, Hammer, CheckCircle2, Loader2, XCircle } from "lucide-react";
 import type { ActivityStep } from "./AgentActivityCard";
+import type { RichActivityStep } from "../contracts/agentEvents";
 
 export type ActivityLaneId = "reasoning" | "research" | "files" | "media" | "system";
 
@@ -109,43 +110,73 @@ export function ActivityFeedV2({ steps, orientation = "auto" }: ActivityFeedV2Pr
           <section
             key={lane.id}
             data-testid={`activity-lane-${lane.id}`}
-            className="rounded-xl border border-glass-border bg-frost/60 p-2 min-w-0"
+            className="rounded-xl border p-2 min-w-0"
+            style={{
+              borderColor: "var(--border-subtle)",
+              background: "var(--bg-glass)",
+            }}
           >
-            <header className="flex items-center gap-1.5 mb-1.5">
-              <Icon size={12} className="text-accent" />
-              <span className="text-[10px] font-bold uppercase tracking-wide text-text-muted">
+            <header className="flex items-center gap-1.5 mb-1.5" style={{ color: "var(--text-muted)" }}>
+              <Icon size={12} style={{ color: "var(--accent-primary)" }} />
+              <span className="text-[10px] font-bold uppercase tracking-wide">
                 {lane.label}
               </span>
-              <span className="ml-auto text-[10px] text-text-muted">
+              <span className="ml-auto text-[10px]">
                 {lane.steps.length}
               </span>
             </header>
             <ul className="space-y-1">
               {lane.steps.map((step) => {
+                const rich = step as RichActivityStep;
                 const StatusIcon =
                   step.status in STEP_STATUS_ICON
                     ? STEP_STATUS_ICON[step.status as keyof typeof STEP_STATUS_ICON]
                     : Loader2;
+                const iconColor =
+                  step.status === "completed"
+                    ? "var(--status-ok)"
+                    : step.status === "failed"
+                      ? "var(--status-err)"
+                      : "var(--accent-primary)";
                 return (
                   <li
                     key={step.id}
                     data-testid={`activity-step-${step.id}`}
-                    className="flex items-start gap-1.5 text-[11px] leading-snug text-text-primary min-w-0"
+                    className="flex items-start gap-1.5 text-[11px] leading-snug min-w-0"
+                    style={{ color: "var(--text-primary)" }}
                   >
                     <StatusIcon
                       size={12}
+                      style={{ color: iconColor }}
                       className={
-                        step.status === "completed"
-                          ? "text-emerald-500 shrink-0"
-                          : step.status === "failed"
-                            ? "text-red-500 shrink-0"
-                            : "text-accent shrink-0 animate-spin"
+                        step.status === "completed" || step.status === "failed"
+                          ? "shrink-0 mt-0.5"
+                          : "shrink-0 mt-0.5 animate-spin"
                       }
                     />
-                    <span className="min-w-0 break-words">
+                    <span className="min-w-0 break-words flex-1">
                       <span className="font-semibold">{step.title}</span>
+                      {rich.parallelGroup && (
+                        <span
+                          className="ml-1.5 px-1 rounded text-[9px] border"
+                          style={{
+                            borderColor: "var(--border-subtle)",
+                            color: "var(--text-muted)",
+                          }}
+                        >
+                          parallel
+                        </span>
+                      )}
+                      {typeof rich.durationMs === "number" && (
+                        <span
+                          className="ml-1.5 text-[10px]"
+                          style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
+                        >
+                          {Math.round(rich.durationMs)}ms
+                        </span>
+                      )}
                       {step.message && (
-                        <span className="text-text-muted"> — {step.message}</span>
+                        <span style={{ color: "var(--text-muted)" }}> — {step.message}</span>
                       )}
                     </span>
                   </li>

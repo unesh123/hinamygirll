@@ -455,3 +455,39 @@ def decide(
         )
 
     return Decision(Intent.CHAT)
+
+
+def classify_with_router(
+    text: str,
+    *,
+    now: datetime | None = None,
+    history: list[tuple[str, str]] | None = None,
+    context: dict[str, Any] | None = None,
+):
+    """Run the deterministic intent gate alongside `hinaa_api.intent_router.route_intent`.
+
+    Keeps `decide()` backwards-compatible with every strict tool-boundary assertion
+    while surfacing structured execution routing (`RouteDecision`) when the gate
+    falls through or resolves to multi-step work.
+    """
+    from hinaa_api.intent_router import ROUTE_CHAT, ROUTE_CREATIVE, ROUTE_DOCUMENTS, ROUTE_RESEARCH, RouteDecision, route_intent
+
+    decision = decide(text, now=now, history=history)
+    if decision.intent == Intent.CANCEL:
+        return decision, RouteDecision(route=ROUTE_CHAT, confidence=1.0, goal=text.strip()[:2000], metadata={"cancelled": True})
+    if decision.intent == Intent.IMAGE_GENERATE or decision.intent == Intent.IMAGE_SEARCH:
+        return decision, route_intent(text, context=context) if decision.intent != Intent.IMAGE_GENERATE else RouteDecision(
+            route=ROUTE_CREATIVE, confidence=0.95, goal=str(decision.arguments.get("prompt") or text)[:2000],
+            candidate_tools=("generate_image",), requires_planning=False, requires_confirmation=False,
+        )
+    if decision.intent == Intent.DOCUMENT_CREATE:
+        return decision, RouteDecision(
+            route=ROUTE_DOCUMENTS, confidence=0.94, goal=text.strip()[:2000],
+            candidate_tools=("parse_document", "generate_document"), requires_planning=True, requires_confirmation=True,
+        )
+    if decision.intent == Intent.WEB_SEARCH:
+        return decision, RouteDecision(
+            route=ROUTE_RESEARCH, confidence=0.92, goal=str(decision.arguments.get("query") or text)[:2000],
+            candidate_tools=("web_search", "web_fetch", "synthesize_sources"),
+        )
+    return decision, route_intent(text, context=context)

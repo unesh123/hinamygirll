@@ -22,7 +22,7 @@
   font-size: 10.5px;
   font-weight: 800;
   letter-spacing: 0.16em;
-  color: #f5a7bb;
+  color: var(--accent-primary, #f5a7bb);
 }
 
 .header h2 {
@@ -45,11 +45,9 @@
   gap: 9px;
   padding: 15px 16px;
   border-radius: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  background:
-    radial-gradient(120% 140% at 0% 0%, rgba(124, 91, 255, 0.10), transparent 55%),
-    rgba(16, 17, 32, 0.62);
-  box-shadow: 0 18px 40px rgba(4, 5, 14, 0.35);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.09));
+  background: var(--bg-elevated, rgba(16, 17, 32, 0.62));
+  box-shadow: var(--shadow-float, 0 18px 40px rgba(4, 5, 14, 0.35));
   backdrop-filter: blur(14px);
 }
 
@@ -67,8 +65,8 @@
   resize: vertical;
   padding: 11px 13px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(8, 9, 20, 0.55);
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.12));
+  background: var(--bg-subtle, rgba(8, 9, 20, 0.55));
   color: inherit;
   font: inherit;
   font-size: 13.5px;

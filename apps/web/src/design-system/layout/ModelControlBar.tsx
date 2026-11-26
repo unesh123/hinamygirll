@@ -590,6 +590,11 @@ export function ModelControlBar({
                   <div style={{ padding: "4px 8px", fontSize: 10, fontWeight: 700, color: theme.subHeaderText }}>
                     {p.label}
                     {p.health !== "healthy" && <span style={{ marginLeft: 6, fontWeight: 400 }}>{p.health === "untested" ? "Not tested yet" : p.health}</span>}
+                    {!p.available && p.healthReason && (
+                      <div style={{ fontWeight: 400, fontSize: 9, color: theme.mutedText, marginTop: 1 }}>
+                        {p.healthReason}
+                      </div>
+                    )}
                   </div>
                   {models.map((m) => {
                     const isSelectedModel = isSelectedProvider && (currentModel === m.id || (!currentModel && m.isDefault));

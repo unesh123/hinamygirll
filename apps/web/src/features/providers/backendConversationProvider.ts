@@ -53,6 +53,8 @@ const TOP_LEVEL_AGENTIC_EVENTS = new Set([
   "agentic.completed",
   "agent.step.started",
   "agent.steered",
+  "thought.delta",
+  "thought.done",
   "tool.started",
   "tool.completed",
   "tool.failed",

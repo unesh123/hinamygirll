@@ -1101,6 +1101,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(omega_router)
     from .routers.bivia_router import create_bivia_router
     app.include_router(create_bivia_router(active_settings))
+    from .live.transport import create_live_router
+    app.include_router(create_live_router())
+    from .society.metrics import create_society_router
+    app.include_router(create_society_router())
     from .skills.endpoints import router as skills_router
     app.include_router(skills_router)
     from .integrations_hub.endpoints import router as hub_router

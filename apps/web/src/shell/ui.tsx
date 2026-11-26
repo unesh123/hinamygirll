@@ -14,7 +14,14 @@ export interface ResourceStateProps {
 
 /** Shared loading / not-available / error / empty handling for API-backed panels. */
 export function ResourceState({ status, error, empty, noun, onRetry, children }: ResourceStateProps) {
-  if (status === "loading") return <p className="shell-state" role="status">Loading {noun}…</p>;
+  if (status === "loading") {
+    return (
+      <div className="shell-state shell-state--loading" role="status" aria-busy="true">
+        <div className="shell-skeleton-line" aria-hidden="true" />
+        <span>Loading {noun}…</span>
+      </div>
+    );
+  }
   if (status === "missing") {
     return <p className="shell-state" data-kind="missing">The {noun} endpoint isn’t available on this backend yet.</p>;
   }

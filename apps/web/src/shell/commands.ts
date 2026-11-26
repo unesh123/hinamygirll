@@ -18,6 +18,8 @@ export const PAGE_ROUTES = [
   { path: "/productivity", label: "Productivity", keywords: "content calendar posts sales projects tasks revenue" },
   { path: "/news", label: "News", keywords: "digest watchlist rss headlines youtube publish social" },
   { path: "/organisation", label: "Organisation", keywords: "members roles rbac api keys audit log team access" },
+  { path: "/agent-health", label: "Agent Health", keywords: "society verifier lessons skills metrics marathon" },
+  { path: "/live", label: "Live Voice", keywords: "jarvis voice stream microphone talk call" },
 ] as const;
 
 /** Whether the legacy conversation host is on screen (workspace/companion routes). */

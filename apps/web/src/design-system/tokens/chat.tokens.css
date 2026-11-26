@@ -1,0 +1,96 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   HINAA Chat Redesign — Token Layer (Dark + Light, WCAG AA contrast)
+   Pure CSS custom properties scoped to :root (light) and [data-theme="dark"]
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --bg-elevated: #ffffff;
+  --bg-glass: rgba(255, 255, 255, 0.88);
+  --text-muted: #6e636d;
+  --border-subtle: #ebe4e9;
+  --border-strong: #c5b7c1;
+  --accent-primary: #bd406f;
+  --accent-secondary: #7c6bc4;
+  --status-ok: #17643c;
+  --status-warn: #825400;
+  --status-err: #9f2636;
+  --font-sans: var(--font-sans-family, "Plus Jakarta Sans", "Inter", system-ui, sans-serif);
+  --font-mono: var(--font-mono-family, "JetBrains Mono", ui-monospace, SFMono-Regular, monospace);
+  --radius-card: 16px;
+  --radius-pill: 9999px;
+  --shadow-float: 0 12px 32px -4px rgba(33, 26, 32, 0.14), 0 4px 12px -2px rgba(33, 26, 32, 0.08);
+
+  /* Semantic chat helpers */
+  --chat-rail-bg: #f7f3f7;
+  --chat-user-bubble-bg: #211a20;
+  --chat-user-bubble-text: #ffffff;
+  --chat-assistant-bubble-bg: #ffffff;
+  --chat-assistant-bubble-text: #211a20;
+  --chat-shimmer-base: #6e636d;
+  --chat-shimmer-peak: #bd406f;
+}
+
+[data-theme="dark"],
+.dark {
+  --bg-elevated: #141824;
+  --bg-glass: rgba(14, 17, 26, 0.88);
+  --text-muted: #9aa6bc;
+  --border-subtle: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.22);
+  --accent-primary: #2b7fff;
+  --accent-secondary: #a855f7;
+  --status-ok: #4ade80;
+  --status-warn: #fbbf24;
+  --status-err: #fb7185;
+  --shadow-float: 0 18px 44px -8px rgba(0, 0, 0, 0.72), 0 0 0 1px rgba(255, 255, 255, 0.08);
+
+  --chat-rail-bg: #0c0f17;
+  --chat-user-bubble-bg: #1e293b;
+  --chat-user-bubble-text: #f8fafc;
+  --chat-assistant-bubble-bg: #111521;
+  --chat-assistant-bubble-text: #f1f5f9;
+  --chat-shimmer-base: #9aa6bc;
+  --chat-shimmer-peak: #60a5fa;
+}
+
+@keyframes thinking-sweep {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: -100% 50%;
+  }
+}
+
+.thinking-shimmer-text {
+  background: linear-gradient(
+    90deg,
+    var(--chat-shimmer-base) 0%,
+    var(--chat-shimmer-base) 38%,
+    var(--chat-shimmer-peak) 50%,
+    var(--chat-shimmer-base) 62%,
+    var(--chat-shimmer-base) 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: thinking-sweep 2.2s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-shimmer-text {
+    animation: none !important;
+    background: none !important;
+    color: var(--chat-shimmer-base) !important;
+    -webkit-background-clip: initial !important;
+    background-clip: initial !important;
+  }
+}
+
+[data-reduced-motion="true"] .thinking-shimmer-text,
+.reduced-motion .thinking-shimmer-text {
+  animation: none !important;
+  background: none !important;
+  color: var(--chat-shimmer-base) !important;
+}
