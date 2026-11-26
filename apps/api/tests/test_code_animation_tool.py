@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 
 import pytest
@@ -21,7 +22,8 @@ def _has_render_toolchain() -> bool:
         from playwright.sync_api import sync_playwright
 
         with sync_playwright() as pw:
-            return Path(pw.chromium.executable_path).exists()
+            configured = os.environ.get("HINAA_CHROMIUM_EXECUTABLE", "")
+            return Path(configured or pw.chromium.executable_path).is_file()
     except Exception:
         return False
 

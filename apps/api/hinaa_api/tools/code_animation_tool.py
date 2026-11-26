@@ -348,6 +348,20 @@ def _ffprobe_metadata(video_path: Path) -> dict[str, Any]:
     }
 
 
+def _launch_studio_browser(pw: Any) -> Any:
+    options: dict[str, Any] = {"headless": True}
+    configured = os.environ.get("HINAA_CHROMIUM_EXECUTABLE", "").strip()
+    if configured:
+        if not Path(configured).is_file():
+            raise HinaaError("CHROMIUM_MISSING", "Configured Chromium executable does not exist", 500, True)
+        options["executable_path"] = configured
+    elif not Path(pw.chromium.executable_path).is_file():
+        system = shutil.which("chromium") or shutil.which("google-chrome")
+        if system:
+            options["executable_path"] = system
+    return pw.chromium.launch(**options)
+
+
 _STUDIO_FX_SCRIPT = """<script>
 (function () {
   if (window.StudioFX) return;
@@ -545,6 +559,7 @@ def _save_vision_storyboard(frames_dir: Path, total_frames: int) -> str | None:
     """Create a 2x2 contact-sheet JPEG under `.hina/previews/` for multimodal vision self-review."""
     try:
         from PIL import Image
+
         from ..runtime_paths import project_root
 
         previews_dir = project_root() / ".hina" / "previews"
@@ -586,6 +601,7 @@ def _render_html_sync(
     audio_path: str | None,
     normalize_audio: bool,
     audio_preset: str = "auto",
+    audio_start_seconds: float = 0.0,
 ) -> tuple[bytes, dict[str, Any]]:
     from playwright.sync_api import sync_playwright
 
@@ -603,10 +619,12 @@ def _render_html_sync(
         frames_dir.mkdir(parents=True, exist_ok=True)
 
         with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=True)
+            browser = _launch_studio_browser(pw)
             try:
                 context = browser.new_context(viewport={"width": width, "height": height}, device_scale_factor=1)
                 page = context.new_page()
+                page_errors: list[str] = []
+                page.on("pageerror", lambda err: page_errors.append(str(err)))
 
                 # Fail closed on outbound HTTP(S) inside rendered scene HTML to prevent SSRF/exfiltration
                 def _route_guard(route: Any) -> None:
@@ -618,14 +636,15 @@ def _render_html_sync(
 
                 page.route("**/*", _route_guard)
                 page.goto(html_file.as_uri(), wait_until="load", timeout=15_000)
+                page.evaluate("async () => { if (window.__motionReady) await window.__motionReady; await document.fonts.ready; }")
 
                 for idx in range(total_frames):
                     t_sec = idx / float(fps)
                     t_ms = t_sec * 1000.0
                     page.evaluate(
-                        """([tSec, tMs]) => {
+                        """async ([tSec, tMs]) => {
                             if (typeof window.setAnimationTime === 'function') {
-                                window.setAnimationTime(tSec);
+                                await window.setAnimationTime(tSec);
                             }
                             if (typeof document.getAnimations === 'function') {
                                 for (const anim of document.getAnimations()) {
@@ -638,6 +657,8 @@ def _render_html_sync(
                         }""",
                         [t_sec, t_ms],
                     )
+                    if page_errors:
+                        raise HinaaError("RENDER_JS_ERROR", page_errors[0][:500], 422, True)
                     frame_path = frames_dir / f"frame_{idx:05d}.jpg"
                     page.screenshot(path=str(frame_path), type="jpeg", quality=92)
             finally:
@@ -670,7 +691,7 @@ def _render_html_sync(
         if audio_input is not None:
             mix_cmd = [
                 ffmpeg, "-y",
-                "-i", str(raw_mp4), "-i", str(audio_input),
+                "-i", str(raw_mp4), "-ss", str(audio_start_seconds if audio_path else 0), "-i", str(audio_input),
                 "-map", "0:v", "-map", "1:a",
                 "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
             ]
@@ -700,6 +721,10 @@ class RenderCodeAnimationParams(BaseModel):
     html_code: str | None = Field(None, max_length=_MAX_HTML_BYTES, description="Self-contained HTML/CSS/SVG/Canvas document using window.setAnimationTime(t) or CSS animations.")
     html_path: str | None = Field(None, max_length=500, description="Optional relative path to an existing workspace .html file to render into MP4.")
     timeline_json: dict[str, Any] | None = Field(None, description="Alternative CodeVideoTimeline JSON spec rendered via FFmpeg.")
+    composition_json: dict[str, Any] | None = Field(None, description="Editable local motion composition: scenes, layered text/images/video, keyframes, camera moves and transitions. See docs/creative/LOCAL_MOTION_STUDIO.md.")
+    inspect_only: bool = Field(False, description="Return measured audio accents/reference cut candidates without rendering or generating media.")
+    reference_path: str | None = Field(None, max_length=500, description="Optional workspace video to analyze for candidate cuts; does not perform neural motion transfer.")
+    audio_start_seconds: float = Field(0, ge=0, le=86400, description="Trim position in the supplied soundtrack; preserves pitch and speed.")
     duration_seconds: float = Field(5.0, ge=0.5, le=30.0, description="Duration in seconds (0.5..30).")
     fps: int = Field(24, ge=1, le=60, description="Frames per second (1..60).")
     width: int = Field(1080, ge=64, le=1920, description="Output width in pixels.")
@@ -758,13 +783,64 @@ class RenderCodeAnimationParams(BaseModel):
 async def render_code_animation_handler(params: RenderCodeAnimationParams) -> dict[str, Any]:
     started_at = datetime.now(timezone.utc).isoformat()
     width, height, fps = params.width, params.height, params.fps
+    duration = params.duration_seconds
+    analysis: dict[str, Any] = {}
+    source_project: dict[str, str] | None = None
+    motion_spec = None
+    if params.composition_json is not None or params.inspect_only or params.reference_path:
+        from ..motion_studio import MotionComposition
+        from ..motion_studio.analysis import analyze_audio, analyze_reference
+        from ..motion_studio.compiler import confined_path
+        from .workspace_coding_tools import _resolve_workspace_root
+
+        ws_root = _resolve_workspace_root(params.workspace_root)
+        if params.composition_json is not None:
+            if params.timeline_json or params.html_code or params.html_path:
+                raise HinaaError("AMBIGUOUS_MOTION_SOURCE", "Use one of composition_json, timeline_json or HTML", 422, False)
+            motion_spec = MotionComposition.model_validate(params.composition_json)
+            duration = motion_spec.duration
+        if params.audio_path:
+            audio_file = confined_path(params.audio_path, ws_root)
+            analysis["audio"] = await asyncio.to_thread(analyze_audio, audio_file, params.audio_start_seconds, duration)
+            if motion_spec is not None and not params.inspect_only and analysis["audio"]["duration_seconds"] < duration - 0.05:
+                raise HinaaError("AUDIO_TOO_SHORT", "The selected soundtrack trim is shorter than the composition", 422, False)
+        if params.reference_path:
+            reference_file = confined_path(params.reference_path, ws_root)
+            analysis["reference"] = await asyncio.to_thread(analyze_reference, reference_file, duration)
+        if params.inspect_only:
+            return {"status": "success", "stage": "media_analysis", "analysis": analysis,
+                    "composition_schema": MotionComposition.model_json_schema(),
+                    "rendered": False, "external_video_api_calls": 0}
+        if motion_spec is not None and not motion_spec.accents and "audio" in analysis:
+            motion_spec.accents = [t for t in analysis["audio"]["accents"] if t < duration]
     if params.preview:
         scale = min(480.0 / max(1, min(width, height)), 1.0)
         width = max(64, int(round((width * scale) / 2.0) * 2))
         height = max(64, int(round((height * scale) / 2.0) * 2))
         fps = min(fps, 30)
 
-    if params.timeline_json:
+    if motion_spec is not None:
+        from ..motion_studio import compile_composition
+
+        html_doc = compile_composition(motion_spec, ws_root, params.width, params.height)
+        project_dir = (ws_root / "motion-projects" / uuid.uuid4().hex[:12]).resolve()
+        if ws_root.resolve() not in project_dir.parents:
+            raise HinaaError("WORKSPACE_ESCAPE", "Motion project path escapes workspace", 403, False)
+        project_dir.mkdir(parents=True)
+        (project_dir / "composition.json").write_text(motion_spec.model_dump_json(indent=2), encoding="utf-8")
+        (project_dir / "preview.html").write_text(html_doc, encoding="utf-8")
+        (project_dir / "analysis.json").write_text(json.dumps(analysis, indent=2), encoding="utf-8")
+        source_project = {"composition": str((project_dir / "composition.json").relative_to(ws_root)),
+                          "html": str((project_dir / "preview.html").relative_to(ws_root)),
+                          "analysis": str((project_dir / "analysis.json").relative_to(ws_root))}
+        mp4_bytes, probe = await asyncio.to_thread(
+            _render_html_sync, html_code=html_doc, width=width, height=height, fps=fps,
+            duration_seconds=duration, audio_path=str(audio_file) if params.audio_path else None,
+            normalize_audio=params.normalize_audio, audio_preset=params.audio_preset,
+            audio_start_seconds=params.audio_start_seconds,
+        )
+        renderer = "hina_motion_studio_local"
+    elif params.timeline_json:
         timeline = CodeVideoTimeline.model_validate({
             "width": width,
             "height": height,
@@ -809,6 +885,7 @@ async def render_code_animation_handler(params: RenderCodeAnimationParams) -> di
             audio_path=params.audio_path,
             normalize_audio=params.normalize_audio,
             audio_preset=params.audio_preset,
+            audio_start_seconds=params.audio_start_seconds,
         )
         renderer = "playwright_chromium_ffmpeg"
 
@@ -824,7 +901,7 @@ async def render_code_animation_handler(params: RenderCodeAnimationParams) -> di
         tenant_id="default_tenant",
         user_id=params.userId or "default_user",
         prompt=params.title,
-        duration_seconds=float(probe.get("duration_sec") or params.duration_seconds),
+        duration_seconds=float(probe.get("duration_sec") or duration),
         fps=float(probe.get("fps") or fps),
     )
     completed_at = datetime.now(timezone.utc).isoformat()
@@ -857,6 +934,11 @@ async def render_code_animation_handler(params: RenderCodeAnimationParams) -> di
     }
     if probe.get("_vision_preview_path"):
         res_payload["_vision_preview_path"] = probe["_vision_preview_path"]
+    if source_project is not None:
+        res_payload["source_project"] = source_project
+        res_payload["analysis"] = analysis
+        res_payload["external_video_api_calls"] = 0
+        res_payload["limitations"] = "Local composition of supplied assets. Does not synthesize character acting or clone proprietary Katana models."
     return res_payload
 
 
@@ -867,6 +949,8 @@ render_code_animation_def = ToolDefinition(
         "Render custom HTML/CSS/SVG/Canvas animations (using window.setAnimationTime(t) or CSS keyframes) "
         "or CodeVideoTimeline JSON directly to a ffprobe-verified H.264 MP4 asset with optional -14 LUFS audio mixing. "
         "Runs network-isolated locally with zero paid video API credits."
+        " For cinematic typography use composition_json (editable scenes/layers/keyframes, ten text motions, six transitions, camera moves, images and video);"
+        " inspect_only measures supplied audio accents/reference cuts first. Pass the actual audio_path; never synthesize replacement music for a supplied song."
     ),
     parameters={
         "title": {"type": "string", "description": "Title for the rendered video."},
@@ -874,6 +958,10 @@ render_code_animation_def = ToolDefinition(
         "html_code": {"type": "string", "description": "Optional self-contained HTML animation document."},
         "html_path": {"type": "string", "description": "Optional relative path to a workspace HTML file to render."},
         "timeline_json": {"type": "object", "description": "Optional CodeVideoTimeline JSON scene specification."},
+        "composition_json": {"type": "object", "description": "MotionComposition v1: {scenes:[{duration,background,accent,camera,transition,layers:[{kind,text,path,start,end,x,y,size,height,max_width,align,color,motion,unit_times,keyframes}]}],accents:[seconds]}. Get the complete schema with inspect_only=true. Source JSON and offline preview HTML are saved."},
+        "inspect_only": {"type": "boolean", "description": "Analyze audio/reference and return composition schema; do not render."},
+        "reference_path": {"type": "string", "description": "Workspace reference video for approximate cut timing analysis (not neural motion transfer)."},
+        "audio_start_seconds": {"type": "number", "description": "Trim offset into the supplied audio file in seconds."},
         "duration_seconds": {"type": "number", "description": "Video length in seconds (0.5..30)."},
         "fps": {"type": "integer", "description": "Frames per second (1..60)."},
         "width": {"type": "integer", "description": "Pixel width."},
@@ -910,6 +998,7 @@ class WorkspaceVerifyHtmlParams(BaseModel):
 def _inspect_page_sync(target_uri: str, *, allow_loopback: bool, wait_ms: int, width: int, height: int) -> dict[str, Any]:
     from PIL import Image, ImageStat
     from playwright.sync_api import sync_playwright
+
     from ..runtime_paths import project_root
 
     page_errors: list[str] = []
@@ -919,7 +1008,7 @@ def _inspect_page_sync(target_uri: str, *, allow_loopback: bool, wait_ms: int, w
     preview_path = previews_dir / f"page_{uuid.uuid4().hex[:10]}.jpg"
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
+        browser = _launch_studio_browser(pw)
         try:
             context = browser.new_context(viewport={"width": width, "height": height}, device_scale_factor=1)
             page = context.new_page()
@@ -1028,7 +1117,11 @@ async def workspace_verify_url_handler(params: WorkspaceVerifyUrlParams) -> dict
 
 
 async def workspace_verify_html_handler(params: WorkspaceVerifyHtmlParams) -> dict[str, Any]:
-    from .workspace_coding_tools import _relative_posix, _resolve_inside_workspace, _resolve_workspace_root
+    from .workspace_coding_tools import (
+        _relative_posix,
+        _resolve_inside_workspace,
+        _resolve_workspace_root,
+    )
 
     try:
         root = _resolve_workspace_root(params.workspace_root)

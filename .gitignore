@@ -155,3 +155,7 @@ infra/observability/prometheus/metrics_token
 
 # User prompt downloads
 Complete HINAA Test Prompt*
+
+# Generated local motion projects and vision review frames
+/motion-projects/
+/.hina/previews/
