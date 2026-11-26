@@ -93,8 +93,9 @@ its original visual cadence even when the composition exports at 60 fps.
 
 Media must exist inside the chosen workspace (including after resolving
 symlinks). Only raster images and MP4/WebM are accepted, with a combined 24 MiB
-embedded-media budget. Trim large footage locally first. The compiled preview
-has no remote dependencies; its page blocks outbound requests while rendering.
+embedded-media budget. Reused media is embedded once; at most 24 video layers
+are allowed per composition. Trim large footage locally first. The compiled
+preview has no remote dependencies and blocks outbound requests while rendering.
 
 The response includes `source_project`: relative paths to `composition.json`,
 `preview.html` and `analysis.json` under a unique workspace `motion-projects`

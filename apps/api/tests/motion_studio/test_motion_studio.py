@@ -63,6 +63,15 @@ def test_script_text_is_data_and_media_is_confined(tmp_path):
             compile_composition(composition(kind="image", path=path), tmp_path)
 
 
+def test_reused_media_embeds_once_instead_of_multiplying_the_byte_budget(tmp_path):
+    Image.new("RGB", (100, 100), "red").save(tmp_path / "shared.png")
+    layer = {"kind": "image", "path": "shared.png"}
+    spec = MotionComposition(scenes=[{"duration": 2, "layers": [layer, layer, layer]}])
+    doc = compile_composition(spec, tmp_path)
+    assert doc.count("data:image/png;base64,") == 1
+    assert doc.count('"src": "asset_0"') == 3
+
+
 @pytest.fixture
 def page():
     from playwright.sync_api import sync_playwright

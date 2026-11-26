@@ -60,7 +60,7 @@ window.__motionReady = (async () => {
       const timer = setTimeout(() => reject(new Error('Motion asset loading timed out')), 20000);
       item.addEventListener(isVideo ? 'loadeddata' : 'load', () => { clearTimeout(timer); resolve(); }, {once:true});
       item.addEventListener('error', () => { clearTimeout(timer); reject(new Error('Motion asset cannot be decoded')); }, {once:true});
-      item.src = layer.src;
+      item.src = C.media_assets[layer.src];
     }));
   }
   await Promise.all(promises);

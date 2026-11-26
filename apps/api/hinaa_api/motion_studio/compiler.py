@@ -34,10 +34,16 @@ def compile_composition(
     data = spec.model_dump(mode="json")
     used_bytes = 0
     media: dict[str, str] = {}
+    media_ids: dict[str, str] = {}
+    video_layers = 0
     for scene in data["scenes"]:
         for layer in scene["layers"]:
             if layer["kind"] not in ("image", "video"):
                 continue
+            if layer["kind"] == "video":
+                video_layers += 1
+                if video_layers > 24:
+                    raise ValueError("A composition supports at most 24 video layers")
             raw = layer["path"]
             path = confined_path(raw, workspace)
             ext = path.suffix.lower()
@@ -62,9 +68,12 @@ def compile_composition(
                 media[key] = f"data:{_MIME[ext]};base64," + base64.b64encode(content).decode(
                     "ascii"
                 )
-            layer["src"] = media[key]
+                media_ids[key] = f"asset_{len(media_ids)}"
+            layer["src"] = media_ids[key]
             del layer["path"]
-    data.update(width=width, height=height)
+    data.update(
+        width=width, height=height, media_assets={media_ids[k]: v for k, v in media.items()}
+    )
     packed = (
         json.dumps(data, ensure_ascii=False)
         .replace("&", "\\u0026")
