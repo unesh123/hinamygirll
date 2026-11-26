@@ -52,6 +52,7 @@ const TOP_LEVEL_AGENTIC_EVENTS = new Set([
   "agentic.started",
   "agentic.completed",
   "agent.step.started",
+  "agent.steered",
   "tool.started",
   "tool.completed",
   "tool.failed",
@@ -190,6 +191,9 @@ export class BackendConversationProvider implements ConversationProvider {
     if (typeof request.agenticMode === "boolean") {
       payload.agenticMode = request.agenticMode;
     }
+    if (request.activeAgentRunId) {
+      payload.activeAgentRunId = request.activeAgentRunId;
+    }
     if (request.history) {
       payload.history = request.history;
     }
@@ -309,6 +313,19 @@ export class BackendConversationProvider implements ConversationProvider {
           }
           const agentEvent = normalizeAgentEvent(event);
           if (agentEvent) yield { type: "agent.event", event: agentEvent };
+          if (event.type === "agentic.background") {
+            const rawEv = event as unknown as Record<string, unknown>;
+            const bgRunId = String(event.runId ?? event.correlationId ?? "");
+            if (bgRunId) {
+              yield {
+                type: "agentic.background",
+                runId: bgRunId,
+                goal: String(event.goal ?? ""),
+                streamUrl: String(rawEv.streamUrl ?? `/api/v1/agent/agentic-runs/${bgRunId}/stream`),
+                steerUrl: String(rawEv.steerUrl ?? `/api/v1/agent/agentic-runs/${bgRunId}/steer`),
+              };
+            }
+          }
           if (event.type === "thinking") yield { type: "thinking" };
           if (event.type === "search.started")
             yield { type: "search.started", query: event.query || "" };

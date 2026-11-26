@@ -28,7 +28,7 @@ def configured_settings(settings, **updates):
 
 
 @pytest.mark.parametrize("mode", [
-    "experiential", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "oxion", "respan", "gmi",
+    "experiential", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "oxion", "respan", "toptools", "gmi",
 ])
 def test_newer_providers_are_valid_defaults_and_request_modes(mode):
     config = Settings(_env_file=None, HINAA_PROVIDER_MODE=mode)
@@ -50,7 +50,7 @@ def test_gemini_text_brain_does_not_require_a_cloud_voice(settings):
 @pytest.mark.parametrize("mode,prefix", [
     ("custom", "openai_codex"), ("qwen", "qwen"), ("agent-router", "agent_router"),
     ("codecraft", "codecraft"), ("pgsgrove", "pgsgrove"), ("seekai", "seekai"),
-    ("tokentable", "tokentable"), ("xkiro", "xkiro"), ("cavoti", "cavoti"), ("apmix", "apmix"), ("oxion", "oxion"), ("respan", "respan"),
+    ("tokentable", "tokentable"), ("xkiro", "xkiro"), ("cavoti", "cavoti"), ("apmix", "apmix"), ("oxion", "oxion"), ("respan", "respan"), ("toptools", "toptools"),
 ])
 def test_each_openai_compatible_gateway_uses_its_own_key_model_and_endpoint(settings, mode, prefix):
     config = configured_settings(settings, **{
@@ -93,6 +93,7 @@ def test_stale_cloud_model_cannot_turn_offline_mode_into_paid_call(settings, mod
     ("cavoti", "cavoti_model", "claude-opus-test"),
     ("apmix", "apmix_model", "deepseek-vision-test"),
     ("oxion", "oxion_model", "claude-sonnet-vision-test"),
+    ("toptools", "toptools_model", "Top-Tools-Ai-Pro"),
     ("ollama", "ollama_model", "local-test-vision"),
 ])
 def test_newer_vision_adapters_resolve_unnamed_default(settings, mode, field, model):
@@ -153,7 +154,7 @@ def test_discovery_agrees_with_configured_models_and_measured_health(settings, m
         assert next(p for p in client.get("/v1/providers").json() if p["id"] == "experiential")["state"] == "healthy"
 
 
-@pytest.mark.parametrize("mode", ["gmi", "respan"])
+@pytest.mark.parametrize("mode", ["gmi", "respan", "toptools"])
 async def test_new_lanes_are_available_to_backend_fallbacks(settings, mode):
     config = configured_settings(settings, **{f"{mode}_api_key": SecretStr("test-key")})
     service = ConversationService.__new__(ConversationService)

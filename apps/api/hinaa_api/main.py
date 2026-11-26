@@ -346,6 +346,7 @@ _BRAIN_PROVIDER_IDS = frozenset(
         "oxion",
         "respan",
         "coarena",
+        "toptools",
         "experiential",
     }
 )
@@ -2146,6 +2147,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "protocol": "openai-compatible",
             },
             {
+                "id": "toptools",
+                "name": "Top-Tools AI",
+                "configured": bool(getattr(active_settings, "toptools_configured", False)),
+                "defaultModel": active_settings.active_toptools_model,
+                "allowedModels": list(active_settings.toptools_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
                 "id": "articul8",
                 "name": "Articul8 Bivia decisions",
                 "configured": active_settings.articul8_configured,
@@ -2491,6 +2500,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 api_key=active_settings.active_respan_key.get_secret_value() if active_settings.active_respan_key else None,
             )
 
+        async def _probe_toptools_gw():
+            if not active_settings.toptools_configured:
+                return GatewayModelsOutcome(False, 0, "no_url", "Top-Tools AI needs TOPTOOLS_API_KEY.")
+            return await probe_gateway_models(
+                active_settings.active_toptools_base_url,
+                api_key=active_settings.active_toptools_key.get_secret_value() if active_settings.active_toptools_key else None,
+                timeout=4.0,
+            )
+
         async def _probe_coarena_gw():
             if not active_settings.coarena_configured:
                 return GatewayModelsOutcome(False, 0, "no_url", "Coarena AI needs COARENA_API_KEY.")
@@ -2500,7 +2518,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
 
         gw_results = await asyncio.gather(
-            _probe_xkiro_gw(), _probe_apmix_gw(), _probe_oxion_gw(), _probe_explabs_gw(), _probe_respan_gw(), _probe_coarena_gw(),
+            _probe_xkiro_gw(), _probe_apmix_gw(), _probe_oxion_gw(), _probe_explabs_gw(), _probe_respan_gw(), _probe_coarena_gw(), _probe_toptools_gw(),
             return_exceptions=True,
         )
         xkiro_probe = gw_results[0] if isinstance(gw_results[0], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[0]))
@@ -2509,6 +2527,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         explabs_probe = gw_results[3] if isinstance(gw_results[3], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[3]))
         respan_probe = gw_results[4] if isinstance(gw_results[4], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[4]))
         coarena_probe = gw_results[5] if isinstance(gw_results[5], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[5]))
+        toptools_probe = gw_results[6] if isinstance(gw_results[6], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[6]))
 
         xkiro_state = "unavailable"
         xkiro_message = "XKiro AI needs XKIRO_API_KEY and XKIRO_BASE_URL."
@@ -2593,6 +2612,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             else:
                 coarena_state = "degraded"
                 coarena_message = f"Coarena AI configured: {coarena_probe.detail}"
+
+        toptools_state = "unavailable"
+        toptools_message = "Top-Tools AI needs TOPTOOLS_API_KEY."
+        if active_settings.toptools_configured:
+            if toptools_probe.serving:
+                toptools_state = "healthy"
+                toptools_message = f"Top-Tools AI is connected ({toptools_probe.model_count} models serving; default: {active_settings.active_toptools_model})."
+            elif toptools_probe.reason in ("http_401", "http_403", "refused", "no_url"):
+                toptools_state = "unavailable"
+                toptools_message = f"Top-Tools AI authentication failed: {toptools_probe.detail}"
+            else:
+                toptools_state = "degraded"
+                toptools_message = f"Top-Tools AI configured: {toptools_probe.detail}"
 
         # Gemini / real is measured healthy when credentials are configured
         if active_settings.gemini_configured:
@@ -3077,6 +3109,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 userMessage=coarena_message,
             ),
             ProviderStatus(
+                id="toptools",
+                capabilities=[
+                    "llm",
+                    "vision",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.active_toptools_model}",
+                    *[f"model:{model}" for model in active_settings.toptools_allowed_models],
+                ],
+                state=toptools_state,
+                userMessage=toptools_message,
+            ),
+            ProviderStatus(
                 id="tinyfish",
                 capabilities=["search", "fetch"],
                 state="healthy" if active_settings.tinyfish_api_key else "unavailable",
@@ -3157,7 +3203,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 for name in (
                     "claude", "gemini", "openai", "qwen", "groq", "custom",
                     "agent_router", "codecraft", "cx_gateway",
-                    "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "explabs",
+                    "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "explabs", "coarena", "toptools",
                 )
             )
         ) or bool(os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("DEEPSEEK_PKAY_API_KEY"))
@@ -4610,7 +4656,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def approve_agentic_run(
         request: Request, run_id: str, body: dict[str, Any] = Body(default_factory=dict)
     ) -> dict[str, Any]:
-        from .agent.live_agentic_service import get_agentic_store, run_agentic_job
+        from .agent.live_agentic_service import (
+            get_agentic_store,
+            launch_background_agentic_job,
+            run_agentic_job,
+        )
 
         store = get_agentic_store()
         rec = store.load(run_id)
@@ -4630,6 +4680,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         approved_hashes = set(rec.approved_hashes)
         approved_hashes.add(approved_hash)
+        if body.get("background") is True:
+            updated = launch_background_agentic_job(
+                goal=rec.goal,
+                router=service.router,
+                settings=service.settings,
+                provider_mode=rec.provider_mode,
+                brain_model=rec.brain_model,
+                user_id=rec.user_id,
+                allowed_tools=set(rec.allowed_tools),
+                approved_hashes=approved_hashes,
+                workspace_root=rec.workspace_root,
+                host_header=request.headers.get("host"),
+                run_id=rec.run_id,
+                store=store,
+            )
+            return updated.model_dump(mode="json")
         updated = await run_agentic_job(
             goal=rec.goal,
             router=service.router,
@@ -4645,6 +4711,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             store=store,
         )
         return updated.model_dump(mode="json")
+
+    @app.post("/v1/agent/agentic-runs/{run_id}/steer")
+    @app.post("/api/v1/agent/agentic-runs/{run_id}/steer")
+    async def steer_agentic_run_endpoint(
+        run_id: str, body: dict[str, Any] = Body(default_factory=dict)
+    ) -> dict[str, Any]:
+        from .agent.live_agentic_service import get_agentic_store, steer_agentic_run
+
+        direction = str(body.get("message") or body.get("direction") or "").strip()
+        if not direction:
+            raise HTTPException(status_code=400, detail="Steering message is required")
+        ok = steer_agentic_run(run_id, direction, store=get_agentic_store())
+        if not ok:
+            raise HTTPException(status_code=404, detail="Active background agentic run not found")
+        return {"run_id": run_id, "steered": True}
+
+    @app.get("/v1/agent/agentic-runs/{run_id}/stream")
+    @app.get("/api/v1/agent/agentic-runs/{run_id}/stream")
+    async def stream_agentic_run(run_id: str) -> StreamingResponse:
+        from .agent.live_agentic_service import get_agentic_store, subscribe_agentic_events
+
+        store = get_agentic_store()
+
+        async def _event_stream():
+            async for evt_name, evt_payload in subscribe_agentic_events(run_id, store=store):
+                frame = json.dumps({"type": evt_name, **evt_payload}, ensure_ascii=False)
+                yield (frame + "\n").encode("utf-8")
+
+        return StreamingResponse(_event_stream(), media_type="application/x-ndjson")
 
     @app.post("/v1/agent/agentic-runs/{run_id}/cancel")
     @app.post("/api/v1/agent/agentic-runs/{run_id}/cancel")

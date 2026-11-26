@@ -72,6 +72,7 @@ export type ProviderPreferenceMode =
   | "oxion"
   | "respan"
   | "coarena"
+  | "toptools"
   | "experiential";
 
 /** Saved model selection per provider. Null = automatic. */
@@ -126,6 +127,7 @@ export const DEFAULT_SETTINGS: HinaaSettings = {
       "cx-gateway": "cx/gpt-5.6-sol",
       ollama: "dolphin-mistral:7b",
       coarena: "gemini-4-argon",
+      toptools: "Top-Tools-Ai-Pro",
       xkiro: "mistralai/codestral-2508",
     },
   },

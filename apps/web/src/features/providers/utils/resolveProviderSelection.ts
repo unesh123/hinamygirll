@@ -100,6 +100,7 @@ const AUTO_PRIORITY: ConcreteProviderMode[] = [
   "openai",
   "groq",
   "ollama",
+  "toptools",
   "local",
   "mock",
 ];

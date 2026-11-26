@@ -43,8 +43,8 @@ TRANSIENT_CODES = frozenset({
     "PROVIDER_TEMPORARY_MAINTENANCE",
     "PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE",
 })
-# A refusal is an answer. It says nothing about whether the brain can serve.
-NON_INFRA_CODES = frozenset({"SAFETY_REFUSAL"})
+# A refusal or plan-tier model rejection does not mean the key or gateway is broken.
+NON_INFRA_CODES = frozenset({"SAFETY_REFUSAL", "PROVIDER_MODEL_NOT_ALLOWED"})
 
 # Brains that answer in-process need no network, so configuration does prove them.
 LOCAL_BRAIN_PREFIXES = ("mock", "local")
@@ -285,6 +285,7 @@ _SETTINGS_PREFIX: dict[str, str] = {
     "experiential": "explabs",
     "respan": "respan",
     "coarena": "coarena",
+    "toptools": "toptools",
 }
 
 

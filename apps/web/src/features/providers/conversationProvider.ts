@@ -9,6 +9,7 @@ export type ConversationProviderEvent =
   | { type: "plan"; plan: AssistantTurnPlan }
   | { type: "usage"; latencyMs: number }
   | { type: "agent.event"; event: AgentRuntimeEvent }
+  | { type: "agentic.background"; runId: string; goal: string; streamUrl: string; steerUrl: string }
   | { type: "search.started"; query: string }
   | { type: "search.completed"; query: string; sourcesCount?: number }
   | { type: "astra.route"; route: string; confidence: number; goal: string; candidates: string[] }
@@ -56,6 +57,7 @@ export interface ConversationRequest {
   attachments?: import("../companion/types").MessageAttachment[];
   persona_mode?: string;
   agenticMode?: boolean;
+  activeAgentRunId?: string;
   history?: Array<{ role: string; content: string }>;
 }
 

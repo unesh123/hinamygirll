@@ -81,6 +81,9 @@ export interface DynamicIslandCompanionProps {
     command?: string;
     detail?: string;
   } | null;
+  approvalPending?: boolean;
+  approvalError?: string | null;
+  backgroundBuild?: { runId: string; goal: string; status: string } | null;
   onConfirmStep?: (approved: boolean) => void;
   onOpenTerminal?: (initialCommand?: string) => void;
   onOpenSettings?: () => void;
@@ -807,6 +810,9 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
   isDark = true,
   agentSteps = [],
   pendingApproval = null,
+  approvalPending = false,
+  approvalError = null,
+  backgroundBuild = null,
   onConfirmStep,
   onOpenTerminal,
   onOpenSettings,
@@ -887,14 +893,17 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
   }>>(() => {
     try {
       const saved = localStorage.getItem("hinaa-autonomous-dev-tasks");
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (
+          Array.isArray(parsed) &&
+          !(parsed.length === 4 && parsed[1]?.id === "task-2" && parsed[1]?.target === "src/billing.ts")
+        ) {
+          return parsed;
+        }
+      }
     } catch {}
-    return [
-      { id: "task-1", type: "RUN", target: "Run the tests", status: "error", tryCount: 2, errorDetail: "fixed on try 2" },
-      { id: "task-2", type: "EDIT", target: "src/billing.ts", status: "done" },
-      { id: "task-3", type: "RUN", target: "Run the tests try 2", status: "done", duration: "650ms", tryCount: 2 },
-      { id: "task-4", type: "RUN", target: "Push to main", status: "done", duration: "800ms" },
-    ];
+    return [];
   });
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTaskText, setEditingTaskText] = useState("");
@@ -3243,42 +3252,52 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
 ) : (
                   /* ── 4. Autonomous Dev Task HUD (SnapInsta Reference) ── */
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {/* Header Metrics Row matching SnapInsta */}
+                    {/* Header Metrics Row (Live telemetry only) */}
                     <div
                       style={{
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "space-between",
-                        borderBottom: "1px solid rgba(255,255,255,0.08)",
+                        borderBottom: isDark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(15,23,42,0.08)",
                         paddingBottom: 4,
                       }}
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                        <span style={{ fontSize: 11, color: isDark ? "#94a3b8" : "#64748b" }}>Summary 1</span>
+                        <span style={{ fontSize: 11, color: isDark ? "#94a3b8" : "#64748b" }}>
+                          {`Steps ${agentSteps.length}`}
+                        </span>
                         <span
                           style={{
                             fontSize: 11,
                             fontWeight: 750,
-                            color: "#ffffff",
+                            color: isDark ? "#ffffff" : "#0f172a",
                             borderBottom: "2px solid #10b981",
                             paddingBottom: 3,
                           }}
                         >
-                          Tools 6
+                          {`Done ${agentSteps.filter((s) => s.status === "done").length + devTasks.filter((t) => t.status === "done").length}`}
                         </span>
-                        <span style={{ fontSize: 11, color: isDark ? "#94a3b8" : "#64748b" }}>Files 1</span>
+                        <span style={{ fontSize: 11, color: isDark ? "#94a3b8" : "#64748b" }}>
+                          {`Tasks ${devTasks.length}`}
+                        </span>
                       </div>
-                      <span style={{ fontSize: 10, color: isDark ? "#94a3b8" : "#64748b" }}>1 changed</span>
+                      <span style={{ fontSize: 10, color: isDark ? "#94a3b8" : "#64748b" }}>
+                        {agentSteps.some((s) => s.status === "error") || devTasks.some((t) => t.status === "error")
+                          ? `${agentSteps.filter((s) => s.status === "error").length + devTasks.filter((t) => t.status === "error").length} issues`
+                          : backgroundBuild?.status === "running"
+                            ? "Live build"
+                            : "Ready"}
+                      </span>
                     </div>
 
-                    {/* Filter Chips matching SnapInsta */}
+                    {/* Filter Chips (Live counts + light/dark contrast) */}
                     <div style={{ display: "flex", alignItems: "center", gap: 5, overflowX: "auto" }}>
                       {[
-                        { id: "steps", label: "Key steps 4" },
-                        { id: "changes", label: "Changes 1" },
-                        { id: "commands", label: "Commands 3" },
-                        { id: "problems", label: "Problems 1" },
-                        { id: "all", label: "All 6" },
+                        { id: "steps", label: `Steps ${agentSteps.length}` },
+                        { id: "changes", label: `Changes ${devTasks.filter((t) => t.type === "EDIT").length}` },
+                        { id: "commands", label: `Commands ${devTasks.filter((t) => t.type === "RUN" || t.type === "CMD").length}` },
+                        { id: "problems", label: `Problems ${agentSteps.filter((s) => s.status === "error").length + devTasks.filter((t) => t.status === "error").length}` },
+                        { id: "all", label: `All ${agentSteps.length + devTasks.length}` },
                       ].map((chip) => (
                         <button
                           key={chip.id}
@@ -3290,19 +3309,23 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                           style={{
                             background:
                               taskFilter === chip.id
-                                ? "rgba(255, 255, 255, 0.16)"
+                                ? isDark
+                                  ? "rgba(255, 255, 255, 0.16)"
+                                  : "rgba(15, 23, 42, 0.10)"
                                 : isDark
-                                ? "rgba(255, 255, 255, 0.05)"
-                                : "rgba(0, 0, 0, 0.04)",
+                                  ? "rgba(255, 255, 255, 0.05)"
+                                  : "rgba(0, 0, 0, 0.04)",
                             border:
                               taskFilter === chip.id
-                                ? "1px solid rgba(255, 255, 255, 0.25)"
+                                ? isDark
+                                  ? "1px solid rgba(255, 255, 255, 0.25)"
+                                  : "1px solid rgba(15, 23, 42, 0.25)"
                                 : "1px solid transparent",
                             borderRadius: 9999,
                             padding: "2px 8px",
                             fontSize: 10,
                             fontWeight: taskFilter === chip.id ? 700 : 500,
-                            color: taskFilter === chip.id ? "#ffffff" : isDark ? "#94a3b8" : "#64748b",
+                            color: taskFilter === chip.id ? (isDark ? "#ffffff" : "#0f172a") : isDark ? "#94a3b8" : "#64748b",
                             cursor: "pointer",
                             whiteSpace: "nowrap",
                           }}
@@ -3312,86 +3335,136 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                       ))}
                     </div>
 
-                    {/* Timestamp & Goal Intent */}
-                    <div
-                      style={{
-                        borderLeft: "2px solid #f97316",
-                        paddingLeft: 8,
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 2,
-                      }}
-                    >
-                      <span style={{ fontSize: 9, color: isDark ? "#94a3b8" : "#64748b", fontFamily: "monospace" }}>
-                        10:10:52 PM
-                      </span>
-                      <span style={{ fontSize: 11, fontWeight: 650, color: isDark ? "#f1f5f9" : "#0f172a" }}>
-                        Fix the VAT rounding, then push to main
-                      </span>
-                    </div>
-
-                    {/* Pending Permission Approval Gate */}
-                    {pendingApproval && (
+                    {/* Active Goal Intent (Only shown when real goal is present) */}
+                    {(backgroundBuild?.goal || lastUserQuery) && (
                       <div
                         style={{
-                          background: "rgba(245, 158, 11, 0.15)",
-                          border: "1px solid rgba(245, 158, 11, 0.4)",
-                          borderRadius: 10,
-                          padding: "8px 12px",
+                          borderLeft: "2px solid #f97316",
+                          paddingLeft: 8,
                           display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
+                          flexDirection: "column",
+                          gap: 2,
                         }}
                       >
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <ShieldAlert size={14} color="#f59e0b" />
-                          <span style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b" }}>
-                            Requires Approval:
-                          </span>
-                          <span style={{ fontSize: 11, fontFamily: "monospace", color: "#fff" }}>
-                            {pendingApproval.command || pendingApproval.actionName}
-                          </span>
-                        </div>
-                        <div style={{ display: "flex", gap: 6 }}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              playUiSound("deny");
-                              onConfirmStep?.(false);
-                            }}
+                        <span style={{ fontSize: 9, color: isDark ? "#94a3b8" : "#64748b", fontFamily: "monospace" }}>
+                          {backgroundBuild?.status ? backgroundBuild.status.toUpperCase() : "ACTIVE"}
+                        </span>
+                        <span style={{ fontSize: 11, fontWeight: 650, color: isDark ? "#f1f5f9" : "#0f172a" }}>
+                          {backgroundBuild?.goal || lastUserQuery}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Pending Permission Approval Gate (High-Contrast Light & Dark) */}
+                    {(pendingApproval || approvalError) && (
+                      <div
+                        data-testid="island-approval-card"
+                        style={{
+                          background: isDark ? "rgba(245, 158, 11, 0.16)" : "rgba(254, 243, 199, 0.96)",
+                          border: isDark ? "1px solid rgba(245, 158, 11, 0.45)" : "1px solid #d97706",
+                          borderRadius: 10,
+                          padding: "10px 12px",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 8,
+                        }}
+                      >
+                        {pendingApproval && (
+                          <div
                             style={{
-                              background: "rgba(255,255,255,0.1)",
-                              border: "none",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: 10,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0, flex: 1 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                <ShieldAlert size={14} color={isDark ? "#fbbf24" : "#b45309"} />
+                                <span style={{ fontSize: 11, fontWeight: 700, color: isDark ? "#fbbf24" : "#92400e" }}>
+                                  Requires Approval:
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    fontFamily: "monospace",
+                                    fontWeight: 600,
+                                    color: isDark ? "#f8fafc" : "#0f172a",
+                                    wordBreak: "break-word",
+                                  }}
+                                >
+                                  {pendingApproval.command || pendingApproval.actionName}
+                                </span>
+                              </div>
+                              {pendingApproval.detail && (
+                                <span style={{ fontSize: 10, color: isDark ? "#cbd5e1" : "#334155", lineHeight: 1.35 }}>
+                                  {pendingApproval.detail}
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                              <button
+                                type="button"
+                                disabled={approvalPending}
+                                onClick={() => {
+                                  playUiSound("deny");
+                                  onConfirmStep?.(false);
+                                }}
+                                style={{
+                                  background: isDark ? "rgba(255,255,255,0.12)" : "#ffffff",
+                                  border: isDark ? "1px solid rgba(255,255,255,0.22)" : "1px solid #cbd5e1",
+                                  borderRadius: 6,
+                                  padding: "5px 10px",
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  color: isDark ? "#f8fafc" : "#0f172a",
+                                  cursor: approvalPending ? "not-allowed" : "pointer",
+                                  opacity: approvalPending ? 0.6 : 1,
+                                }}
+                              >
+                                Deny
+                              </button>
+                              <button
+                                type="button"
+                                disabled={approvalPending}
+                                onClick={() => {
+                                  playUiSound("success");
+                                  onConfirmStep?.(true);
+                                }}
+                                style={{
+                                  background: isDark ? "#f8fafc" : "#0f172a",
+                                  border: "none",
+                                  borderRadius: 6,
+                                  padding: "5px 12px",
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  color: isDark ? "#0f172a" : "#ffffff",
+                                  cursor: approvalPending ? "not-allowed" : "pointer",
+                                  opacity: approvalPending ? 0.7 : 1,
+                                }}
+                              >
+                                {approvalPending ? "Allowing..." : "Allow"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {approvalError && (
+                          <div
+                            role="alert"
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 600,
+                              color: isDark ? "#fca5a5" : "#991b1b",
+                              background: isDark ? "rgba(239, 68, 68, 0.14)" : "rgba(254, 226, 226, 0.9)",
+                              border: isDark ? "1px solid rgba(239, 68, 68, 0.35)" : "1px solid #f87171",
                               borderRadius: 6,
                               padding: "4px 8px",
-                              fontSize: 11,
-                              fontWeight: 600,
-                              color: "#fff",
-                              cursor: "pointer",
                             }}
                           >
-                            Deny
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              playUiSound("success");
-                              onConfirmStep?.(true);
-                            }}
-                            style={{
-                              background: "#fff",
-                              border: "none",
-                              borderRadius: 6,
-                              padding: "4px 10px",
-                              fontSize: 11,
-                              fontWeight: 700,
-                              color: "#000",
-                              cursor: "pointer",
-                            }}
-                          >
-                            Allow ▾
-                          </button>
-                        </div>
+                            {approvalError}
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -3733,15 +3806,20 @@ export const DynamicIslandCompanion: React.FC<DynamicIslandCompanionProps> = ({
                       ))}
                     </div>
 
-                    {/* Finished Status Footer matching SnapInsta */}
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 4 }}>
-                      <span style={{ fontSize: 10, color: isDark ? "#94a3b8" : "#64748b" }}>
-                        ✓ Finished · 10:12:39 PM
-                      </span>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: "#22c55e" }}>
-                        Failed once, fixed on try 2
-                      </span>
-                    </div>
+                    {/* Completion Footer (Real telemetry only) */}
+                    {agentSteps.length > 0 &&
+                      agentSteps.every((s) => s.status === "done" || s.status === "cancelled" || s.status === "error") && (
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 4 }}>
+                          <span style={{ fontSize: 10, color: isDark ? "#94a3b8" : "#64748b" }}>
+                            {`✓ Finished · ${agentSteps.filter((s) => s.status === "done").length}/${agentSteps.length} steps`}
+                          </span>
+                          {agentSteps.some((s) => s.status === "error") && (
+                            <span style={{ fontSize: 10, fontWeight: 700, color: "#ef4444" }}>
+                              {`${agentSteps.filter((s) => s.status === "error").length} issue(s)`}
+                            </span>
+                          )}
+                        </div>
+                      )}
                   </div>
                 )}
                 </div>

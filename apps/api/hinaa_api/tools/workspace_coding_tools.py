@@ -56,7 +56,14 @@ _SKIP_DIRS = frozenset({
     "dist",
     "build",
     ".hina",
+    "generated_videos",
+    "generated_images",
+    "renders",
+    "htmlcov",
+    "playwright-report",
+    "test-results",
 })
+_SKIP_REL_PREFIXES = ("apps/api/hinaa_api/data",)
 _MAX_READ_LINES = 400
 _MAX_READ_CHARS = 45_000
 _MAX_SEARCH_FILE_BYTES = 1_048_576
@@ -352,17 +359,25 @@ def _iter_workspace_files(root: Path, base: Path):
     if base.is_file():
         yield base
         return
-    for dirpath, dirnames, filenames in os.walk(base):
-        dirnames[:] = sorted(d for d in dirnames if d not in _SKIP_DIRS)
+    for dirpath, dirnames, filenames in os.walk(base, followlinks=False):
+        rel_dir = Path(dirpath).resolve().relative_to(root).as_posix() if dirpath != str(root) else ""
+        if rel_dir and any(rel_dir == pref or rel_dir.startswith(pref + "/") for pref in _SKIP_REL_PREFIXES):
+            dirnames[:] = []
+            continue
+        dirnames[:] = sorted(
+            d for d in dirnames
+            if d not in _SKIP_DIRS and not (Path(dirpath) / d).is_symlink()
+        )
         for name in sorted(filenames):
             p = Path(dirpath) / name
-            # Skip symlinks pointing outside root
-            try:
-                resolved = Path(os.path.realpath(p))
-            except OSError:
-                continue
-            if resolved == root or root in resolved.parents:
-                yield p
+            if p.is_symlink():
+                try:
+                    resolved = Path(os.path.realpath(p))
+                except OSError:
+                    continue
+                if resolved != root and root not in resolved.parents:
+                    continue
+            yield p
 
 
 async def workspace_glob_handler(params: WorkspaceGlobParams) -> dict[str, Any]:
@@ -378,7 +393,11 @@ async def workspace_glob_handler(params: WorkspaceGlobParams) -> dict[str, Any]:
     pattern = params.pattern.replace("\\", "/").lstrip("./")
     matches: list[str] = []
     truncated = False
+    deadline = time.monotonic() + 8.0
     for file_path in _iter_workspace_files(root, base):
+        if time.monotonic() > deadline:
+            truncated = True
+            break
         rel = _relative_posix(root, file_path)
         sub_rel = _relative_posix(base, file_path) if base.is_dir() else file_path.name
         if fnmatch.fnmatch(rel, pattern) or fnmatch.fnmatch(sub_rel, pattern) or fnmatch.fnmatch(file_path.name, pattern):
@@ -414,7 +433,11 @@ async def workspace_grep_handler(params: WorkspaceGrepParams) -> dict[str, Any]:
 
     matches: list[dict[str, Any]] = []
     truncated = False
+    deadline = time.monotonic() + 8.0
     for file_path in _iter_workspace_files(root, base):
+        if time.monotonic() > deadline:
+            truncated = True
+            break
         if not fnmatch.fnmatch(file_path.name, params.file_glob):
             continue
         try:

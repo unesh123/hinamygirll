@@ -4,7 +4,10 @@ import asyncio
 import base64
 import contextlib
 import json
+import logging
 import re
+
+_log = logging.getLogger(__name__)
 from typing import Any
 from collections.abc import AsyncIterator, Awaitable, Callable
 from time import perf_counter
@@ -328,6 +331,7 @@ _GATEWAY_PROVIDERS = {
     "apmix",
     "oxion",
     "articul8",
+    "toptools",
     "experiential",
 }
 
@@ -1002,9 +1006,26 @@ class OpenAILLMProvider:
                                 elif (response.status_code >= 400 or response.status_code in {429, 503}) and len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
                                     stream_failed_early = True
                                 else:
+                                    if response.status_code >= 400:
+                                        await response.aread()
                                     self._raise_for_status(response)
                                     in_thought = False
-                                    async for line in response.aiter_lines():
+                                    first_tok_cap_s = 28.0 if self._provider_id == "toptools" else None
+                                    first_tok_deadline = (
+                                        perf_counter() + first_tok_cap_s if first_tok_cap_s else 0.0
+                                    )
+                                    lines_iter = response.aiter_lines().__aiter__()
+                                    while True:
+                                        try:
+                                            if first_tok_cap_s and not streamed_any:
+                                                remaining = first_tok_deadline - perf_counter()
+                                                if remaining <= 0:
+                                                    raise TimeoutError("First token keepalive deadline exceeded")
+                                                line = await asyncio.wait_for(lines_iter.__anext__(), timeout=remaining)
+                                            else:
+                                                line = await lines_iter.__anext__()
+                                        except StopAsyncIteration:
+                                            break
                                         if not line.startswith("data:"):
                                             continue
                                         event = line.removeprefix("data:").strip()
@@ -1077,6 +1098,21 @@ class OpenAILLMProvider:
                             break
                         else:
                             raise
+                    except TimeoutError:
+                        if not streamed_any and self._provider_id == "toptools" and transient_attempt < 1:
+                            _log.warning(
+                                "Top-Tools AI stalled on empty keepalives before first token; retrying once."
+                            )
+                            retry_transient_same_model = True
+                        elif not streamed_any and self._provider_id == "toptools":
+                            raise HinaaError(
+                                "PROVIDER_TIMEOUT",
+                                "Top-Tools AI timed out waiting for a non-empty response token.",
+                                504,
+                                True,
+                            )
+                        else:
+                            raise
                     except Exception:
                         if key_failed_early:
                             break
@@ -1132,6 +1168,29 @@ class OpenAILLMProvider:
             msg = f"{self._provider_label()} returned 404 (endpoint or model mismatch)."
             self._circuit_breaker.record_failure("ENDPOINT_MISMATCH", msg)
             raise HinaaError("ENDPOINT_MISMATCH", msg, 404, user_action_required=True)
+
+        provider_text = safe_error_text(response.text, [self._key]).lower()
+        if response.status_code == 403 and any(
+            marker in provider_text
+            for marker in (
+                "model_access_denied",
+                "plan's model",
+                "not allowed for model",
+                "model is not allowed",
+                "upgrade at",
+            )
+        ):
+            msg = (
+                f"{self._provider_label()} does not include model {self._model} on the current plan "
+                "(HTTP 403). Switch to an allowed model on this provider."
+            )
+            raise HinaaError(
+                "PROVIDER_MODEL_NOT_ALLOWED",
+                msg,
+                403,
+                retryable=False,
+                user_action_required=True,
+            )
 
         if response.status_code in {401, 403, 429}:
             self._rotate_key()
@@ -1301,6 +1360,10 @@ class OpenAILLMProvider:
             return "SeekAI"
         if self._provider_id == "pgsgrove":
             return "PGSGrove AI"
+        if self._provider_id == "coarena":
+            return "Coarena AI"
+        if self._provider_id == "toptools":
+            return "Top-Tools AI"
         return "OpenAI"
 
 

@@ -199,6 +199,14 @@ export const CANONICAL_PROVIDERS: CanonicalProvider[] = [
     ],
   },
   {
+    mode: "toptools",
+    label: "⚡ Top-Tools AI (1M Pro)",
+    defaultModel: "Top-Tools-Ai-Pro",
+    models: [
+      { id: "Top-Tools-Ai-Pro", label: "Top-Tools-Ai-Pro (1M Pro)", isDefault: true },
+    ],
+  },
+  {
     mode: "coarena",
     label: "✨ Coarena AI (Free Frontier)",
     defaultModel: "gemini-4-argon",
@@ -388,6 +396,8 @@ export function ModelControlBar({
                     ? "Oxion AI"
                     : currentMode === "coarena"
                       ? "Coarena AI"
+                    : currentMode === "toptools"
+                      ? "Top-Tools AI"
                     : providerOptions.find((p) => p.mode === currentMode)?.label || currentMode;
 
   const currentImageObj = IMAGE_ENGINES.find((e) => e.id === imageEngine) || IMAGE_ENGINES[0];

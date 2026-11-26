@@ -40,6 +40,7 @@ ProviderMode = Literal[
     "articul8",
     "respan",
     "coarena",
+    "toptools",
     "experiential",
 ]
 CompanionId = Literal["hinaa", "hiro"]
@@ -260,6 +261,7 @@ class TurnRequest(BaseModel):
     responseMode: ResponseMode | None = None
     persona_mode: str | None = None  # companion | roast | unfiltered | deep | sage | playful | professional
     agenticMode: bool | None = None  # True=force multi-step agent, False=single turn, None=auto-detect build/code/video
+    activeAgentRunId: str | None = None  # Background builder runId to live-steer from concurrent Muse chat
     brainModel: Annotated[
         str | None,
         Field(max_length=80, pattern=r"^[A-Za-z0-9._:/-]+$"),

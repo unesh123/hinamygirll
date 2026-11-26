@@ -139,6 +139,7 @@ def _self_state_layer(voice: bool = False, allowed_tools: tuple[str, ...] | None
                 ("xkiro", "xkiro_configured"),
                 ("cantrustai", "cantrust_configured"),
                 ("coarena", "coarena_configured"),
+                ("toptools", "toptools_configured"),
                 ("claude", "claude_configured"),
                 ("gemini", "gemini_configured"),
                 ("openai", "openai_configured"),

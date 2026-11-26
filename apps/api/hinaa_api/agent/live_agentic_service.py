@@ -86,6 +86,16 @@ class AgenticRunStore:
 
 _STORE_SINGLETON: AgenticRunStore | None = None
 _ACTIVE_CANCELS: dict[str, asyncio.Event] = {}
+_BG_TASKS: dict[str, asyncio.Task[Any]] = {}
+_STEER_QUEUES: dict[str, asyncio.Queue[str]] = {}
+_EVENT_SUBSCRIBERS: dict[str, list[asyncio.Queue[tuple[str, dict[str, Any]] | None]]] = {}
+_EVENT_HISTORY: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+_TERMINAL_AGENTIC_EVENTS = frozenset({
+    "agentic.completed",
+    "agent.run.failed",
+    "agent.run.cancelled",
+    "confirmation.required",
+})
 
 
 def get_agentic_store() -> AgenticRunStore:
@@ -102,7 +112,7 @@ _AGENTIC_SYSTEM_PROMPT = (
     "Rules:\n"
     "1. Respond EITHER with one JSON object (`call_tool`, `call_tools`, or `final`) OR one/more XML <tool ...>...</tool> blocks.\n"
     "   - PARALLEL BATCHING: When you need to read/search/audit multiple files or launch parallel subagents at once, emit `{\"action\": \"call_tools\", \"calls\": [{\"tool\": \"...\", \"arguments\": {...}}, ...]}` or multiple `<tool ...>` blocks in one turn (up to 6 read-only calls execute concurrently!).\n"
-    "2. Never guess file contents, line numbers, or test outputs. Inspect the real repository with workspace_glob, workspace_grep, workspace_list_dir, workspace_read_file, or delegate parallel codebase traces with workspace_spawn_subagent(role, task).\n"
+    "2. Never guess file contents, line numbers, or test outputs. For LOCAL repo exploration, use workspace_glob / workspace_grep / workspace_read_file (or workspace_spawn_subagent). For EXTERNAL websites, UI inspiration, scraping, or live docs (e.g. Merlin UI), call `web_search` / `web_extract` FIRST instead of searching local files! If a message arrives tagged `[LIVE USER DIRECTION WHILE BUILDING]`, adapt your build/design immediately to honor the user's preferences.\n"
     "3. PREFERRED for writing full-page HTML/JS/CSS web apps, Python modules, or multi-line files (avoids JSON escaping errors!): use:\n"
     '<tool name="workspace_write_file" path="relative/path.html">\n<!DOCTYPE html>...complete high-craft implementation...\n</tool>\n'
     "   When building a full-page interactive HTML web app/visualizer/site, make it complete and responsive (`100vw x 100vh`, zero external CDN assumptions so it works standalone/offline, full interactive controls + rich visual geometry/Canvas/WebGL/SVG), then IMMEDIATELY verify it using `workspace_verify_html(file_path=\"...\")` (or boot a local server via `workspace_start_process` + `workspace_verify_url`) to confirm zero JS errors and non-blank visuals!\n"
@@ -122,7 +132,7 @@ _AGENTIC_NATIVE_SYSTEM_PROMPT = (
     "You are HINAA's Autonomous Software Engineering & Motion-Studio Agent.\n"
     "You have native tool/function schemas attached directly in this session. Invoke tools directly using native function calls — NEVER write planning monologues ('Let me first check...') or raw code blocks in plain text before executing tools.\n"
     "Rules:\n"
-    "1. Codebase exploration & bug fixing: call workspace_glob / workspace_grep / workspace_read_file (or workspace_spawn_subagent) first; patch with workspace_edit_file or workspace_write_file; verify with workspace_run_command.\n"
+    "1. Exploration & research: use `web_search` / `web_extract` for external websites, UI inspiration, and scraping; use `workspace_glob` / `workspace_grep` / `workspace_read_file` for local codebase inspection. If `[LIVE USER DIRECTION WHILE BUILDING]` appears, adapt your design immediately.\n"
     "2. Web apps / interactive HTML builds: write a self-contained responsive HTML file (`100vw x 100vh`, zero external CDNs) using workspace_write_file, then call workspace_verify_html(file_path=...) to check zero JS errors and inspect visuals before finalizing.\n"
     "3. Studio kinetic MP4 / motion graphics: for crisp reels (3–10s), either call render_code_animation(title=..., subtitle=..., duration_seconds=..., fps=24, width=..., height=..., audio_preset='kinetic_pulse') directly right away (HINAA's built-in StudioFX neon waves, HUD corners, bokeh & beat audio engine renders cleanly in seconds), OR write a concise (<140-line) custom HTML animation using `window.StudioFX` + `window.setAnimationTime(t)` via workspace_write_file and render it via render_code_animation(html_path=...).\n"
     "4. Once visual previews/verifications pass cleanly, reply with a concise, factual summary citing only exact files, verified checks, and real asset download URLs returned by tools."
@@ -365,6 +375,7 @@ def make_provider_planner(
             ("cantrustai", "deepseek/deepseek-v4.1-flash"),
             ("xkiro", "mistralai/mistral-large-4-0"),
             ("coarena", "deepseek-v4-1-flash-1017"),
+            ("toptools", "Top-Tools-Ai-Pro"),
         ):
             if fb_mode != provider_mode:
                 candidates.append((fb_mode, fb_model))
@@ -502,6 +513,7 @@ async def run_agentic_job(
     on_event: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
     run_id: str | None = None,
     store: AgenticRunStore | None = None,
+    steer_queue: asyncio.Queue[str] | None = None,
 ) -> PersistedAgenticRun:
     rid = run_id or f"run-ag-{uuid.uuid4().hex[:8]}"
     st = store or get_agentic_store()
@@ -509,6 +521,20 @@ async def run_agentic_job(
     approved = set(approved_hashes or ())
     cancel_ev = asyncio.Event()
     _ACTIVE_CANCELS[rid] = cancel_ev
+    q_steer = steer_queue if steer_queue is not None else _STEER_QUEUES.setdefault(rid, asyncio.Queue())
+    st.save(
+        PersistedAgenticRun(
+            run_id=rid,
+            user_id=user_id,
+            goal=goal,
+            provider_mode=provider_mode,
+            brain_model=brain_model,
+            allowed_tools=sorted(permitted),
+            approved_hashes=sorted(approved),
+            workspace_root=workspace_root,
+            result=AgenticRunResult(run_id=rid, status="running", summary="Execution started."),
+        )
+    )
 
     planner = make_provider_planner(
         router=router,
@@ -553,6 +579,7 @@ async def run_agentic_job(
             cancel_event=cancel_ev,
             on_event=on_event,
             run_id=rid,
+            steer_queue=q_steer,
         )
     finally:
         _ACTIVE_CANCELS.pop(rid, None)
@@ -572,11 +599,236 @@ async def run_agentic_job(
     return record
 
 
+async def _publish_bg_event(rid: str, evt_name: str, evt_payload: dict[str, Any]) -> None:
+    item = (evt_name, evt_payload)
+    hist = _EVENT_HISTORY.setdefault(rid, [])
+    hist.append(item)
+    if len(hist) > 120:
+        del hist[:-120]
+    for sub_q in list(_EVENT_SUBSCRIBERS.get(rid) or ()):
+        await sub_q.put(item)
+
+
+def launch_background_agentic_job(
+    *,
+    goal: str,
+    router: Any,
+    settings: Settings,
+    provider_mode: str = "xkiro",
+    brain_model: str | None = None,
+    user_id: str = "default_user",
+    allowed_tools: set[str] | None = None,
+    approved_hashes: set[str] | None = None,
+    workspace_root: str | None = None,
+    host_header: str | None = "127.0.0.1:8000",
+    max_steps: int = 16,
+    history: list[tuple[str, str]] | None = None,
+    run_id: str | None = None,
+    store: AgenticRunStore | None = None,
+) -> PersistedAgenticRun:
+    """Start an agentic build in the background, publishing live SSE events and accepting steering."""
+    rid = run_id or f"run-ag-{uuid.uuid4().hex[:8]}"
+    st = store or get_agentic_store()
+    permitted = set(allowed_tools if allowed_tools is not None else DEFAULT_AGENTIC_TOOLS)
+    approved = set(approved_hashes or ())
+    steer_q = _STEER_QUEUES.setdefault(rid, asyncio.Queue())
+    _EVENT_HISTORY[rid] = []
+    initial = PersistedAgenticRun(
+        run_id=rid,
+        user_id=user_id,
+        goal=goal,
+        provider_mode=provider_mode,
+        brain_model=brain_model,
+        allowed_tools=sorted(permitted),
+        approved_hashes=sorted(approved),
+        workspace_root=workspace_root,
+        result=AgenticRunResult(run_id=rid, status="running", summary="Background build started."),
+    )
+    st.save(initial)
+
+    async def _runner_bg() -> PersistedAgenticRun:
+        async def _on_evt(evt_name: str, evt_payload: dict[str, Any]) -> None:
+            await _publish_bg_event(rid, evt_name, evt_payload)
+
+        try:
+            rec = await run_agentic_job(
+                goal=goal,
+                router=router,
+                settings=settings,
+                provider_mode=provider_mode,
+                brain_model=brain_model,
+                user_id=user_id,
+                allowed_tools=permitted,
+                approved_hashes=approved,
+                workspace_root=workspace_root,
+                host_header=host_header,
+                max_steps=max_steps,
+                history=history,
+                on_event=_on_evt,
+                run_id=rid,
+                store=st,
+                steer_queue=steer_q,
+            )
+            res = rec.result
+            if res.status == "awaiting_approval" and res.pending_approval is not None:
+                await _publish_bg_event(rid, "confirmation.required", {"runId": rid, **res.pending_approval.model_dump()})
+            elif res.status in ("failed", "blocked", "budget_exhausted"):
+                await _publish_bg_event(
+                    rid,
+                    "agent.run.failed",
+                    {
+                        "runId": rid,
+                        "status": res.status,
+                        "summary": res.summary,
+                        "blocker": res.blocker,
+                        "filesChanged": res.files_changed,
+                        "artifacts": res.artifacts,
+                    },
+                )
+            else:
+                await _publish_bg_event(
+                    rid,
+                    "agentic.finalized",
+                    {
+                        "runId": rid,
+                        "status": res.status,
+                        "summary": res.summary,
+                        "markdown": format_agentic_markdown(res),
+                        "filesChanged": res.files_changed,
+                        "artifacts": res.artifacts,
+                        "stepsExecuted": res.steps_executed,
+                    },
+                )
+            return rec
+        except Exception as exc:
+            err_txt = safe_error_text(exc, []) or "Background build failed."
+            failed = PersistedAgenticRun(
+                run_id=rid,
+                user_id=user_id,
+                goal=goal,
+                provider_mode=provider_mode,
+                brain_model=brain_model,
+                allowed_tools=sorted(permitted),
+                approved_hashes=sorted(approved),
+                workspace_root=workspace_root,
+                result=AgenticRunResult(run_id=rid, status="failed", summary=err_txt, blocker=err_txt),
+            )
+            st.save(failed)
+            await _publish_bg_event(rid, "agent.run.failed", {"runId": rid, "status": "failed", "summary": err_txt})
+            return failed
+        finally:
+            for sub_q in list(_EVENT_SUBSCRIBERS.get(rid) or ()):
+                await sub_q.put(None)
+            _BG_TASKS.pop(rid, None)
+
+    task = asyncio.create_task(_runner_bg())
+    _BG_TASKS[rid] = task
+    return initial
+
+
+def steer_agentic_run(run_id: str, direction: str, store: AgenticRunStore | None = None) -> bool:
+    """Inject live user guidance/design answers into an active background builder run."""
+    text = (direction or "").strip()
+    if not text:
+        return False
+    q = _STEER_QUEUES.get(run_id)
+    if q is not None and run_id in _BG_TASKS:
+        q.put_nowait(text)
+        return True
+    st = store or get_agentic_store()
+    rec = st.load(run_id)
+    if rec is not None and rec.result.status in ("running", "awaiting_approval"):
+        q = _STEER_QUEUES.setdefault(run_id, asyncio.Queue())
+        q.put_nowait(text)
+        return True
+    return False
+
+
+def describe_active_agentic_run(run_id: str, store: AgenticRunStore | None = None) -> str:
+    """Build a factual summary of the live background builder state for Muse Companion Brain."""
+    st = store or get_agentic_store()
+    rec = st.load(run_id)
+    hist = _EVENT_HISTORY.get(run_id, [])
+    recent_lines: list[str] = []
+    for evt_name, payload in hist[-8:]:
+        if evt_name == "tool.started":
+            recent_lines.append(f"- Running `{payload.get('toolName')}`")
+        elif evt_name == "tool.completed":
+            recent_lines.append(f"- Completed `{payload.get('toolName')}`")
+        elif evt_name == "agent.steered":
+            recent_lines.append(f"- User steered: {payload.get('message')}")
+        elif evt_name == "artifact.ready":
+            art = payload.get("artifact") or {}
+            recent_lines.append(f"- Artifact ready: {art.get('filePath') or art.get('download_url') or art.get('kind')}")
+        elif evt_name == "confirmation.required":
+            recent_lines.append(f"- Waiting user approval for `{payload.get('tool')}`: {payload.get('reason')}")
+        elif evt_name == "agentic.finalized":
+            recent_lines.append(f"- Build finished ({payload.get('status')}): {str(payload.get('summary') or '')[:180]}")
+
+    status = rec.result.status if rec else "running"
+    goal = rec.goal if rec else ""
+    files = list(rec.result.files_changed) if rec else []
+    bits = [f"Active Background Builder Run `{run_id}` (status: `{status}`, goal: {goal[:160]})."]
+    if files:
+        bits.append("Files touched so far: " + ", ".join(files[-6:]))
+    if recent_lines:
+        bits.append("Live progress:\n" + "\n".join(recent_lines))
+    return "\n".join(bits)
+
+
+async def subscribe_agentic_events(run_id: str, store: AgenticRunStore | None = None):
+    """Yield `(event_name, payload)` for a background run until terminal completion."""
+    sub_q: asyncio.Queue[tuple[str, dict[str, Any]] | None] = asyncio.Queue()
+    _EVENT_SUBSCRIBERS.setdefault(run_id, []).append(sub_q)
+    try:
+        for past_item in list(_EVENT_HISTORY.get(run_id, [])):
+            yield past_item
+        if run_id not in _BG_TASKS:
+            st = store or get_agentic_store()
+            rec = st.load(run_id)
+            if rec is not None and rec.result.status != "running":
+                res = rec.result
+                if res.status == "awaiting_approval" and res.pending_approval is not None:
+                    yield ("confirmation.required", {"runId": run_id, **res.pending_approval.model_dump()})
+                elif res.status in ("failed", "blocked", "budget_exhausted"):
+                    yield ("agent.run.failed", {"runId": run_id, "status": res.status, "summary": res.summary})
+                else:
+                    yield (
+                        "agentic.finalized",
+                        {
+                            "runId": run_id,
+                            "status": res.status,
+                            "summary": res.summary,
+                            "markdown": format_agentic_markdown(res),
+                            "filesChanged": res.files_changed,
+                            "artifacts": res.artifacts,
+                            "stepsExecuted": res.steps_executed,
+                        },
+                    )
+                return
+        while True:
+            nxt = await sub_q.get()
+            if nxt is None:
+                break
+            yield nxt
+    finally:
+        subs = _EVENT_SUBSCRIBERS.get(run_id)
+        if subs and sub_q in subs:
+            subs.remove(sub_q)
+
+
 def cancel_active_agentic_run(run_id: str, store: AgenticRunStore | None = None) -> bool:
     ev = _ACTIVE_CANCELS.get(run_id)
     st = store or get_agentic_store()
     if ev is not None:
         ev.set()
+        for sub_q in list(_EVENT_SUBSCRIBERS.get(run_id) or ()):
+            sub_q.put_nowait(("agent.run.cancelled", {"runId": run_id, "summary": "Run cancelled by user."}))
+            sub_q.put_nowait(None)
+        return True
+    task = _BG_TASKS.get(run_id)
+    if task is not None and not task.done():
+        task.cancel()
         return True
     rec = st.load(run_id)
     if rec and rec.result.status in ("awaiting_approval", "running"):

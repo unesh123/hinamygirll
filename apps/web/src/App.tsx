@@ -1477,13 +1477,18 @@ export default function App() {
               islandProps={{
                 isDark,
                 agentSteps,
-                pendingApproval: controller.currentAgentConfirmationStepId
-                  ? {
-                      stepId: controller.currentAgentConfirmationStepId,
-                      actionName: "Approve Agent Step Execution",
-                      command: "Execute agent action",
-                    }
-                  : null,
+                pendingApproval:
+                  controller.currentAgentApprovalInfo ??
+                  (controller.currentAgentConfirmationStepId
+                    ? {
+                        stepId: controller.currentAgentConfirmationStepId,
+                        actionName: "Agent action",
+                        command: "Pending agent action",
+                      }
+                    : null),
+                approvalPending: controller.approvalPending,
+                approvalError: controller.approvalError,
+                backgroundBuild: controller.backgroundBuild,
                 onConfirmStep: (approved) => {
                   void controller.confirmCurrentAgentStep(approved);
                 },
@@ -1570,6 +1575,11 @@ export default function App() {
                 agentSteps={agentSteps}
                 currentAgentRunId={controller.currentAgentRunId}
                 currentAgentConfirmationStepId={controller.currentAgentConfirmationStepId}
+                backgroundBuild={controller.backgroundBuild}
+                pendingApproval={controller.currentAgentApprovalInfo}
+                approvalPending={controller.approvalPending}
+                approvalError={controller.approvalError}
+                onCancelBackgroundBuild={() => { void controller.cancelBackgroundBuild(); }}
                 onCancelAgentRun={() => { void controller.cancelCurrentAgentRun(); handleStop(); }}
                 onResumeAgentRun={() => { void controller.resumeCurrentAgentRun(); }}
                 onConfirmAgentStep={(approved) => { void controller.confirmCurrentAgentStep(approved); }}

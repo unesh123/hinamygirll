@@ -37,6 +37,7 @@ const PROVIDER_LABELS: Record<ProviderMode, { label: string; description: string
   oxion:          { label: "Oxion AI",      description: "oxionai.com — 33+ frontier models (Claude Fable 5.1, Grok 4.6, Opus 5.5)." },
   respan:         { label: "Respan AI",     description: "api.respan.ai — unified gateway & multi-model router." },
   coarena:        { label: "Coarena AI",    description: "coarena.ai — free frontier Claude Sonnet 5.5, Gemini 4 Argon, deep reasoning." },
+  toptools:       { label: "Top-Tools AI",  description: "top-tools-ai.com — Top-Tools-Ai-Pro (1M context, vision, tool calls)." },
   experiential:   { label: "Experiential Labs", description: "api.experientiallabs.ai — Claude Opus 5.5 frontier gateway." },
 };
 

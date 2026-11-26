@@ -84,7 +84,7 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
-    provider_mode: Literal["gmi", "mock", "local", "groq", "openai", "custom", "real", "claude", "cantrustai", "cantrust", "qwen", "agent-router", "cx-gateway", "gemini-live", "codecraft", "experiential", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "oxion", "articul8", "respan"] = Field(
+    provider_mode: Literal["gmi", "mock", "local", "groq", "openai", "custom", "real", "claude", "cantrustai", "cantrust", "qwen", "agent-router", "cx-gateway", "gemini-live", "codecraft", "experiential", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "oxion", "articul8", "respan", "coarena", "toptools"] = Field(
         "gemini-live", alias="HINAA_PROVIDER_MODE"
     )
     azure_speech_key: SecretStr | None = Field(None, alias="AZURE_SPEECH_KEY")
@@ -514,6 +514,23 @@ class Settings(BaseSettings):
         "claude-sonnet-5-5,claude-opus-5-5,claude-fable-5,claude-fable-5-1,claude-fable-5-2,claude-haiku-5-5,gemini-4-argon,gemini-4-carbon,gemini-3-8-flash,grok-4-7,deepseek-v4-1-flash-1017,glm-5-3-flash,hy4,kimi-k3,kimi-k3-1-pro,mimo-v2-6-pro,minimax-m3-1-flash,qwen3-8-2-4t-a95b,*",
         validation_alias=AliasChoices("COARENA_ALLOWED_MODELS"),
     )
+    # Top-Tools AI Gateway — OpenAI-compatible Pro gateway (Top-Tools-Ai-Pro 1M context, vision, tool calls)
+    toptools_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("TOPTOOLS_API_KEY", "TOPTOOLS_AI_API_KEY", "TOPTOOLS_KEY"),
+    )
+    toptools_base_url: str = Field(
+        "https://top-tools-ai.com/api/v1",
+        validation_alias=AliasChoices("TOPTOOLS_BASE_URL", "TOPTOOLS_AI_BASE_URL"),
+    )
+    toptools_model: str = Field(
+        "Top-Tools-Ai-Pro",
+        validation_alias=AliasChoices("TOPTOOLS_MODEL", "TOPTOOLS_AI_MODEL"),
+    )
+    toptools_allowed_models_raw: str = Field(
+        "Top-Tools-Ai-Pro,Top-Tools-Ai-Basic,Top-Tools-Ai-Max,*",
+        validation_alias=AliasChoices("TOPTOOLS_ALLOWED_MODELS", "TOPTOOLS_AI_ALLOWED_MODELS"),
+    )
     # CanTrustAI Gateway — high-speed DeepSeek and Claude models
     cantrust_api_key: SecretStr | None = Field(
         None,
@@ -911,6 +928,8 @@ class Settings(BaseSettings):
     # the host until a verified session can replace the origin check. See tools/policy.py.
     allow_remote_local_tools: bool = Field(False, alias="HINAA_ALLOW_REMOTE_LOCAL_TOOLS")
     allow_tunnel_dev_auth: bool = Field(False, alias="HINAA_ALLOW_TUNNEL_DEV_AUTH")
+    full_autonomy: bool = Field(False, alias="HINAA_FULL_AUTONOMY")
+    auto_approve: bool = Field(False, alias="HINAA_AUTO_APPROVE")
     magnific_disabled: bool = Field(False, alias="HINAA_MAGNIFIC_DISABLED")
     clerk_jwt_key: str | None = Field(None, alias="CLERK_JWT_KEY")
     # Without a PEM, the Clerk SDK fetches this instance's public keys over the
@@ -1804,6 +1823,7 @@ class Settings(BaseSettings):
             "openai": self.openai_configured,
             "qwen": self.qwen_configured,
             "coarena": self.coarena_configured,
+            "toptools": self.toptools_configured,
             "cavoti": self.cavoti_configured,
             "explabs": self.explabs_configured,
             "xkiro": bool(
@@ -2025,6 +2045,44 @@ class Settings(BaseSettings):
         if "*" not in self.coarena_allowed_models and model not in self.coarena_allowed_models:
             allowed = ", ".join(self.coarena_allowed_models)
             raise ValueError(f"Coarena model is not in COARENA_ALLOWED_MODELS: {allowed}")
+        return model
+
+    @property
+    def toptools_configured(self) -> bool:
+        return bool(
+            self.toptools_api_key
+            and self.toptools_api_key.get_secret_value()
+            and self.active_toptools_base_url
+        )
+
+    @property
+    def active_toptools_key(self) -> SecretStr | None:
+        if self.toptools_api_key and self.toptools_api_key.get_secret_value():
+            return self.toptools_api_key
+        return None
+
+    @property
+    def active_toptools_base_url(self) -> str | None:
+        value = (self.toptools_base_url or "").strip().rstrip("/")
+        return value or "https://top-tools-ai.com/api/v1"
+
+    @property
+    def active_toptools_model(self) -> str:
+        return self.toptools_model or "Top-Tools-Ai-Pro"
+
+    @property
+    def toptools_allowed_models(self) -> list[str]:
+        configured = [m.strip() for m in self.toptools_allowed_models_raw.split(",") if m.strip()]
+        models = configured or [self.active_toptools_model]
+        if self.active_toptools_model and self.active_toptools_model not in models:
+            models.insert(0, self.active_toptools_model)
+        return models
+
+    def resolve_toptools_model(self, requested: str | None = None) -> str:
+        model = (requested or "").strip() or self.active_toptools_model
+        if "*" not in self.toptools_allowed_models and model not in self.toptools_allowed_models:
+            allowed = ", ".join(self.toptools_allowed_models)
+            raise ValueError(f"Top-Tools AI model is not in TOPTOOLS_ALLOWED_MODELS: {allowed}")
         return model
 
     @property

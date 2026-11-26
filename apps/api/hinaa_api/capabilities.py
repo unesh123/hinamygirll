@@ -86,8 +86,45 @@ def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
     has_agent_router = settings.agent_router_configured
     has_codecraft = settings.codecraft_configured
     has_explabs = settings.explabs_configured
+    has_toptools = settings.toptools_configured
 
     models: list[ModelCapabilityRecord] = [
+        ModelCapabilityRecord(
+            id="Top-Tools-Ai-Pro",
+            display_name="Top-Tools AI Pro (1M)",
+            provider="toptools",
+            kind="brain",
+            input_modalities=["text", "image", "document"],
+            output_modalities=["text"],
+            vision=True,
+            document=True,
+            availability="healthy" if has_toptools else "unavailable",
+            description="Top-Tools AI unified Pro brain (1M context window, vision, and tool calling).",
+        ),
+        ModelCapabilityRecord(
+            id="Top-Tools-Ai-Basic",
+            display_name="Top-Tools AI Basic (512K)",
+            provider="toptools",
+            kind="brain",
+            input_modalities=["text", "image", "document"],
+            output_modalities=["text"],
+            vision=True,
+            document=True,
+            availability="healthy" if has_toptools else "unavailable",
+            description="Top-Tools AI Basic tier (512K context window).",
+        ),
+        ModelCapabilityRecord(
+            id="Top-Tools-Ai-Max",
+            display_name="Top-Tools AI Max (1M)",
+            provider="toptools",
+            kind="brain",
+            input_modalities=["text", "image", "document"],
+            output_modalities=["text"],
+            vision=True,
+            document=True,
+            availability="healthy" if has_toptools else "unavailable",
+            description="Top-Tools AI Max tier (requires Max plan entitlement).",
+        ),
         # Brain Models
         ModelCapabilityRecord(
             id="gemini-3.5-flash",
@@ -413,6 +450,8 @@ def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
         default_brain = settings.xkiro_model
     elif effective_mode == "coarena":
         default_brain = settings.active_coarena_model
+    elif effective_mode == "toptools":
+        default_brain = settings.active_toptools_model
     elif effective_mode == "apmix":
         default_brain = settings.active_apmix_model
     elif effective_mode == "oxion":
@@ -465,6 +504,7 @@ _IMAGE_CAPABLE_ADAPTERS = frozenset(
         "cavoti",
         "apmix",
         "oxion",
+        "toptools",
         "ollama",
     }
 )
@@ -479,6 +519,9 @@ _VISION_MODEL_MARKERS = (
     "vision",
     "-vl",
     "qvq",
+    "top-tools-ai-pro",
+    "top-tools-ai-basic",
+    "top-tools-ai-max",
 )
 
 

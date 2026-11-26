@@ -78,6 +78,7 @@ def _configured_code_backends(settings: Settings) -> list[dict[str, str]]:
     _add("cavoti", settings.cavoti_api_key, settings.cavoti_base_url, settings.cavoti_model)
     _add("experiential", settings.explabs_api_key, settings.explabs_base_url, settings.explabs_model)
     _add("apmix", settings.apmix_api_key, settings.apmix_base_url, settings.apmix_model)
+    _add("toptools", settings.active_toptools_key, settings.active_toptools_base_url, settings.active_toptools_model)
     return backends
 
 

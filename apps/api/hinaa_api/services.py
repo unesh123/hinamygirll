@@ -1294,6 +1294,15 @@ class ProviderRouter:
                 user_action_required=True,
             )
 
+    def _require_toptools_brain(self) -> None:
+        if self.settings.active_toptools_key is None or self.settings.active_toptools_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "Top-Tools AI is not configured. Add TOPTOOLS_API_KEY to apps/api/.env.local.",
+                503,
+                user_action_required=True,
+            )
+
     def _require_articul8_brain(self) -> None:
         if self.settings.active_articul8_key is None or self.settings.active_articul8_base_url is None:
             raise HinaaError(
@@ -1710,6 +1719,26 @@ class ProviderRouter:
                 model,
                 base_url=active_respan_base_url,
                 provider_id="respan",
+            )
+        if mode == "toptools":
+            self._require_toptools_brain()
+            active_toptools_key = self.settings.active_toptools_key
+            active_toptools_base_url = self.settings.active_toptools_base_url
+            assert active_toptools_key and active_toptools_base_url
+            try:
+                model = self.settings.resolve_toptools_model(brain_model)
+            except ValueError as error:
+                raise HinaaError(
+                    "PROVIDER_MODEL_NOT_ALLOWED",
+                    str(error),
+                    422,
+                    user_action_required=True,
+                ) from error
+            return OpenAILLMProvider(
+                active_toptools_key.get_secret_value(),
+                model,
+                base_url=active_toptools_base_url,
+                provider_id="toptools",
             )
         if mode == "coarena":
             self._require_coarena_brain()
@@ -4324,6 +4353,7 @@ class ConversationService:
             "tokentable": self.settings.active_tokentable_model,
             "xkiro": self.settings.active_xkiro_model,
             "coarena": self.settings.active_coarena_model,
+            "toptools": self.settings.active_toptools_model,
             "cavoti": self.settings.active_cavoti_model,
             "apmix": self.settings.active_apmix_model,
             "oxion": self.settings.active_oxion_model,
@@ -4414,6 +4444,7 @@ class ConversationService:
             "claude": (self.settings.claude_configured, self.settings.active_claude_model),
             "custom": (self.settings.custom_configured, self.settings.active_custom_model),
             "cx-gateway": (self.settings.cx_gateway_configured, self.settings.cx_gateway_model),
+            "toptools": (self.settings.toptools_configured, self.settings.active_toptools_model),
             "qwen": (self.settings.qwen_configured, self.settings.qwen_model),
             "real": (self.settings.gemini_configured, self.settings.gemini_model),
             "openai": (self.settings.openai_configured, self.settings.active_openai_model),
@@ -5326,7 +5357,7 @@ class ConversationService:
         # must not be paid another full timeout of silence on every turn, and
         # a brain past cooloff proves recovery on a cheap probe budget.
         primary_bench_cooloff = self._primary_cooloff_remaining(request.providerMode)
-        if not primary_bench_cooloff and self._primary_probing(request.providerMode) and request.providerMode not in ("ollama", "cantrustai", "cantrust", "claude", "xkiro", "coarena"):
+        if not primary_bench_cooloff and self._primary_probing(request.providerMode) and request.providerMode not in ("ollama", "cantrustai", "cantrust", "claude", "xkiro", "coarena", "toptools"):
             primary_plan_timeout = min(primary_plan_timeout, 12.0)
         attempted_brain = request.providerMode
         fast_provider_id = None
@@ -5910,6 +5941,7 @@ class ConversationService:
         *,
         user_id: str | None = None,
         emit_event: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
+        muse_context: str | None = None,
     ) -> ProviderResult[AssistantTurnPlan]:
         from .providers.timing import ProviderTiming
         from .models import ToolRequest
@@ -6076,6 +6108,7 @@ class ConversationService:
         grounded_sources: list[Any] = []
         if (
             request.providerMode != "mock"
+            and not muse_context
             and not _route_meta.get("skip_recent_working_context")
             and self._should_pre_search(request.text, d_state=d_state)
         ):
@@ -6176,6 +6209,12 @@ class ConversationService:
                 dialogue_state_block = build_dialogue_state_block(d_state)
             except Exception:
                 pass
+        if muse_context:
+            dialogue_state_block = (
+                f"{dialogue_state_block}\n\n{muse_context}".strip()
+                if dialogue_state_block
+                else muse_context
+            )
 
         durable_memory = self._capture_turn_facts(request, user_id)
         history = session_history or self._resolve_session_history(request.sessionId, request.conversationId)
@@ -6288,7 +6327,7 @@ class ConversationService:
         # turn goes straight to the fallback chain. A brain past cooloff but
         # not yet proven healthy gets a cheap probe budget for the same reason.
         primary_bench_cooloff = self._primary_cooloff_remaining(request.providerMode)
-        if not primary_bench_cooloff and self._primary_probing(request.providerMode) and request.providerMode not in ("ollama", "cantrustai", "cantrust", "claude", "xkiro", "coarena"):
+        if not primary_bench_cooloff and self._primary_probing(request.providerMode) and request.providerMode not in ("ollama", "cantrustai", "cantrust", "claude", "xkiro", "coarena", "toptools"):
             primary_idle_timeout = min(primary_idle_timeout, 12.0)
             primary_live_timeout = min(primary_live_timeout, 45.0)
         primary_text: list[str] = []
@@ -7245,9 +7284,32 @@ class ConversationService:
             )
         )
         recent_hist = self._turn_history(request)
+        muse_turn_context: str | None = None
+        _active_bg_run_id = (getattr(request, "activeAgentRunId", None) or "").strip() or None
+        if _active_bg_run_id and not re.match(r"(?i)^/(?:code|agent|goal|site|website|video|motion)\b", _text_clean):
+            from .agent.live_agentic_service import (
+                describe_active_agentic_run,
+                get_agentic_store,
+                steer_agentic_run,
+            )
+
+            if steer_agentic_run(_active_bg_run_id, _text_clean, store=get_agentic_store()):
+                yield self._event("agent.steered", {"runId": _active_bg_run_id, "message": _text_clean})
+                snap = describe_active_agentic_run(_active_bg_run_id, store=get_agentic_store())
+                muse_turn_context = (
+                    "[MUSE DUAL-BRAIN LIVE STEERING MODE]: Your Background Builder Brain is actively running in the upper-end HUD "
+                    "and has just received the user's message above as live steering direction (`[LIVE USER DIRECTION]`). "
+                    "Respond naturally like Muse AI: (1) warmly acknowledge their design/feature preference or question, "
+                    "(2) cite ONLY factual progress from the live snapshot below (never invent unverified files or URLs), and "
+                    "(3) ask 1-2 crisp follow-up co-creation questions to refine the build.\n\n"
+                    f"{snap}"
+                )
+                page_guard = None
+
         _promoted_retry_goal: str | None = None
         if (
-            _req_agentic is None
+            not muse_turn_context
+            and _req_agentic is None
             and not _has_visual_attachment
             and _RETRY_FOLLOWUP_RE.match(_text_clean)
             and recent_hist
@@ -7281,23 +7343,30 @@ class ConversationService:
                         break
 
         _use_agentic = (
-            _req_agentic is True
-            or (
-                _req_agentic is None
-                and not _has_visual_attachment
-                and (
-                    bool(_promoted_retry_goal)
-                    or (
-                        bool(_AUTO_AGENTIC_RE.search(_text_clean))
-                        and not bool(_CAPABILITY_Q_RE.search(_text_clean))
-                        and not bool(_NON_AGENTIC_GUARD_RE.search(_text_clean))
+            not muse_turn_context
+            and (
+                _req_agentic is True
+                or (
+                    _req_agentic is None
+                    and not _has_visual_attachment
+                    and (
+                        bool(_promoted_retry_goal)
+                        or (
+                            bool(_AUTO_AGENTIC_RE.search(_text_clean))
+                            and not bool(_CAPABILITY_Q_RE.search(_text_clean))
+                            and not bool(_NON_AGENTIC_GUARD_RE.search(_text_clean))
+                        )
                     )
                 )
             )
         )
         if _use_agentic:
             import os as _os
-            from .agent.live_agentic_service import format_agentic_markdown, run_agentic_job
+            from .agent.live_agentic_service import (
+                format_agentic_markdown,
+                launch_background_agentic_job,
+                run_agentic_job,
+            )
             from .runtime_paths import project_root
 
             raw_goal = _promoted_retry_goal or _text_clean
@@ -7330,18 +7399,26 @@ class ConversationService:
                 "workspace_process_logs",
                 "workspace_stop_process",
                 "workspace_spawn_subagent",
+                "web_search",
+                "web_extract",
+                "web_answer",
+                "image_search",
                 "render_code_animation",
                 "mlai_list_routines",
                 "mlai_run_routine",
             })
             ws_dir = _os.environ.get("HINAA_LOCAL_WORKSPACE_DIR") or str(project_root())
-            ev_queue: asyncio.Queue[tuple[str, dict[str, Any]] | None] = asyncio.Queue()
-
-            async def _on_agentic_event(evt_name: str, evt_payload: dict[str, Any]) -> None:
-                await ev_queue.put((evt_name, evt_payload))
-
-            agentic_task = asyncio.create_task(
-                run_agentic_job(
+            _MUSE_COBUILD_RE = re.compile(
+                r"(?i)\b(?:website|web\s*page|webpage|web\s*app|landing\s*page|ui\b|clone|scrape|merlin|dashboard|portfolio|frontend|old[- ]?new)\b"
+            )
+            _should_muse_dual_brain = (
+                _req_agentic is None
+                and request.providerMode != "mock"
+                and not re.search(r"(?i)\b(?:mp4|video|animation|kinetic[\s-]+typography|render_code_animation)\b", goal_text)
+                and bool(_MUSE_COBUILD_RE.search(goal_text))
+            )
+            if _should_muse_dual_brain:
+                launch_background_agentic_job(
                     goal=goal_text,
                     router=self.router,
                     settings=self.settings,
@@ -7353,54 +7430,96 @@ class ConversationService:
                     max_steps=16,
                     history=recent_hist,
                     run_id=correlation_id,
-                    on_event=_on_agentic_event,
                 )
-            )
-            while not agentic_task.done() or not ev_queue.empty():
-                try:
-                    item = await asyncio.wait_for(ev_queue.get(), timeout=0.25)
-                    if item is not None:
-                        ev_name, ev_payload = item
-                        yield self._event(ev_name, {"correlationId": correlation_id, **ev_payload})
-                except asyncio.TimeoutError:
-                    continue
-            persisted = await agentic_task
-            res = persisted.result
-            report_md = format_agentic_markdown(res)
-            clean_spoken = re.sub(r"```[\s\S]*?```", "", res.summary or "").strip()
-            clean_spoken = re.sub(r"\s+", " ", re.sub(r"[`*_#\[\]()]", "", clean_spoken)).strip()
-            if any(a.get("kind") == "video" for a in (res.artifacts or [])):
-                spoken_short = clean_spoken[:180] or "Rendered your MP4 animation and loaded it in chat."
-            elif res.files_changed:
-                spoken_short = clean_spoken[:180] or f"Updated {len(res.files_changed)} workspace file(s) cleanly."
+                yield self._event("agentic.started", {"runId": correlation_id, "goal": goal_text, "maxSteps": 16})
+                yield self._event(
+                    "agentic.background",
+                    {
+                        "runId": correlation_id,
+                        "goal": goal_text,
+                        "status": "running",
+                        "streamUrl": f"/api/v1/agent/agentic-runs/{correlation_id}/stream",
+                        "steerUrl": f"/api/v1/agent/agentic-runs/{correlation_id}/steer",
+                    },
+                )
+                page_guard = None
+                muse_turn_context = (
+                    "[MUSE DUAL-BRAIN CO-CREATOR LAUNCH]:\n"
+                    "You now have TWO active brains working together like Muse AI:\n"
+                    f"1. Background Builder Brain (`{correlation_id}`) just launched in the upper-end HUD to research/scaffold: {goal_text}\n"
+                    "2. YOU are Brain #2 (Muse Co-Creator Chat Brain). Do NOT output raw HTML/code dumps or claim files/URLs are finished yet!\n"
+                    "Respond warmly and crisply in 4-7 sentences with numbered questions:\n"
+                    "- Briefly confirm the background builder just kicked off at the upper bar so chat stays live with you.\n"
+                    "- Ask 3 focused, high-leverage clarifying design/product questions (e.g. visual vibe/palette, core interactive UI flows, layout sections/controls) so the user can shape the build.\n"
+                    "- Mention they can reply naturally anytime and you'll steer the running builder live."
+                )
             else:
-                spoken_short = clean_spoken[:180] or "Finished executing the workspace task."
-            agentic_plan = build_plan_from_text(
-                text=report_md,
-                companion_id=request.companionId or "hinaa",
-                language=getattr(request, "language", None) or "en-US",
-                depth="report",
-            )
-            agentic_plan.spokenText = spoken_short
-            agentic_plan.requestedProvider = request.providerMode
-            agentic_plan.requestedModel = request.brainModel
-            agentic_plan.resolvedProvider = request.providerMode
-            agentic_plan.resolvedModel = request.brainModel
-            yield _make_delta_event(spoken_short)
-            elapsed_ms = int((time.time() - start_time) * 1000)
-            yield self._event("planning.completed", {"step": res.steps_executed or 1, "durationMs": elapsed_ms, "correlationId": correlation_id})
-            yield self._event("plan", {"plan": agentic_plan.model_dump(), "provider": f"{request.providerMode}:agentic"})
-            yield self._event("usage", {"latencyMs": elapsed_ms, "stepsExecuted": res.steps_executed})
-            yield self._event("run.completed", {
-                "runId": correlation_id,
-                "status": res.status,
-                "stepsExecuted": res.steps_executed,
-                "artifacts": res.artifacts,
-                "filesChanged": res.files_changed,
-                "latencyMs": elapsed_ms,
-                "totalDurationMs": elapsed_ms,
-            })
-            return
+                ev_queue: asyncio.Queue[tuple[str, dict[str, Any]] | None] = asyncio.Queue()
+
+                async def _on_agentic_event(evt_name: str, evt_payload: dict[str, Any]) -> None:
+                    await ev_queue.put((evt_name, evt_payload))
+
+                agentic_task = asyncio.create_task(
+                    run_agentic_job(
+                        goal=goal_text,
+                        router=self.router,
+                        settings=self.settings,
+                        provider_mode=request.providerMode,
+                        brain_model=request.brainModel,
+                        user_id=user_id or "default_user",
+                        allowed_tools=allowed_for_agentic,
+                        workspace_root=ws_dir,
+                        max_steps=16,
+                        history=recent_hist,
+                        run_id=correlation_id,
+                        on_event=_on_agentic_event,
+                    )
+                )
+                while not agentic_task.done() or not ev_queue.empty():
+                    try:
+                        item = await asyncio.wait_for(ev_queue.get(), timeout=0.25)
+                        if item is not None:
+                            ev_name, ev_payload = item
+                            yield self._event(ev_name, {"correlationId": correlation_id, **ev_payload})
+                    except asyncio.TimeoutError:
+                        continue
+                persisted = await agentic_task
+                res = persisted.result
+                report_md = format_agentic_markdown(res)
+                clean_spoken = re.sub(r"```[\s\S]*?```", "", res.summary or "").strip()
+                clean_spoken = re.sub(r"\s+", " ", re.sub(r"[`*_#\[\]()]", "", clean_spoken)).strip()
+                if any(a.get("kind") == "video" for a in (res.artifacts or [])):
+                    spoken_short = clean_spoken[:180] or "Rendered your MP4 animation and loaded it in chat."
+                elif res.files_changed:
+                    spoken_short = clean_spoken[:180] or f"Updated {len(res.files_changed)} workspace file(s) cleanly."
+                else:
+                    spoken_short = clean_spoken[:180] or "Finished executing the workspace task."
+                agentic_plan = build_plan_from_text(
+                    text=report_md,
+                    companion_id=request.companionId or "hinaa",
+                    language=getattr(request, "language", None) or "en-US",
+                    depth="report",
+                )
+                agentic_plan.spokenText = spoken_short
+                agentic_plan.requestedProvider = request.providerMode
+                agentic_plan.requestedModel = request.brainModel
+                agentic_plan.resolvedProvider = request.providerMode
+                agentic_plan.resolvedModel = request.brainModel
+                yield _make_delta_event(spoken_short)
+                elapsed_ms = int((time.time() - start_time) * 1000)
+                yield self._event("planning.completed", {"step": res.steps_executed or 1, "durationMs": elapsed_ms, "correlationId": correlation_id})
+                yield self._event("plan", {"plan": agentic_plan.model_dump(), "provider": f"{request.providerMode}:agentic"})
+                yield self._event("usage", {"latencyMs": elapsed_ms, "stepsExecuted": res.steps_executed})
+                yield self._event("run.completed", {
+                    "runId": correlation_id,
+                    "status": res.status,
+                    "stepsExecuted": res.steps_executed,
+                    "artifacts": res.artifacts,
+                    "filesChanged": res.files_changed,
+                    "latencyMs": elapsed_ms,
+                    "totalDurationMs": elapsed_ms,
+                })
+                return
 
         _INSTANT_ACTION_TOOLS = frozenset({
             "computer_operator",
@@ -7556,8 +7675,15 @@ class ConversationService:
             })
             return
 
+        _plan_kwargs: dict[str, Any] = {"user_id": user_id, "emit_event": emit_event}
+        if muse_turn_context is not None:
+            _plan_kwargs["muse_context"] = muse_turn_context
         turn_task = asyncio.create_task(
-            self.create_live_plan(request, emit_delta, user_id=user_id, emit_event=emit_event)
+            self.create_live_plan(
+                request,
+                emit_delta,
+                **_plan_kwargs,
+            )
         )
 
         # Slow providers report transport status only. Synthetic acknowledgements

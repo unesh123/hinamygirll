@@ -50,6 +50,10 @@ DEFAULT_AGENTIC_TOOLS: frozenset[str] = frozenset({
     "workspace_process_logs",
     "workspace_stop_process",
     "workspace_spawn_subagent",
+    "web_search",
+    "web_extract",
+    "web_answer",
+    "image_search",
     "render_code_animation",
     "create_lyric_video",
     "create_motion_video",
@@ -308,9 +312,20 @@ class AgenticLoopRunner:
                 args.get("args") if isinstance(args.get("args"), list) else None,
             )
 
+        full_auto = bool(getattr(cfg, "full_autonomy", False) and getattr(cfg, "auto_approve", False))
+        auto_web_or_local = full_auto and (
+            name in ("web_search", "web_extract", "web_answer", "image_search")
+            or (bool(self.workspace_root) and name == "workspace_stop_process")
+        )
         args_hash = _hash_args(name, args)
         needs_approval = bool(
-            (tdef.requires_confirmation and not scoped_edit and not scoped_verify_cmd and not scoped_server_cmd)
+            (
+                tdef.requires_confirmation
+                and not scoped_edit
+                and not scoped_verify_cmd
+                and not scoped_server_cmd
+                and not auto_web_or_local
+            )
             or tdef.risk_tier >= RiskTier.TIER_4_DESTRUCTIVE
             or name in IRREVERSIBLE_EXTERNAL_TOOLS
         )
@@ -440,6 +455,7 @@ class AgenticLoopRunner:
         cancel_event: asyncio.Event | None = None,
         on_event: StepCallback | None = None,
         run_id: str | None = None,
+        steer_queue: asyncio.Queue[str] | None = None,
     ) -> AgenticRunResult:
         rid = run_id or f"run-ag-{uuid.uuid4().hex[:8]}"
         t0 = time.perf_counter()
@@ -566,6 +582,25 @@ class AgenticLoopRunner:
                     elapsed_ms=round((time.perf_counter() - t0) * 1000, 2),
                     blocker="WALL_CLOCK_BUDGET_EXHAUSTED",
                 )
+
+            if steer_queue is not None:
+                steered_msgs: list[str] = []
+                while not steer_queue.empty():
+                    try:
+                        s_msg = str(steer_queue.get_nowait() or "").strip()
+                        if s_msg:
+                            steered_msgs.append(s_msg)
+                    except asyncio.QueueEmpty:
+                        break
+                for s_msg in steered_msgs:
+                    transcript.append({
+                        "role": "user",
+                        "content": (
+                            "[LIVE USER DIRECTION WHILE BUILDING — incorporate these preferences into your current/next build]: "
+                            + s_msg
+                        ),
+                    })
+                    await _emit("agent.steered", {"message": s_msg, "step": step_num})
 
             await _emit("agent.step.started", {"step": step_num, "maxSteps": self.max_steps})
             try:

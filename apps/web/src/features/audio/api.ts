@@ -25,6 +25,7 @@ export type ProviderMode =
   | "oxion"
   | "respan"
   | "coarena"
+  | "toptools"
   | "experiential";
 
 

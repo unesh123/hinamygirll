@@ -27,7 +27,7 @@ import {
   loadConversationMessages,
   saveConversationMessages,
 } from "./sessionManager";
-import { HINAA_DEV_USER } from "../../lib/hinaaIdentity";
+import { HINAA_DEV_USER, hinaaIdentityHeaders } from "../../lib/hinaaIdentity";
 import { singleLine } from "../../lib/turnFailure";
 import { recordMotionState } from "./motionLedger";
 import { hinaaUIController } from "../ui-control/HinaaUIController";
@@ -235,7 +235,12 @@ export interface CompanionController {
   isSearching: boolean;
   searchQuery: string;
   currentAgentRunId?: string;
-  currentAgentConfirmationStepId?: string;
+  currentAgentConfirmationStepId?: string;
+  currentAgentApprovalInfo: AgentApprovalInfo | null;
+  approvalPending: boolean;
+  approvalError: string | null;
+  backgroundBuild: BackgroundBuildState | null;
+  cancelBackgroundBuild: () => Promise<void>;
   cancelCurrentAgentRun: () => Promise<void>;
   resumeCurrentAgentRun: () => Promise<void>;
   confirmCurrentAgentStep: (approved: boolean) => Promise<void>;
@@ -260,6 +265,23 @@ export interface CompanionController {
     approved: boolean,
   ) => Promise<void>;
   setLiveState: (state: CompanionState) => void;
+}
+
+export interface BackgroundBuildState {
+  runId: string;
+  goal: string;
+  status: "running" | "awaiting_approval" | "completed" | "failed" | "cancelled";
+  summary?: string;
+  artifacts?: string[];
+  filesChanged?: string[];
+}
+
+export interface AgentApprovalInfo {
+  stepId: string;
+  runId?: string;
+  actionName: string;
+  command?: string;
+  detail?: string;
 }
 
 export interface CompanionControllerOptions {
@@ -294,6 +316,10 @@ export function useCompanionController({ conversationId, routing, languagePolicy
   const [searchQuery, setSearchQuery] = useState("");
   const [currentAgentRunId, setCurrentAgentRunId] = useState<string>();
   const [currentAgentConfirmationStepId, setCurrentAgentConfirmationStepId] = useState<string>();
+  const [currentAgentApprovalInfo, setCurrentAgentApprovalInfo] = useState<AgentApprovalInfo | null>(null);
+  const [approvalPending, setApprovalPending] = useState(false);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
+  const [backgroundBuild, setBackgroundBuild] = useState<BackgroundBuildState | null>(null);
   const effectiveKey = conversationId ? `hinaa-messages-${conversationId}` : `hinaa-messages-${companionId}`;
   const [messages, setMessages] = useState<TranscriptMessage[]>(() => {
     try {
@@ -399,7 +425,23 @@ export function useCompanionController({ conversationId, routing, languagePolicy
   // A double click, touch event replay, or a transient rerender may not submit
   // the same external request twice or append duplicate terminal result cards.
   const resolvingToolRequestIds = useRef<Set<string>>(new Set());
-  const pendingAgenticApprovalRef = useRef<{ runId: string; argumentsHash: string; tool?: string } | null>(null);
+  const pendingAgenticApprovalRef = useRef<{
+    runId: string;
+    argumentsHash: string;
+    tool?: string;
+    command?: string;
+    detail?: string;
+  } | null>(null);
+  const backgroundBuildRef = useRef<BackgroundBuildState | null>(null);
+  backgroundBuildRef.current = backgroundBuild;
+  const bgAbortRef = useRef<AbortController | null>(null);
+  const bgFinalizedRunIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    return () => {
+      bgAbortRef.current?.abort();
+    };
+  }, []);
   const turnSequence = useRef(0);
   const activeTurnId = useRef<string | null>(null);
   const finalizedTurnIds = useRef<Set<string>>(new Set());
@@ -437,9 +479,13 @@ export function useCompanionController({ conversationId, routing, languagePolicy
 
     setStreamingText("");
     setActivePlan(undefined);
-    if (!pendingAgenticApprovalRef.current) {
+    const hasActiveBg =
+      backgroundBuildRef.current?.status === "running" ||
+      backgroundBuildRef.current?.status === "awaiting_approval";
+    if (!pendingAgenticApprovalRef.current && !hasActiveBg) {
       setCurrentAgentRunId(undefined);
       setCurrentAgentConfirmationStepId(undefined);
+      setCurrentAgentApprovalInfo(null);
       setAgentSteps([]);
     }
     const errorText = result.errorText;
@@ -461,7 +507,13 @@ export function useCompanionController({ conversationId, routing, languagePolicy
       if (previousTurn) finalizeTurn(previousTurn);
       else clearTimers();
       setCompanionId(id);
+      bgAbortRef.current?.abort();
+      bgAbortRef.current = null;
       pendingAgenticApprovalRef.current = null;
+      setCurrentAgentApprovalInfo(null);
+      setApprovalPending(false);
+      setApprovalError(null);
+      setBackgroundBuild(null);
       setPartialTranscript("");
       setStreamingText("");
       setActivePlan(undefined);
@@ -494,6 +546,13 @@ export function useCompanionController({ conversationId, routing, languagePolicy
     else clearTimers();
     setPartialTranscript("");
     setStreamingText("");
+    bgAbortRef.current?.abort();
+    bgAbortRef.current = null;
+    pendingAgenticApprovalRef.current = null;
+    setCurrentAgentApprovalInfo(null);
+    setApprovalPending(false);
+    setApprovalError(null);
+    setBackgroundBuild(null);
     setActivePlan(undefined);
     setAgentSteps([]);
     setIsSearching(false);
@@ -565,99 +624,384 @@ export function useCompanionController({ conversationId, routing, languagePolicy
     setState("thinking");
   }, [currentAgentRunId]);
 
-  const confirmCurrentAgentStep = useCallback(async (approved: boolean) => {
-    if (!currentAgentRunId || !currentAgentConfirmationStepId) return;
-    const pendingAgentic = pendingAgenticApprovalRef.current;
-    if (pendingAgentic && pendingAgentic.runId === currentAgentRunId) {
-      setState(approved ? "thinking" : "idle");
-      const response = await fetch(`/api/v1/agent/agentic-runs/${encodeURIComponent(currentAgentRunId)}/approve`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          approved,
-          argumentsHash: pendingAgentic.argumentsHash,
-        }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        setState("idle");
-        throw new Error(payload?.detail || `Approval failed (${response.status})`);
-      }
-      const res = payload?.result;
-      const nextAppr = res?.status === "awaiting_approval" ? res?.pending_approval : undefined;
-      if (nextAppr && nextAppr.arguments_hash) {
-        const nextStepId = String(nextAppr.approval_id || "approval");
-        pendingAgenticApprovalRef.current = {
-          runId: currentAgentRunId,
-          argumentsHash: String(nextAppr.arguments_hash),
-          tool: typeof nextAppr.tool === "string" ? nextAppr.tool : undefined,
+  const subscribeBackgroundAgenticRun = useCallback((runId: string, goalHint?: string) => {
+    if (!runId) return;
+    bgAbortRef.current?.abort();
+    const ac = new AbortController();
+    bgAbortRef.current = ac;
+    setCurrentAgentRunId(runId);
+    setBackgroundBuild((prev) => ({
+      runId,
+      goal: goalHint || prev?.goal || "Autonomous background build",
+      status: "running",
+    }));
+
+    void (async () => {
+      try {
+        const res = await fetch(`/api/v1/agent/agentic-runs/${encodeURIComponent(runId)}/stream`, {
+          method: "GET",
+          headers: { ...hinaaIdentityHeaders() },
+          signal: ac.signal,
+        });
+        if (!res.ok || !res.body) {
+          throw new Error(`Background stream failed (${res.status})`);
+        }
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let bgSeq = 0;
+
+        const handleFrame = (frame: Record<string, any>) => {
+          const evtType = String(frame.type ?? frame.event_type ?? "");
+          if (!evtType) return;
+
+          if (evtType === "confirmation.required") {
+            const stepKey = String(frame.step_id ?? frame.approval_id ?? "approval");
+            const argHash = String(frame.arguments_hash ?? frame.argumentsHash ?? "");
+            const toolName = typeof frame.tool === "string" ? frame.tool : "tool";
+            const rawArgs = (frame.arguments && typeof frame.arguments === "object" ? frame.arguments : {}) as Record<string, unknown>;
+            const command =
+              typeof frame.command === "string"
+                ? frame.command
+                : typeof rawArgs.command === "string"
+                  ? rawArgs.command
+                  : typeof rawArgs.file_path === "string"
+                    ? `${toolName} ${rawArgs.file_path}`
+                    : undefined;
+            const detail = String(frame.reason ?? frame.summary ?? "Awaiting explicit approval");
+            if (argHash) {
+              pendingAgenticApprovalRef.current = {
+                runId,
+                argumentsHash: argHash,
+                tool: toolName,
+                command,
+                detail,
+              };
+            }
+            setCurrentAgentRunId(runId);
+            setCurrentAgentConfirmationStepId(stepKey);
+            setCurrentAgentApprovalInfo({ stepId: stepKey, runId, actionName: toolName, command, detail });
+            setApprovalError(null);
+            setBackgroundBuild((prev) =>
+              prev ? { ...prev, status: "awaiting_approval" } : { runId, goal: goalHint || "", status: "awaiting_approval" },
+            );
+            setAgentSteps((current) =>
+              runtimeEventToSteps(current, {
+                run_id: runId,
+                step_id: stepKey,
+                event_type: "confirmation.required",
+                payload: frame,
+                sequence: Number(frame.sequence ?? ++bgSeq),
+                timestamp: String(frame.timestamp ?? new Date().toISOString()),
+              }),
+            );
+            return;
+          }
+
+          if (evtType === "agentic.finalized") {
+            pendingAgenticApprovalRef.current = null;
+            setCurrentAgentConfirmationStepId(undefined);
+            setCurrentAgentApprovalInfo(null);
+            setApprovalError(null);
+            const finalStatus = String(frame.status || "completed");
+            const mappedStatus: BackgroundBuildState["status"] =
+              finalStatus === "cancelled"
+                ? "cancelled"
+                : finalStatus === "failed" || finalStatus === "blocked" || finalStatus === "budget_exhausted"
+                  ? "failed"
+                  : "completed";
+            const filesChanged = Array.isArray(frame.filesChanged)
+              ? frame.filesChanged.map(String)
+              : Array.isArray(frame.files_changed)
+                ? frame.files_changed.map(String)
+                : undefined;
+            const artifactLinks = Array.isArray(frame.artifacts)
+              ? frame.artifacts
+                  .map((a: any) => String(a?.download_url || a?.filePath || ""))
+                  .filter(Boolean)
+              : undefined;
+            setBackgroundBuild((prev) => ({
+              runId,
+              goal: prev?.goal || goalHint || "",
+              status: mappedStatus,
+              summary: typeof frame.summary === "string" ? frame.summary : undefined,
+              filesChanged,
+              artifacts: artifactLinks,
+            }));
+            setAgentSteps((current) =>
+              current.map((s) => (s.status === "pending" || s.status === "active" ? { ...s, status: "done" } : s)),
+            );
+            if (!bgFinalizedRunIdsRef.current.has(runId)) {
+              bgFinalizedRunIdsRef.current.add(runId);
+              const md = typeof frame.markdown === "string" ? frame.markdown.trim() : "";
+              const sum = typeof frame.summary === "string" ? frame.summary.trim() : "";
+              const deliverable = md || sum;
+              if (deliverable) {
+                setMessages((current) => [...current, createMessage("assistant", deliverable)]);
+              }
+            }
+            return;
+          }
+
+          if (evtType === "agent.run.failed" || evtType === "agent.run.cancelled") {
+            const isCancelled = evtType === "agent.run.cancelled";
+            pendingAgenticApprovalRef.current = null;
+            setCurrentAgentConfirmationStepId(undefined);
+            setCurrentAgentApprovalInfo(null);
+            const sum = String(frame.summary || (isCancelled ? "Build cancelled." : "Background build failed."));
+            setBackgroundBuild((prev) => ({
+              runId,
+              goal: prev?.goal || goalHint || "",
+              status: isCancelled ? "cancelled" : "failed",
+              summary: sum,
+            }));
+            setAgentSteps((current) =>
+              current.map((s) =>
+                s.status === "pending" || s.status === "active"
+                  ? { ...s, status: isCancelled ? "cancelled" : "error", detail: sum }
+                  : s,
+              ),
+            );
+            if (!isCancelled && !bgFinalizedRunIdsRef.current.has(runId)) {
+              bgFinalizedRunIdsRef.current.add(runId);
+              setMessages((current) => [...current, createMessage("assistant", `### Build Stopped\n${sum}`)]);
+            }
+            return;
+          }
+
+          setCurrentAgentRunId(runId);
+          setBackgroundBuild((prev) => (prev && prev.status !== "running" ? { ...prev, status: "running" } : prev));
+          setAgentSteps((current) =>
+            runtimeEventToSteps(current, {
+              run_id: String(frame.run_id ?? frame.runId ?? runId),
+              step_id: typeof frame.step_id === "string" ? frame.step_id : undefined,
+              event_type: evtType,
+              payload: (frame.payload && typeof frame.payload === "object" ? frame.payload : frame) as Record<string, unknown>,
+              sequence: Number(frame.sequence ?? ++bgSeq),
+              timestamp: String(frame.timestamp ?? new Date().toISOString()),
+            }),
+          );
         };
-        setCurrentAgentConfirmationStepId(nextStepId);
-        setCurrentAgentRunId(currentAgentRunId);
-        setAgentSteps((current) => [
-          ...current.map((step) =>
-            step.id === currentAgentConfirmationStepId
-              ? { ...step, status: "done" as const, detail: "Approved and executed" }
+
+        while (!ac.signal.aborted) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const rawLine of lines) {
+            const trimmed = rawLine.trim();
+            if (!trimmed) continue;
+            const jsonStr = trimmed.startsWith("data:") ? trimmed.slice(5).trim() : trimmed;
+            if (!jsonStr || jsonStr === "[DONE]") continue;
+            try {
+              const parsed = JSON.parse(jsonStr);
+              if (parsed && typeof parsed === "object") {
+                handleFrame(parsed);
+              }
+            } catch {
+              // ignore malformed stream line
+            }
+          }
+        }
+        const tail = buffer.trim();
+        if (tail && !ac.signal.aborted) {
+          const jsonStr = tail.startsWith("data:") ? tail.slice(5).trim() : tail;
+          try {
+            const parsed = JSON.parse(jsonStr);
+            if (parsed && typeof parsed === "object") handleFrame(parsed);
+          } catch {}
+        }
+      } catch (err) {
+        if ((err as Error)?.name === "AbortError") return;
+        const msg = err instanceof Error ? err.message : "Background build stream interrupted";
+        setApprovalError(msg);
+      }
+    })();
+  }, []);
+
+  const cancelBackgroundBuild = useCallback(async () => {
+    const targetRunId = backgroundBuildRef.current?.runId ?? currentAgentRunId;
+    if (!targetRunId) return;
+    bgAbortRef.current?.abort();
+    bgAbortRef.current = null;
+    await fetch(`/api/v1/agent/agentic-runs/${encodeURIComponent(targetRunId)}/cancel`, {
+      method: "POST",
+      headers: { ...hinaaIdentityHeaders() },
+    }).catch(() => {});
+    pendingAgenticApprovalRef.current = null;
+    setCurrentAgentConfirmationStepId(undefined);
+    setCurrentAgentApprovalInfo(null);
+    setApprovalPending(false);
+    setApprovalError(null);
+    setBackgroundBuild((prev) => (prev ? { ...prev, status: "cancelled", summary: "Build cancelled by user." } : null));
+    setAgentSteps((current) =>
+      current.map((s) => (s.status === "pending" || s.status === "active" ? { ...s, status: "cancelled" } : s)),
+    );
+  }, [currentAgentRunId]);
+
+  const confirmCurrentAgentStep = useCallback(async (approved: boolean) => {
+    const pendingAgentic = pendingAgenticApprovalRef.current;
+    const targetRunId = currentAgentRunId ?? pendingAgentic?.runId;
+    const targetStepId = currentAgentConfirmationStepId ?? currentAgentApprovalInfo?.stepId ?? (pendingAgentic ? "approval" : undefined);
+    if (!targetRunId || !targetStepId) return;
+
+    setApprovalPending(true);
+    setApprovalError(null);
+
+    try {
+      if (pendingAgentic && pendingAgentic.runId === targetRunId) {
+        const response = await fetch(`/api/v1/agent/agentic-runs/${encodeURIComponent(targetRunId)}/approve`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...hinaaIdentityHeaders() },
+          body: JSON.stringify({
+            approved,
+            argumentsHash: pendingAgentic.argumentsHash,
+            background: true,
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const errMsg = String(payload?.detail || `Approval failed (${response.status})`);
+          setApprovalError(errMsg);
+          setState("idle");
+          return;
+        }
+        const res = payload?.result;
+        if (approved && (payload?.background === true || res?.status === "running")) {
+          pendingAgenticApprovalRef.current = null;
+          setCurrentAgentConfirmationStepId(undefined);
+          setCurrentAgentApprovalInfo(null);
+          setAgentSteps((current) =>
+            current.map((step) =>
+              step.id === targetStepId
+                ? { ...step, status: "done" as const, detail: "Approved — resuming build in background" }
+                : step,
+            ),
+          );
+          subscribeBackgroundAgenticRun(targetRunId);
+          setState("idle");
+          return;
+        }
+        const nextAppr = res?.status === "awaiting_approval" ? res?.pending_approval : undefined;
+        if (nextAppr && nextAppr.arguments_hash) {
+          const nextStepId = String(nextAppr.approval_id || "approval");
+          const rawNextArgs = (nextAppr.arguments && typeof nextAppr.arguments === "object" ? nextAppr.arguments : {}) as Record<string, unknown>;
+          const nextCmd =
+            typeof rawNextArgs.command === "string"
+              ? rawNextArgs.command
+              : typeof rawNextArgs.file_path === "string"
+                ? `${String(nextAppr.tool || "tool")} ${rawNextArgs.file_path}`
+                : undefined;
+          const nextDetail = String(nextAppr.reason || "Awaiting approval");
+          pendingAgenticApprovalRef.current = {
+            runId: targetRunId,
+            argumentsHash: String(nextAppr.arguments_hash),
+            tool: typeof nextAppr.tool === "string" ? nextAppr.tool : undefined,
+            command: nextCmd,
+            detail: nextDetail,
+          };
+          setCurrentAgentConfirmationStepId(nextStepId);
+          setCurrentAgentRunId(targetRunId);
+          setCurrentAgentApprovalInfo({
+            stepId: nextStepId,
+            runId: targetRunId,
+            actionName: String(nextAppr.tool || "tool"),
+            command: nextCmd,
+            detail: nextDetail,
+          });
+          setAgentSteps((current) => [
+            ...current.map((step) =>
+              step.id === targetStepId
+                ? { ...step, status: "done" as const, detail: "Approved and executed" }
+                : step,
+            ),
+            {
+              id: nextStepId,
+              label: `Approval required: ${String(nextAppr.tool || "tool")}`,
+              status: "pending" as const,
+              detail: nextDetail,
+              requiresConfirmation: true,
+            },
+          ]);
+          setState("idle");
+          return;
+        }
+        pendingAgenticApprovalRef.current = null;
+        setCurrentAgentConfirmationStepId(undefined);
+        setCurrentAgentApprovalInfo(null);
+        if (!backgroundBuildRef.current || backgroundBuildRef.current.runId !== targetRunId) {
+          setCurrentAgentRunId(undefined);
+        } else {
+          setBackgroundBuild((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  status: approved ? "completed" : "cancelled",
+                  summary: typeof res?.summary === "string" ? res.summary : prev.summary,
+                }
+              : prev,
+          );
+        }
+        setAgentSteps((current) =>
+          current.map((step) =>
+            step.id === targetStepId
+              ? {
+                  ...step,
+                  status: approved ? "done" : "cancelled",
+                  detail: approved ? "Approved and executed" : "Declined by user",
+                }
               : step,
           ),
-          {
-            id: nextStepId,
-            label: `Approval required: ${String(nextAppr.tool || "tool")}`,
-            status: "pending" as const,
-            detail: String(nextAppr.reason || "Awaiting approval"),
-            requiresConfirmation: true,
-          },
-        ]);
+        );
+        if (res && !bgFinalizedRunIdsRef.current.has(targetRunId)) {
+          bgFinalizedRunIdsRef.current.add(targetRunId);
+          const videoArts = Array.isArray(res.artifacts)
+            ? res.artifacts
+                .filter((a: any) => a?.kind === "video" && a?.download_url)
+                .map((a: any) => `\n**Rendered MP4:** [Download / Play MP4](${a.download_url})`)
+                .join("")
+            : "";
+          const msg = `### Agentic Approval (${String(res.status || "updated").toUpperCase()})\n${res.summary || "Updated."}${videoArts}`;
+          setMessages((current) => [...current, createMessage("assistant", msg)]);
+        }
         setState("idle");
         return;
       }
-      pendingAgenticApprovalRef.current = null;
+
+      const response = await fetch(`/api/v1/agent/runs/${encodeURIComponent(targetRunId)}/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...hinaaIdentityHeaders() },
+        body: JSON.stringify({ stepId: targetStepId, approved }),
+      });
+      if (!response.ok) {
+        const errPayload = await response.json().catch(() => ({}));
+        setApprovalError(String(errPayload?.detail || `Confirmation failed (${response.status})`));
+        setState("idle");
+        return;
+      }
       setCurrentAgentConfirmationStepId(undefined);
-      setCurrentAgentRunId(undefined);
+      setCurrentAgentApprovalInfo(null);
       setAgentSteps((current) =>
         current.map((step) =>
-          step.id === currentAgentConfirmationStepId
+          step.id === targetStepId
             ? {
                 ...step,
-                status: approved ? "done" : "cancelled",
-                detail: approved ? "Approved and executed" : "Declined by user",
+                status: approved ? "active" : "cancelled",
+                detail: approved ? "Approval sent to runtime" : "Rejected by user",
               }
             : step,
         ),
       );
-      if (res) {
-        const videoArts = Array.isArray(res.artifacts)
-          ? res.artifacts
-              .filter((a: any) => a?.kind === "video" && a?.download_url)
-              .map((a: any) => `\n**Rendered MP4:** [Download / Play MP4](${a.download_url})`)
-              .join("")
-          : "";
-        const msg = `### Agentic Approval (${String(res.status || "updated").toUpperCase()})\n${res.summary || "Updated."}${videoArts}`;
-        setMessages((current) => [...current, createMessage("assistant", msg)]);
-      }
+      if (!approved) setState("idle");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Approval request failed";
+      setApprovalError(msg);
       setState("idle");
-      return;
+    } finally {
+      setApprovalPending(false);
     }
-
-    const response = await fetch(`/api/v1/agent/runs/${encodeURIComponent(currentAgentRunId)}/confirm`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stepId: currentAgentConfirmationStepId, approved }),
-    });
-    if (!response.ok) throw new Error(`Confirmation failed (${response.status})`);
-    setAgentSteps((current) =>
-      current.map((step) =>
-        step.id === currentAgentConfirmationStepId
-          ? {
-              ...step,
-              status: approved ? "active" : "cancelled",
-              detail: approved ? "Approval sent to runtime" : "Rejected by user",
-            }
-          : step,
-      ),
-    );
-    if (!approved) setState("idle");
-  }, [currentAgentConfirmationStepId, currentAgentRunId]);
+  }, [currentAgentApprovalInfo, currentAgentConfirmationStepId, currentAgentRunId, subscribeBackgroundAgenticRun]);
 
   const recoverCurrentAgentRun = useCallback(async () => {
     if (!currentAgentRunId) return;
@@ -705,9 +1049,16 @@ export function useCompanionController({ conversationId, routing, languagePolicy
       setPartialTranscript("");
       setStreamingText("");
       setActivePlan(undefined);
-      setAgentSteps([]);
-      setCurrentAgentRunId(undefined);
-      setCurrentAgentConfirmationStepId(undefined);
+      const hasLiveBgBuild =
+        backgroundBuildRef.current?.status === "running" ||
+        backgroundBuildRef.current?.status === "awaiting_approval";
+      if (!hasLiveBgBuild && !pendingAgenticApprovalRef.current) {
+        setAgentSteps([]);
+        setCurrentAgentRunId(undefined);
+        setCurrentAgentConfirmationStepId(undefined);
+        setCurrentAgentApprovalInfo(null);
+        setApprovalError(null);
+      }
       setState("thinking");
 
       let streamRafId: number | null = null;
@@ -767,6 +1118,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
           attachments: options?.attachments,
           persona_mode: options?.persona_mode,
           agenticMode: options?.agenticMode,
+          activeAgentRunId: hasLiveBgBuild ? backgroundBuildRef.current?.runId : undefined,
           // An empty resend context is still sent so the server can't fall back to stored turns.
           history: historyPayload.length > 0 || historyBase ? historyPayload : undefined,
         })) {
@@ -869,14 +1221,35 @@ export function useCompanionController({ conversationId, routing, languagePolicy
               const p = (event.event.payload ?? {}) as Record<string, unknown>;
               const stepKey = event.event.step_id ?? String(p.approval_id ?? "approval");
               const argHash = String(p.arguments_hash ?? p.argumentsHash ?? "");
+              const toolName = typeof p.tool === "string" ? p.tool : "tool";
+              const rawArgs = (p.arguments && typeof p.arguments === "object" ? p.arguments : {}) as Record<string, unknown>;
+              const cmdStr =
+                typeof p.command === "string"
+                  ? p.command
+                  : typeof rawArgs.command === "string"
+                    ? rawArgs.command
+                    : typeof rawArgs.file_path === "string"
+                      ? `${toolName} ${rawArgs.file_path}`
+                      : undefined;
+              const detailStr = String(p.reason ?? p.summary ?? "Awaiting explicit approval");
               if (argHash) {
                 pendingAgenticApprovalRef.current = {
                   runId: event.event.run_id,
                   argumentsHash: argHash,
-                  tool: typeof p.tool === "string" ? p.tool : undefined,
+                  tool: toolName,
+                  command: cmdStr,
+                  detail: detailStr,
                 };
               }
               setCurrentAgentConfirmationStepId(stepKey);
+              setCurrentAgentApprovalInfo({
+                stepId: stepKey,
+                runId: event.event.run_id,
+                actionName: toolName,
+                command: cmdStr,
+                detail: detailStr,
+              });
+              setApprovalError(null);
             }
             if (
               event.event.event_type === "agent.run.completed" ||
@@ -886,10 +1259,19 @@ export function useCompanionController({ conversationId, routing, languagePolicy
             ) {
               if (!pendingAgenticApprovalRef.current) {
                 setCurrentAgentConfirmationStepId(undefined);
-                setCurrentAgentRunId(undefined);
+                setCurrentAgentApprovalInfo(null);
+                if (!backgroundBuildRef.current || backgroundBuildRef.current.runId !== event.event.run_id) {
+                  setCurrentAgentRunId(undefined);
+                }
               }
             }
             setAgentSteps((current) => runtimeEventToSteps(current, event.event));
+          } else if (event.type === "agentic.background") {
+            const bgEvt = event as { type: "agentic.background"; runId?: string; run_id?: string; goal?: string };
+            const bgRunId = String(bgEvt.runId ?? bgEvt.run_id ?? "");
+            if (bgRunId) {
+              subscribeBackgroundAgenticRun(bgRunId, String(bgEvt.goal ?? text));
+            }
           } else if (event.type === "usage") {
             providerLatencyMs = event.latencyMs;
           } else if (event.type === "astra.tool") {
@@ -1390,7 +1772,12 @@ export function useCompanionController({ conversationId, routing, languagePolicy
     searchQuery,
     currentAgentRunId,
     currentAgentConfirmationStepId,
+    currentAgentApprovalInfo,
+    approvalPending,
+    approvalError,
+    backgroundBuild,
     cancelCurrentAgentRun,
+    cancelBackgroundBuild,
     resumeCurrentAgentRun,
     confirmCurrentAgentStep,
     recoverCurrentAgentRun,
