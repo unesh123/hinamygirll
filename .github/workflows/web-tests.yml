@@ -46,19 +46,18 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install FFmpeg and update apt index (timeline & Playwright deps)
-        run: sudo apt-get update -q && sudo apt-get install -y -q ffmpeg
+      - name: Install FFmpeg and Playwright OS dependencies
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q ffmpeg
+          python -m playwright install --with-deps chromium
 
-      - name: Install Playwright browsers
-        run: pnpm exec playwright install --with-deps chromium
+      - name: Install Playwright browsers (web e2e)
+        run: pnpm exec playwright install chromium
         working-directory: apps/web
 
       - name: Web typecheck and production build
         run: pnpm build
         working-directory: apps/web
-
-      - name: Install Playwright browser for API tests
-        run: python -m playwright install chromium
 
       - name: API lint
         run: ruff check --select F821 hinaa_api tests
