@@ -133,83 +133,100 @@ def _secret(value: Any) -> str:
     return getter() if callable(getter) else str(value)
 
 
-def resolve_loop_provider(settings: Any = None) -> Optional[LoopProvider]:
-    """Pick the first configured provider, mirroring the registry fallback chain."""
+def resolve_loop_providers(settings: Any = None) -> List[LoopProvider]:
+    """Return all configured providers ordered by verified reliability and latency."""
     if settings is None:
         from ..config import get_settings
 
         settings = get_settings()
 
-    def configured(key: Any, base_url: Any, model: Any) -> bool:
-        return bool(_secret(key).strip() and str(base_url or "").strip() and str(model or "").strip())
-
-    agent_router_key = getattr(settings, "agent_router_api_key", None)
-    if agent_router_key is not None and _secret(agent_router_key).strip():
-        base_url = getattr(settings, "active_agent_router_base_url", None) or "https://api.agentrouter.dev/v1"
-        model = getattr(settings, "active_agent_router_model", None) or "gpt-6-astra"
-        if _secret(agent_router_key).strip() and str(base_url).strip():
-            return LoopProvider(
-                name="agent-router",
-                protocol="openai",
-                base_url=str(base_url).strip().rstrip("/"),
-                api_key=_secret(agent_router_key).strip(),
-                model=str(model),
-            )
-
-    claude_key = getattr(settings, "claude_api_key", None)
-    if claude_key is not None and _secret(claude_key).strip():
-        base_url = getattr(settings, "claude_base_url", "https://api.anthropic.com").strip().rstrip("/")
-        model = getattr(settings, "active_claude_model", None) or "claude-sonnet-4-5"
-        return LoopProvider(
-            name="claude",
-            protocol="anthropic",
-            base_url=base_url,
-            api_key=_secret(claude_key).strip(),
-            model=str(model),
-        )
-
-    openai_key = getattr(settings, "openai_api_key", None)
-    if openai_key is not None and _secret(openai_key).strip():
-        return LoopProvider(
-            name="openai",
-            protocol="openai",
-            base_url="https://api.openai.com/v1",
-            api_key=_secret(openai_key).strip(),
-            model=str(getattr(settings, "openai_model", "gpt-5-mini")),
-        )
-
-    groq_key = getattr(settings, "groq_api_key", None)
-    if groq_key is not None and _secret(groq_key).strip():
-        return LoopProvider(
-            name="groq",
-            protocol="openai",
-            base_url="https://api.groq.com/openai/v1",
-            api_key=_secret(groq_key).strip(),
-            model=str(getattr(settings, "groq_model", "llama-3.1-8b-instant")),
-        )
+    providers: List[LoopProvider] = []
 
     gemini_key = getattr(settings, "gemini_api_key", None)
     if gemini_key is not None and _secret(gemini_key).strip():
-        return LoopProvider(
-            name="gemini",
-            protocol="openai",
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai",
-            api_key=_secret(gemini_key).strip(),
-            model="gemini-2.5-flash",
+        providers.append(
+            LoopProvider(
+                name="gemini",
+                protocol="openai",
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+                api_key=_secret(gemini_key).strip(),
+                model=str(getattr(settings, "gemini_model", None) or "gemini-2.5-flash"),
+            )
         )
 
     xkiro_key = getattr(settings, "active_xkiro_key", None) or getattr(settings, "xkiro_api_key", None)
     xkiro_base = getattr(settings, "active_xkiro_base_url", None) or getattr(settings, "xkiro_base_url", None)
     if xkiro_key is not None and _secret(xkiro_key).strip() and xkiro_base:
-        return LoopProvider(
-            name="xkiro",
-            protocol="openai",
-            base_url=str(xkiro_base).strip().rstrip("/"),
-            api_key=_secret(xkiro_key).strip(),
-            model=str(getattr(settings, "active_xkiro_model", "openai/gpt-6.2-sol")),
+        providers.append(
+            LoopProvider(
+                name="xkiro",
+                protocol="openai",
+                base_url=str(xkiro_base).strip().rstrip("/"),
+                api_key=_secret(xkiro_key).strip(),
+                model=str(getattr(settings, "active_xkiro_model", "openai/gpt-6.2-sol")),
+            )
         )
 
-    return None
+    openai_key = getattr(settings, "openai_api_key", None)
+    if openai_key is not None and _secret(openai_key).strip():
+        providers.append(
+            LoopProvider(
+                name="openai",
+                protocol="openai",
+                base_url="https://api.openai.com/v1",
+                api_key=_secret(openai_key).strip(),
+                model=str(getattr(settings, "openai_model", "gpt-5-mini")),
+            )
+        )
+
+    groq_key = getattr(settings, "groq_api_key", None)
+    if groq_key is not None and _secret(groq_key).strip():
+        providers.append(
+            LoopProvider(
+                name="groq",
+                protocol="openai",
+                base_url="https://api.groq.com/openai/v1",
+                api_key=_secret(groq_key).strip(),
+                model=str(getattr(settings, "groq_model", "llama-3.1-8b-instant")),
+            )
+        )
+
+    claude_key = getattr(settings, "claude_api_key", None)
+    if claude_key is not None and _secret(claude_key).strip():
+        base_url = getattr(settings, "claude_base_url", "https://api.anthropic.com").strip().rstrip("/")
+        model = getattr(settings, "active_claude_model", None) or "claude-sonnet-4-5"
+        providers.append(
+            LoopProvider(
+                name="claude",
+                protocol="anthropic",
+                base_url=base_url,
+                api_key=_secret(claude_key).strip(),
+                model=str(model),
+            )
+        )
+
+    agent_router_key = getattr(settings, "agent_router_api_key", None)
+    if agent_router_key is not None and _secret(agent_router_key).strip():
+        base_url = getattr(settings, "active_agent_router_base_url", None) or "https://api.agentrouter.dev/v1"
+        model = getattr(settings, "active_agent_router_model", None) or "gpt-6-astra"
+        if str(base_url).strip():
+            providers.append(
+                LoopProvider(
+                    name="agent-router",
+                    protocol="openai",
+                    base_url=str(base_url).strip().rstrip("/"),
+                    api_key=_secret(agent_router_key).strip(),
+                    model=str(model),
+                )
+            )
+
+    return providers
+
+
+def resolve_loop_provider(settings: Any = None) -> Optional[LoopProvider]:
+    """Pick the highest-priority configured provider, falling back smoothly."""
+    providers = resolve_loop_providers(settings)
+    return providers[0] if providers else None
 
 
 def _confined_path(workspace: Path, raw: str) -> Optional[Path]:
@@ -254,8 +271,10 @@ class LLMAgentStep:
         max_output_tokens: int = 8_192,
         timeout_seconds: float = 120.0,
         client: Optional[httpx.AsyncClient] = None,
+        fallback_providers: Optional[List[LoopProvider]] = None,
     ) -> None:
         self.provider = provider
+        self._fallback_providers = list(fallback_providers or [])
         self.workspace = Path(workspace_dir)
         self.trace_path = Path(trace_path)
         self.trace_path.parent.mkdir(parents=True, exist_ok=True)
@@ -297,23 +316,25 @@ class LLMAgentStep:
             parts.append("Tool results from your previous turn:\n" + "\n\n".join(self._observations))
         return "\n\n".join(parts)
 
-    async def _call_model(self, user_prompt: str) -> tuple[str, int, int, float]:
-        assert self._client is not None
+    async def _call_single_provider(self, prov: LoopProvider, user_prompt: str) -> tuple[str, int, int, float]:
+        if self._client is None:
+            self._client = httpx.AsyncClient()
+            self._owns_client = True
         started = time.perf_counter()
-        if self.provider.protocol == "anthropic":
-            url = f"{self.provider.base_url}/v1/messages"
-            headers = {"x-api-key": self.provider.api_key, "anthropic-version": "2023-06-01"}
+        if prov.protocol == "anthropic":
+            url = f"{prov.base_url}/v1/messages"
+            headers = {"x-api-key": prov.api_key, "anthropic-version": "2023-06-01"}
             payload: Dict[str, Any] = {
-                "model": self.provider.model,
+                "model": prov.model,
                 "max_tokens": self._max_output_tokens,
                 "system": _SYSTEM_PROMPT,
                 "messages": [{"role": "user", "content": user_prompt}],
             }
         else:
-            url = f"{self.provider.base_url}/chat/completions"
-            headers = {"Authorization": f"Bearer {self.provider.api_key}"}
+            url = f"{prov.base_url}/chat/completions"
+            headers = {"Authorization": f"Bearer {prov.api_key}"}
             payload = {
-                "model": self.provider.model,
+                "model": prov.model,
                 "max_tokens": self._max_output_tokens,
                 "messages": [
                     {"role": "system", "content": _SYSTEM_PROMPT},
@@ -334,7 +355,7 @@ class LLMAgentStep:
                 data = response.json()
                 latency_ms = (time.perf_counter() - started) * 1000.0
                 usage = data.get("usage") or {}
-                if self.provider.protocol == "anthropic":
+                if prov.protocol == "anthropic":
                     blocks = data.get("content") or []
                     text = "".join(b.get("text", "") for b in blocks if isinstance(b, dict))
                 else:
@@ -353,8 +374,21 @@ class LLMAgentStep:
             except (httpx.TimeoutException, httpx.HTTPError, ValueError, KeyError) as exc:
                 last_error = f"{type(exc).__name__}: {exc}"
             if attempt == 0:
-                await asyncio.sleep(1.5)
-        raise RuntimeError(f"LLM call failed after retries: {last_error}")
+                await asyncio.sleep(1.0)
+        raise RuntimeError(f"LLM call failed for {prov.name} ({prov.model}): {last_error}")
+
+    async def _call_model(self, user_prompt: str) -> tuple[str, int, int, float]:
+        candidates = [self.provider, *self._fallback_providers]
+        errors: List[str] = []
+        for idx, cand in enumerate(candidates):
+            try:
+                res = await self._call_single_provider(cand, user_prompt)
+                if idx > 0:
+                    self.provider = cand
+                return res
+            except RuntimeError as err:
+                errors.append(str(err))
+        raise RuntimeError(" ; ".join(errors))
 
     # -- action execution ---------------------------------------------------
 
@@ -510,14 +544,15 @@ class LLMAgentStep:
         try:
             text, input_tokens, output_tokens, latency_ms = await self._call_model(user_prompt)
         except Exception as exc:
+            err_msg = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
             result = AgentStepResult(
                 thought="",
-                summary=f"LLM call failed: {exc}",
+                summary=f"LLM call failed: {err_msg}",
                 actions_applied=0,
                 status="error",
                 provider=self.provider.name,
                 model=self.provider.model,
-                error=str(exc),
+                error=err_msg,
             )
             self._append_trace(
                 {
@@ -534,14 +569,14 @@ class LLMAgentStep:
                     "actions": [],
                     "outcomes": [],
                     "status": "error",
-                    "error": str(exc)[:500],
+                    "error": err_msg[:500],
                 }
             )
             result.trace_path = str(self.trace_path)
             await EVENT_BUS.publish(
                 spec.task_id,
                 "turn_failed",
-                {"turn": turn, "error": str(exc)[:500]},
+                {"turn": turn, "error": err_msg[:500]},
             )
             return result
 
@@ -648,8 +683,8 @@ def build_llm_agent_step(
     client: Optional[httpx.AsyncClient] = None,
 ) -> Optional[LLMAgentStep]:
     """Build a real agent step for a task, or None when no provider is configured."""
-    provider = resolve_loop_provider(settings)
-    if provider is None:
+    providers = resolve_loop_providers(settings)
+    if not providers:
         return None
     if trace_dir is None:
         from ..runtime_paths import project_root
@@ -661,7 +696,8 @@ def build_llm_agent_step(
 
         workspace = project_root()
     return LLMAgentStep(
-        provider=provider,
+        provider=providers[0],
+        fallback_providers=providers[1:],
         workspace_dir=workspace,
         trace_path=trace_dir / f"{spec.task_id}_trace.jsonl",
         client=client,

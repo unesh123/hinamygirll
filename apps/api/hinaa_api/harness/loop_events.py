@@ -21,7 +21,7 @@ _SUBSCRIBER_QUEUE_LIMIT = 256
 class LoopEventBus:
     def __init__(self) -> None:
         self._history: Dict[str, List[Dict[str, Any]]] = {}
-        self._subscribers: Dict[str, List[_asyncio.Queue]] = {}
+        self._subscribers: Dict[str, List[asyncio.Queue]] = {}
         self._lock = asyncio.Lock()
 
     async def publish(self, task_id: str, event_type: str, data: Dict[str, Any]) -> None:
@@ -62,15 +62,15 @@ class LoopEventBus:
     def history(self, task_id: str, since_sequence: int = 0) -> List[Dict[str, Any]]:
         return [e for e in self._history.get(task_id, []) if e["sequence"] > since_sequence]
 
-    async def subscribe(self, task_id: str, since_sequence: int = 0) -> "_asyncio.Queue":
-        queue: _asyncio.Queue = asyncio.Queue(maxsize=_SUBSCRIBER_QUEUE_LIMIT)
+    async def subscribe(self, task_id: str, since_sequence: int = 0) -> "asyncio.Queue":
+        queue: asyncio.Queue = asyncio.Queue(maxsize=_SUBSCRIBER_QUEUE_LIMIT)
         async with self._lock:
             for event in self.history(task_id, since_sequence):
                 queue.put_nowait(event)
             self._subscribers.setdefault(task_id, []).append(queue)
         return queue
 
-    async def unsubscribe(self, task_id: str, queue: "_asyncio.Queue") -> None:
+    async def unsubscribe(self, task_id: str, queue: "asyncio.Queue") -> None:
         async with self._lock:
             subscribers = self._subscribers.get(task_id, [])
             if queue in subscribers:

@@ -23,7 +23,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from hinaa_api.config import get_settings  # noqa: E402
-from hinaa_api.harness.agent_step import LLMAgentStep, resolve_loop_provider  # noqa: E402
+from hinaa_api.harness.agent_step import LLMAgentStep, resolve_loop_providers  # noqa: E402
 from hinaa_api.harness.loop_engine import LoopEngine, LoopTaskSpec  # noqa: E402
 
 GOLDEN_CASES: List[Dict[str, Any]] = [
@@ -70,22 +70,33 @@ async def run_case(case: Dict[str, Any], max_turns: int) -> Dict[str, Any]:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
 
+        expected_json = json.dumps(case["expected"])
+        verify_script = (
+            "import json, pathlib, sys; "
+            f"exp = json.loads({expected_json!r}); "
+            "ok = all((pathlib.Path(k).is_file() and v.strip() in pathlib.Path(k).read_text(encoding='utf-8')) for k, v in exp.items()); "
+            "sys.exit(0 if ok else 1)"
+        )
         spec = LoopTaskSpec(
             task_id=f"eval_{case['name']}",
             goal_title=case["reply_hint"],
             description=f"Success means: {case['reply_hint']}.",
-            verification_command=["true"],  # scoring is by expected-content check below
+            verification_command=[sys.executable, "-c", verify_script],
             max_turns=max_turns,
             timeout_per_turn_seconds=120.0,
             workspace_dir=str(workspace),
         )
         llm_step = LLMAgentStep(
-            provider=_PROVIDER,
+            provider=_PROVIDERS[0],
+            fallback_providers=_PROVIDERS[1:],
             workspace_dir=workspace,
             trace_path=workspace / "trace.jsonl",
         )
         engine = LoopEngine(base_dir=workspace / "state")
-        report = await engine.run_loop(spec, llm_step.as_engine_step(spec))
+        try:
+            report = await engine.run_loop(spec, llm_step.as_engine_step(spec))
+        finally:
+            await llm_step.aclose()
         passed = _check(case, workspace)
         trace_lines = (workspace / "trace.jsonl").read_text(encoding="utf-8").strip().splitlines()
         latencies = [json.loads(l).get("latency_ms", 0.0) for l in trace_lines if l.strip()]
@@ -107,17 +118,17 @@ def main() -> int:
     parser.add_argument("--turns", type=int, default=3)
     args = parser.parse_args()
 
-    global _PROVIDER  # noqa: F824
-    provider = resolve_loop_provider()
-    if provider is None:
+    global _PROVIDERS  # noqa: F824
+    providers = resolve_loop_providers()
+    if not providers:
         print(
             "No LLM provider configured. Set one of these Vault/env secrets and rerun:\n"
-            "  AGENT_ROUTER_API_KEY, ANTHROPIC_API_KEY (HINAA_CLAUDE_API_KEY), "
-            "OPENAI_API_KEY, GROQ_API_KEY, GEMINI_API_KEY"
+            "  GEMINI_API_KEY, XKIRO_API_KEY, OPENAI_API_KEY, GROQ_API_KEY, "
+            "ANTHROPIC_API_KEY (HINAA_CLAUDE_API_KEY), AGENT_ROUTER_API_KEY"
         )
         return 2
-    _PROVIDER = provider
-    print(f"Provider: {provider.name} model={provider.model}")
+    _PROVIDERS = providers
+    print(f"Provider: {providers[0].name} model={providers[0].model} (fallbacks: {[p.name for p in providers[1:]]})")
 
     results = [asyncio.run(run_case(case, args.turns)) for case in GOLDEN_CASES]
     passed = sum(1 for r in results if r["passed"])
@@ -132,7 +143,7 @@ def main() -> int:
     return 0 if accuracy >= 0.66 else 1
 
 
-_PROVIDER: Any = None  # set in main()
+_PROVIDERS: List[Any] = []  # set in main()
 
 if __name__ == "__main__":
     raise SystemExit(main())

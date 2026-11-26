@@ -358,3 +358,53 @@ def test_eval_golden_12_fetch_url_hits_public_http(tmp_path):
         server.shutdown()
     assert result.outcomes[0].status == "applied"
     assert "hello from hina test server" in result.outcomes[0].detail
+
+
+def test_eval_golden_13_provider_failover_and_lazy_client(tmp_path):
+    """Primary HTTP 500 fails over cleanly to the next configured LoopProvider."""
+    (tmp_path / "answer.txt").write_text("41\n", encoding="utf-8")
+    good_reply = json.dumps(
+        {
+            "thought": "failover succeeded",
+            "actions": [{"type": "write_file", "path": "answer.txt", "content": "42\n", "confirm": True}],
+        }
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "primary.invalid" in str(request.url):
+            return httpx.Response(500, text="upstream outage")
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"role": "assistant", "content": good_reply}}],
+                "usage": {"prompt_tokens": 50, "completion_tokens": 30},
+            },
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    primary = LoopProvider(
+        name="bad-primary",
+        protocol="openai",
+        base_url="https://primary.invalid/v1",
+        api_key="k1",
+        model="m1",
+    )
+    backup = LoopProvider(
+        name="healthy-backup",
+        protocol="openai",
+        base_url="https://backup.invalid/v1",
+        api_key="k2",
+        model="m2",
+    )
+    step = LLMAgentStep(
+        provider=primary,
+        fallback_providers=[backup],
+        workspace_dir=tmp_path,
+        trace_path=tmp_path / "trace.jsonl",
+        client=client,
+    )
+    engine = LoopEngine(base_dir=tmp_path / "state")
+    report = asyncio.run(engine.run_loop(_spec(tmp_path), step.as_engine_step(_spec(tmp_path))))
+    assert report.status == "COMPLETED", report.summary
+    assert step.provider.name == "healthy-backup"
+

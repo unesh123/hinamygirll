@@ -123,6 +123,8 @@ async def start_loop(payload: StartLoopPayload, background_tasks: BackgroundTask
             await EVENT_BUS.publish(task_id, "loop_failed", {"status": "ERROR", "error": str(e)[:500]})
         finally:
             _running_tasks.pop(task_id, None)
+            if llm_step is not None:
+                await llm_step.aclose()
 
     # Immediately seed state on disk so state exists synchronously
     engine._write_ledger_disk(spec, [], "RUNNING")
