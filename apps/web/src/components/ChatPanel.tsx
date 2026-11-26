@@ -1,10 +1,11 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowDown, Mic, Send, Sparkles } from "lucide-react";
+import { ArrowDown, Mic, Rocket, RotateCcw, Send, Sparkles } from "lucide-react";
 import type { TranscriptMessage } from "../features/companion/types";
 import { ThinkingShimmer } from "../features/chat/components/ThinkingShimmer";
 import type { ActivityStep } from "../features/chat/components/AgentActivityCard";
 import { AgentActivityFeed } from "../features/chat/components/AgentActivityFeed";
+import { LoopAgentRunPanel } from "../features/chat/components/LoopAgentRunPanel";
 import { MessageRow } from "../features/chat/components/MessageRow";
 import { SlashCommandPalette } from "../features/chat/components/SlashCommandPalette";
 import type {
@@ -45,12 +46,14 @@ export interface ChatPanelProps {
   onStop?: () => void;
   disabled?: boolean;
   onStartVoice?: () => void;
+  /** Live loop task id; when set the panel streams the agent run via SSE. */
+  agentRunTaskId?: string | null;
 }
 
 /**
  * ChatPanel v3 — virtualized transcript, token-driven surfaces, pinned scroll,
  * parallel execution rail (desktop >=1024px) / inline card (mobile), shimmer,
- * and /slash + @artifact command palette.
+ * /slash + @artifact command palette, and autonomous Agent Run loop panel.
  */
 export function ChatPanel({
   messages,
@@ -71,10 +74,50 @@ export function ChatPanel({
   onStop,
   disabled = false,
   onStartVoice,
+  agentRunTaskId = null,
 }: ChatPanelProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [longWait, setLongWait] = useState(false);
+  const [agentMode, setAgentMode] = useState(false);
+  const [agentGoal, setAgentGoal] = useState("");
+  const [agentVerify, setAgentVerify] = useState("");
+  const [launching, setLaunching] = useState(false);
+  const [liveTaskId, setLiveTaskId] = useState<string | null>(agentRunTaskId ?? null);
   const isDesktop = useMediaQuery("(min-width: 1024px)", true);
+
+  useEffect(() => {
+    if (agentRunTaskId !== null && agentRunTaskId !== undefined) {
+      setLiveTaskId(agentRunTaskId);
+    }
+  }, [agentRunTaskId]);
+
+  const startAgentRun = async () => {
+    const goal = agentGoal.trim();
+    if (!goal || launching) return;
+    setLaunching(true);
+    try {
+      const res = await fetch("/api/loop/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          goal_title: goal,
+          verification_command: agentVerify.trim()
+            ? agentVerify.trim().split(/\s+/)
+            : ["true"],
+          max_turns: 10,
+        }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { task_id?: string };
+        if (data.task_id) {
+          setLiveTaskId(data.task_id);
+          setAgentMode(false);
+        }
+      }
+    } finally {
+      setLaunching(false);
+    }
+  };
 
   const hasActivity =
     activitySteps.length > 0 ||
@@ -344,6 +387,15 @@ export function ChatPanel({
           </button>
         )}
 
+        {liveTaskId && (
+          <div className="px-4 pb-2 shrink-0">
+            <LoopAgentRunPanel
+              taskId={liveTaskId}
+              onFinished={() => setLiveTaskId((id) => id)}
+            />
+          </div>
+        )}
+
         <div
           className="border-t p-3 shrink-0"
           style={{ borderColor: "var(--border-subtle)", background: "var(--bg-glass)" }}
@@ -354,79 +406,141 @@ export function ChatPanel({
             artifacts={artifacts}
             onSelect={handlePaletteSelect}
           />
-          <div
-            className="flex items-end gap-2 border rounded-xl p-2 transition-colors"
-            style={{
-              background: "var(--bg-elevated)",
-              borderColor: overHardLimit ? "var(--status-err)" : "var(--border-subtle)",
-            }}
-          >
-            <textarea
-              aria-label="Message input"
-              value={input}
-              onChange={(e) => onInputChange(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={disabled}
-              placeholder="Message Hinaa… (/ for actions, @ for files, Enter to send)"
-              rows={1}
-              className="flex-1 max-h-32 resize-none bg-transparent text-xs outline-none px-1 py-1"
-              style={{ color: "var(--text-primary)" }}
-            />
-
-            <div className="flex items-center gap-1.5 shrink-0">
-              {nearSoftLimit && (
-                <span
-                  data-testid="char-limit-indicator"
-                  className="text-[10px] font-mono px-1.5"
-                  style={{
-                    color: overHardLimit ? "var(--status-err)" : "var(--status-warn)",
-                    fontFamily: "var(--font-mono)",
-                  }}
-                >
-                  {input.length}/{HARD_CHAR_LIMIT}
+          {agentMode ? (
+            <div
+              className="border rounded-xl p-2 space-y-2"
+              style={{
+                background: "var(--bg-elevated)",
+                borderColor: "var(--border-subtle)",
+              }}
+            >
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-1.5 px-1 text-xs font-medium" style={{ color: "var(--accent-primary)" }}>
+                  <Rocket size={13} aria-hidden /> Agent Run
                 </span>
-              )}
-
-              {onStartVoice && (
                 <button
                   type="button"
-                  onClick={onStartVoice}
-                  aria-label="Live Voice Mode"
-                  title="Live Voice Mode"
+                  onClick={() => setAgentMode(false)}
+                  title="Back to chat"
+                  className="p-1 rounded-lg cursor-pointer"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  <RotateCcw size={13} aria-hidden />
+                </button>
+              </div>
+              <textarea
+                value={agentGoal}
+                onChange={(e) => setAgentGoal(e.target.value)}
+                placeholder="Goal for Hina to work on unattended (e.g. “Fix the failing login test”)…"
+                rows={2}
+                className="w-full resize-none bg-transparent text-xs outline-none px-1 py-1"
+                style={{ color: "var(--text-primary)" }}
+              />
+              <input
+                type="text"
+                value={agentVerify}
+                onChange={(e) => setAgentVerify(e.target.value)}
+                placeholder="Verification command (e.g. “pnpm test -- --run”). Defaults to a no-op check."
+                className="w-full bg-transparent text-[11px] outline-none px-1 py-1 border-t"
+                style={{ color: "var(--text-primary)", borderColor: "var(--border-subtle)" }}
+              />
+              <button
+                type="button"
+                onClick={startAgentRun}
+                disabled={!agentGoal.trim() || launching}
+                className="w-full flex items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+                style={{ background: "var(--accent-primary)" }}
+              >
+                <Rocket size={13} aria-hidden />
+                {launching ? "Launching…" : "Launch agent run"}
+              </button>
+            </div>
+          ) : (
+            <div
+              className="flex items-end gap-2 border rounded-xl p-2 transition-colors"
+              style={{
+                background: "var(--bg-elevated)",
+                borderColor: overHardLimit ? "var(--status-err)" : "var(--border-subtle)",
+              }}
+            >
+              <textarea
+                aria-label="Message input"
+                value={input}
+                onChange={(e) => onInputChange(e.target.value)}
+                onKeyDown={handleKeyDown}
+                disabled={disabled}
+                placeholder="Message Hinaa… (/ for actions, @ for files, Enter to send)"
+                rows={1}
+                className="flex-1 max-h-32 resize-none bg-transparent text-xs outline-none px-1 py-1"
+                style={{ color: "var(--text-primary)" }}
+              />
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                {nearSoftLimit && (
+                  <span
+                    data-testid="char-limit-indicator"
+                    className="text-[10px] font-mono px-1.5"
+                    style={{
+                      color: overHardLimit ? "var(--status-err)" : "var(--status-warn)",
+                      fontFamily: "var(--font-mono)",
+                    }}
+                  >
+                    {input.length}/{HARD_CHAR_LIMIT}
+                  </span>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setAgentMode(true)}
+                  aria-label="Agent Run mode"
+                  title="Agent Run mode — give Hina an unattended goal"
                   className="p-1.5 rounded-lg cursor-pointer"
                   style={{ color: "var(--text-muted)" }}
                 >
-                  <Mic size={15} />
+                  <Rocket size={15} />
                 </button>
-              )}
 
-              {isThinking && onStop ? (
-                <button
-                  type="button"
-                  onClick={onStop}
-                  aria-label="Stop generation"
-                  title="Stop generation"
-                  className="p-1.5 rounded-lg cursor-pointer"
-                  style={{ background: "var(--status-err)", color: "#ffffff" }}
-                >
-                  <span className="block w-3 h-3 rounded-[2px] bg-white" aria-hidden="true" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (canSend) onSend();
-                  }}
-                  disabled={!canSend}
-                  aria-label="Send message"
-                  className="p-1.5 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                  style={{ background: "var(--accent-primary)", color: "#ffffff" }}
-                >
-                  <Send size={14} />
-                </button>
-              )}
+                {onStartVoice && (
+                  <button
+                    type="button"
+                    onClick={onStartVoice}
+                    aria-label="Live Voice Mode"
+                    title="Live Voice Mode"
+                    className="p-1.5 rounded-lg cursor-pointer"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    <Mic size={15} />
+                  </button>
+                )}
+
+                {isThinking && onStop ? (
+                  <button
+                    type="button"
+                    onClick={onStop}
+                    aria-label="Stop generation"
+                    title="Stop generation"
+                    className="p-1.5 rounded-lg cursor-pointer"
+                    style={{ background: "var(--status-err)", color: "#ffffff" }}
+                  >
+                    <span className="block w-3 h-3 rounded-[2px] bg-white" aria-hidden="true" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (canSend) onSend();
+                    }}
+                    disabled={!canSend}
+                    aria-label="Send message"
+                    className="p-1.5 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    style={{ background: "var(--accent-primary)", color: "#ffffff" }}
+                  >
+                    <Send size={14} />
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
 
