@@ -40,6 +40,7 @@ DEFAULT_AGENTIC_TOOLS: frozenset[str] = frozenset({
     "workspace_read_file",
     "workspace_write_file",
     "workspace_edit_file",
+    "workspace_delete_file",
     "workspace_glob",
     "workspace_grep",
     "workspace_run_command",
@@ -52,7 +53,6 @@ DEFAULT_AGENTIC_TOOLS: frozenset[str] = frozenset({
     "render_code_animation",
     "create_lyric_video",
     "create_motion_video",
-    "video_create",
     "mlai_list_routines",
     "mlai_run_routine",
 })
@@ -281,7 +281,7 @@ class AgenticLoopRunner:
         scoped_edit = bool(
             self.workspace_root
             and self.auto_approve_workspace_edits
-            and name in ("workspace_edit_file", "workspace_write_file")
+            and name in ("workspace_edit_file", "workspace_write_file", "workspace_delete_file")
         )
         scoped_verify_cmd = False
         if (
@@ -374,7 +374,7 @@ class AgenticLoopRunner:
     ) -> None:
         if obs.get("status") != "success":
             return
-        if tool_name in ("workspace_edit_file", "workspace_write_file"):
+        if tool_name in ("workspace_edit_file", "workspace_write_file", "workspace_delete_file"):
             fp = str(obs.get("filePath") or args.get("file_path") or "")
             if fp and fp not in files_changed:
                 files_changed.append(fp)
@@ -594,7 +594,13 @@ class AgenticLoopRunner:
                     step=step_num, action="format_retry", status="failed", error=err_txt,
                     observation={"status": "error", "code": "TOOL_FORMAT_ERROR", "error": err_txt},
                 ))
-                transcript.append({"role": "tool_observation", "trusted": False, "result": {"status": "error", "code": "TOOL_FORMAT_ERROR", "error": err_txt}})
+                err_obs = {"status": "error", "code": "TOOL_FORMAT_ERROR", "error": err_txt}
+                transcript.append({
+                    "role": "tool_observation",
+                    "trusted": False,
+                    "observation": err_obs,
+                    "result": err_obs,
+                })
                 sig = "FORMAT_ERROR"
                 consecutive_same_errors = consecutive_same_errors + 1 if sig == last_error_sig else 1
                 last_error_sig = sig
@@ -612,12 +618,41 @@ class AgenticLoopRunner:
             if action in ("final", "done", "answer") or (
                 not decision.get("tool") and not decision.get("calls") and "summary" in decision
             ):
-                summary = str(decision.get("summary") or "Completed.")
+                summary = str(decision.get("summary") or "Completed.").strip()
+                looks_like_planning_or_truncated_code = (
+                    len(steps) == 0
+                    and any(
+                        t in permitted
+                        for t in ("render_code_animation", "workspace_write_file", "workspace_edit_file", "workspace_read_file", "workspace_run_command")
+                    )
+                    and (
+                        not summary
+                        or summary.count("```") % 2 == 1
+                        or re.match(
+                            r"(?i)^\s*(?:the\s+user\s+wants|let\s+me\s+(?:first|check|plan|write|build|create)|let'?s\s+(?:first|check|plan|write|build|create)|i\s+(?:will|need\s+to|should)\s+(?:first|write|create|check|render)|reasoning\s+ran\s+out)",
+                            summary,
+                        )
+                        or ("<script>" in summary and "window.setAnimationTime" in summary)
+                        or "```html" in summary.lower()
+                        or "```javascript" in summary.lower()
+                    )
+                )
+                if looks_like_planning_or_truncated_code and step_num < self.max_steps:
+                    err_txt = (
+                        "Do not answer with planning prose or unexecuted HTML/JS snippets at step 1. "
+                        "Call the real tool immediately (e.g. render_code_animation or workspace_write_file / workspace_read_file)."
+                    )
+                    retry_obs = {"status": "error", "code": "TOOL_REQUIRED", "error": err_txt}
+                    steps.append(AgenticStepRecord(
+                        step=step_num, action="format_retry", status="failed", error=err_txt, observation=retry_obs,
+                    ))
+                    transcript.append({"role": "tool_observation", "trusted": False, "observation": retry_obs, "result": retry_obs})
+                    continue
                 await _emit("agentic.completed", {"steps": len(steps), "artifacts": len(artifacts)})
                 return AgenticRunResult(
                     run_id=rid,
                     status="completed",
-                    summary=summary,
+                    summary=summary or "Completed.",
                     steps_executed=len(steps),
                     steps=steps,
                     artifacts=artifacts,
@@ -649,7 +684,16 @@ class AgenticLoopRunner:
                         arguments=_sanitize_value(args), status="failed",
                         observation=obs, error=obs["error"], rationale=rationale,
                     ))
-                    transcript.append({"role": "tool_observation", "trusted": False, "step": step_num, "tool": tool_name, "result": obs})
+                    transcript.append({
+                        "role": "tool_observation",
+                        "trusted": False,
+                        "step": step_num,
+                        "call_id": f"call_{step_num}_err",
+                        "tool": tool_name,
+                        "arguments": _sanitize_value(args),
+                        "observation": obs,
+                        "result": obs,
+                    })
                     sig = f"UNKNOWN:{tool_name}"
                     consecutive_same_errors = consecutive_same_errors + 1 if sig == last_error_sig else 1
                     last_error_sig = sig
@@ -691,7 +735,16 @@ class AgenticLoopRunner:
                         arguments=_sanitize_value(args), status="failed",
                         observation=obs, error=obs["error"], rationale=rationale,
                     ))
-                    transcript.append({"role": "tool_observation", "trusted": False, "step": step_num, "tool": tool_name, "result": obs})
+                    transcript.append({
+                        "role": "tool_observation",
+                        "trusted": False,
+                        "step": step_num,
+                        "call_id": f"call_{step_num}_err",
+                        "tool": tool_name,
+                        "arguments": _sanitize_value(args),
+                        "observation": obs,
+                        "result": obs,
+                    })
                     continue
 
                 validated_calls.append((tool_name, args, rationale, tdef))
@@ -714,7 +767,7 @@ class AgenticLoopRunner:
                 for _, a, _, td in validated_calls:
                     batch_results.append(await _exec_tool_item(td, a))
 
-            for (tool_name, args, rationale, _tdef), (raw_obs, step_ms) in zip(validated_calls, batch_results):
+            for idx_c, ((tool_name, args, rationale, _tdef), (raw_obs, step_ms)) in enumerate(zip(validated_calls, batch_results)):
                 vis = _extract_vision_bytes(raw_obs) if isinstance(raw_obs, dict) else None
                 if vis is not None:
                     pending_vision_images.append(vis)
@@ -744,6 +797,7 @@ class AgenticLoopRunner:
                     consecutive_same_errors = consecutive_same_errors + 1 if err_sig == last_error_sig else 1
                     last_error_sig = err_sig
                     if consecutive_same_errors >= self.max_consecutive_failures:
+                        await _emit("agent.step.completed", {"step": step_num, "maxSteps": self.max_steps})
                         return AgenticRunResult(
                             run_id=rid,
                             status="blocked",
@@ -761,9 +815,12 @@ class AgenticLoopRunner:
                     "role": "tool_observation",
                     "trusted": False,
                     "step": step_num,
+                    "call_id": f"call_{step_num}_{idx_c}",
                     "tool": tool_name,
+                    "arguments": _sanitize_value(args),
                     "observation": safe_obs,
                 })
+            await _emit("agent.step.completed", {"step": step_num, "maxSteps": self.max_steps})
 
         return AgenticRunResult(
             run_id=rid,

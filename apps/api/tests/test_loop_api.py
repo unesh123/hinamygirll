@@ -45,4 +45,4 @@ def test_loop_api_start_and_status(client, tmp_path):
     assert res_status.status_code == 200
     status_data = res_status.json()
     assert status_data["task_id"] == task_id
-    assert status_data["status"] in ("RUNNING", "COMPLETED")
+    assert status_data["status"] in ("RUNNING", "IN_PROGRESS", "COMPLETED")

@@ -89,10 +89,10 @@ function runtimeEventToSteps(
       : typeof payload.code === "string"
         ? payload.code
         : undefined;
-  const upsert = (step: LiveAgentStep) => {
-    const existing = previous.findIndex((item) => item.id === step.id);
-    if (existing === -1) return [...previous, step];
-    const next = [...previous];
+  const upsert = (step: LiveAgentStep, list: LiveAgentStep[] = previous) => {
+    const existing = list.findIndex((item) => item.id === step.id);
+    if (existing === -1) return [...list, step];
+    const next = [...list];
     next[existing] = { ...next[existing], ...step };
     return next;
   };
@@ -132,7 +132,12 @@ function runtimeEventToSteps(
   if (event.event_type === "agent.step.started") {
     const stepNum = typeof payload.step === "number" ? payload.step : undefined;
     const stepLabel = stepNum ? `Reasoning · Step ${stepNum}` : title;
-    return upsert({ id: stepId, label: stepLabel, status: "active", detail: "Inspecting workspace & selecting next tool" });
+    const settled = previous.map((s) =>
+      s.status === "active" && (s.id === "run" || s.id === "plan" || s.id.startsWith("step-")) && s.id !== stepId
+        ? { ...s, status: "done" as const }
+        : s,
+    );
+    return upsert({ id: stepId, label: stepLabel, status: "active", detail: "Inspecting workspace & selecting next tool" }, settled);
   }
   if (event.event_type === "tool.started") {
     const tName = typeof payload.toolName === "string" ? payload.toolName : "tool";
@@ -159,6 +164,14 @@ function runtimeEventToSteps(
     return upsert({ id: stepId, label: title, status: "active", detail: message ?? "Runtime step updated" });
   }
   if (event.event_type === "agent.step.completed") {
+    const stepNum = typeof payload.step === "number" ? payload.step : undefined;
+    if (stepNum) {
+      return previous.map((s) =>
+        s.id === stepId && s.status === "active"
+          ? { ...s, status: "done" as const }
+          : s,
+      );
+    }
     return upsert({ id: stepId, label: title, status: "done", detail: "Runtime step completed" });
   }
   if (event.event_type === "agent.step.failed") {
@@ -448,6 +461,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
       if (previousTurn) finalizeTurn(previousTurn);
       else clearTimers();
       setCompanionId(id);
+      pendingAgenticApprovalRef.current = null;
       setPartialTranscript("");
       setStreamingText("");
       setActivePlan(undefined);
@@ -769,10 +783,17 @@ export function useCompanionController({ conversationId, routing, languagePolicy
             rawStreamed += event.delta;
             const safeStreamed = getSafeAssistantStreamingText(rawStreamed);
             latestStreamedTextRef.current = safeStreamed;
-            for (const phrase of speechText.push(safeStreamed)) {
-              if (!META_REFLECTION_SPEECH_RE.test(phrase) && options?.onSentenceChunk) {
-                try { options.onSentenceChunk(phrase, isFirstSentence); } catch { /* speech must not block text */ }
-                isFirstSentence = false;
+            const looksLikeCodeOrDocDump =
+              rawStreamed.includes("```") ||
+              rawStreamed.includes("<script") ||
+              rawStreamed.length > 4000 ||
+              /^#{1,4}\s+/m.test(rawStreamed);
+            if (!looksLikeCodeOrDocDump) {
+              for (const phrase of speechText.push(safeStreamed)) {
+                if (!META_REFLECTION_SPEECH_RE.test(phrase) && options?.onSentenceChunk) {
+                  try { options.onSentenceChunk(phrase, isFirstSentence); } catch { /* speech must not block text */ }
+                  isFirstSentence = false;
+                }
               }
             }
 
@@ -811,7 +832,12 @@ export function useCompanionController({ conversationId, routing, languagePolicy
           } else if (event.type === "plan") {
             cancelStreamSchedules();
             latestStreamedTextRef.current = "";
-            for (const phrase of speechText.flush()) {
+            const skipTrailingSpeech =
+              rawStreamed.includes("```") ||
+              rawStreamed.includes("<script") ||
+              rawStreamed.length > 4000 ||
+              /^#{1,4}\s+/m.test(rawStreamed);
+            if (!skipTrailingSpeech) for (const phrase of speechText.flush()) {
               if (!META_REFLECTION_SPEECH_RE.test(phrase) && options?.onSentenceChunk) {
                 try { options.onSentenceChunk(phrase, isFirstSentence); } catch { /* non-blocking */ }
                 isFirstSentence = false;

@@ -168,3 +168,53 @@ async def test_workspace_write_html_rejects_broken_inline_script(ws):
     )
     assert good["status"] == "success"
     assert good["isHtml"] is True
+
+
+@pytest.mark.asyncio
+async def test_workspace_edit_crlf_fallback_html_rollback_and_delete_file(ws):
+    import shutil
+    from hinaa_api.tools.workspace_coding_tools import (
+        WorkspaceDeleteFileParams,
+        workspace_delete_file_handler,
+    )
+
+    page = ws / "demo.html"
+    page.write_bytes(b"<!doctype html>\r\n<html><body>\r\n<script>const v = 1;</script>  \r\n</body></html>\r\n")
+
+    # Minor trailing space / CRLF mismatch still recovers exact unique line span
+    ok_edit = await workspace_edit_file_handler(
+        WorkspaceEditFileParams(
+            file_path="demo.html",
+            target_content="<html><body>\n<script>const v = 1;</script>",
+            replacement_content="<html><body>\n<script>const v = 2;</script>",
+        )
+    )
+    assert ok_edit["status"] == "success"
+    assert "const v = 2;" in page.read_text(encoding="utf-8")
+
+    # Broken JS edit on HTML rolls back atomically when node is present
+    if shutil.which("node"):
+        bad_edit = await workspace_edit_file_handler(
+            WorkspaceEditFileParams(
+                file_path="demo.html",
+                target_content="<script>const v = 2;</script>",
+                replacement_content="<script>const v = { ;</script>",
+            )
+        )
+        assert bad_edit["status"] == "error"
+        assert bad_edit["code"] == "SYNTAX_ERROR"
+        assert "const v = 2;" in page.read_text(encoding="utf-8")
+
+    # Delete non-sensitive file safely, block sensitive/escape paths
+    del_ok = await workspace_delete_file_handler(WorkspaceDeleteFileParams(file_path="demo.html"))
+    assert del_ok["status"] == "success"
+    assert not page.exists()
+
+    (ws / ".env").write_text("SECRET=1", encoding="utf-8")
+    del_env = await workspace_delete_file_handler(WorkspaceDeleteFileParams(file_path=".env"))
+    assert del_env["status"] == "error"
+    assert del_env["code"] == "SENSITIVE_PATH_BLOCKED"
+
+    del_esc = await workspace_delete_file_handler(WorkspaceDeleteFileParams(file_path="../escape.txt"))
+    assert del_esc["status"] == "error"
+    assert del_esc["code"] == "WORKSPACE_ESCAPE"

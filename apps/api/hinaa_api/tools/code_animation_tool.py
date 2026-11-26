@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..creative.assets.manager import creative_asset_manager
 from ..creative.models import CreativeOperation
@@ -43,7 +43,7 @@ _MAX_HTML_BYTES = 350_000
 def _build_default_kinetic_html(title: str, subtitle: str, duration: float, width: int, height: int) -> str:
     safe_title = (title or "HINAA KINETIC").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     safe_sub = (subtitle or "STUDIO MOTION RENDER").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    words = [w for w in re.split(r"\s+", safe_title) if w][:4] or ["HINAA", "MOTION"]
+    words = [w for w in re.split(r"\s+", safe_title) if w][:5] or ["HINAA", "MOTION"]
     words_json = json.dumps(words)
     sub_json = json.dumps(safe_sub)
     return f"""<!DOCTYPE html>
@@ -54,7 +54,7 @@ def _build_default_kinetic_html(title: str, subtitle: str, duration: float, widt
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   html, body {{
     width: {width}px; height: {height}px; overflow: hidden;
-    background: #04050a; color: #f8fafc;
+    background: #04050b; color: #f8fafc;
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   }}
   canvas {{ position: absolute; inset: 0; width: 100%; height: 100%; display: block; }}
@@ -73,85 +73,155 @@ def _build_default_kinetic_html(title: str, subtitle: str, duration: float, widt
       if (x <= 0) return 0;
       return 1 - Math.exp(-9.5 * x) * Math.cos(14.0 * x);
     }}
+    function clamp01(v) {{ return Math.max(0, Math.min(1, v)); }}
+    function easeOutExpo(x) {{ const c = clamp01(x); return c >= 1 ? 1 : 1 - Math.pow(2, -10 * c); }}
     function hash(n) {{ const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); }}
     window.setAnimationTime = function(t) {{
-      const p = Math.min(1, Math.max(0, t / T));
+      const p = clamp01(t / T);
       const beatFrac = (t * 2.0) % 1.0;
       const beatPulse = Math.exp(-6.5 * beatFrac);
-      const camScale = 1.0 + 0.045 * beatPulse + 0.08 * Math.sin(p * Math.PI);
+      const dropImpact = Math.exp(-13.0 * Math.max(0, t - 0.12)) + Math.exp(-12.0 * Math.max(0, (t % 2.0)));
+      const shakeX = Math.sin(t * 78.0) * dropImpact * 4.5;
+      const shakeY = Math.cos(t * 64.0) * dropImpact * 3.0;
+      const camScale = 1.0 + 0.045 * beatPulse + 0.075 * Math.sin(p * Math.PI);
       ctx.save();
       ctx.fillStyle = '#04050b';
       ctx.fillRect(0, 0, W, H);
-      const rg = ctx.createRadialGradient(W * 0.5, H * 0.44, 10, W * 0.5, H * 0.44, Math.max(W, H) * 0.68);
-      rg.addColorStop(0, `rgba(56, 189, 248, ${{0.20 + 0.14 * beatPulse}})`);
-      rg.addColorStop(0.45, 'rgba(139, 92, 246, 0.10)');
+      const rg = ctx.createRadialGradient(W * 0.5, H * 0.44, 10, W * 0.5, H * 0.44, Math.max(W, H) * 0.72);
+      rg.addColorStop(0, `rgba(56, 189, 248, ${{0.22 + 0.16 * beatPulse}})`);
+      rg.addColorStop(0.45, 'rgba(139, 92, 246, 0.12)');
       rg.addColorStop(1, 'rgba(4, 5, 11, 0)');
       ctx.fillStyle = rg;
       ctx.fillRect(0, 0, W, H);
 
-      ctx.translate(W * 0.5, H * 0.5);
+      ctx.translate(W * 0.5 + shakeX, H * 0.5 + shakeY);
       ctx.scale(camScale, camScale);
-      ctx.rotate(Math.sin(p * Math.PI * 2) * 0.018);
+      ctx.rotate(Math.sin(p * Math.PI * 2) * 0.016);
       ctx.translate(-W * 0.5, -H * 0.5);
 
-      // Perspective cyber floor & volumetric depth particles
-      ctx.strokeStyle = `rgba(56, 189, 248, ${{0.11 + 0.08 * beatPulse}})`;
+      // Perspective synth floor & parallax atmospheric bokeh depth
+      ctx.strokeStyle = `rgba(56, 189, 248, ${{0.11 + 0.09 * beatPulse}})`;
       ctx.lineWidth = 1;
-      const horizon = H * 0.68;
-      for (let i = -8; i <= 8; i++) {{
+      const horizon = H * 0.69;
+      for (let i = -9; i <= 9; i++) {{
         ctx.beginPath();
-        ctx.moveTo(W * 0.5 + i * W * 0.03, horizon);
-        ctx.lineTo(W * 0.5 + i * W * 0.22, H + 40);
+        ctx.moveTo(W * 0.5 + i * W * 0.028, horizon);
+        ctx.lineTo(W * 0.5 + i * W * 0.23, H + 40);
         ctx.stroke();
       }}
-      for (let i = 0; i < 65; i++) {{
-        const z = ((hash(i) + t * (0.28 + 0.2 * hash(i + 9))) % 1.0);
-        const px = W * 0.5 + (hash(i + 20) - 0.5) * W * (0.35 + z * 1.1);
-        const py = H * 0.45 + (hash(i + 40) - 0.5) * H * (0.35 + z * 0.9);
+      for (let i = 0; i < 68; i++) {{
+        const z = ((hash(i) + t * (0.24 + 0.22 * hash(i + 9))) % 1.0);
+        const px = W * 0.5 + (hash(i + 20) - 0.5) * W * (0.36 + z * 1.15);
+        const py = H * 0.45 + (hash(i + 40) - 0.5) * H * (0.36 + z * 0.92);
+        const r = i % 11 === 0 ? (10 + z * 28) : (1.0 + z * 3.4);
         ctx.beginPath();
-        ctx.arc(px, py, 1.0 + z * 3.4, 0, Math.PI * 2);
-        ctx.fillStyle = i % 3 === 0 ? `rgba(244,114,182,${{0.18 + z * 0.5}})` : `rgba(125,211,252,${{0.15 + z * 0.5}})`;
+        ctx.arc(px, py, r, 0, Math.PI * 2);
+        ctx.fillStyle = i % 11 === 0
+          ? (i % 2 === 0 ? 'rgba(56,189,248,0.06)' : 'rgba(244,114,182,0.06)')
+          : (i % 3 === 0 ? `rgba(244,114,182,${{0.18 + z * 0.5}})` : `rgba(125,211,252,${{0.15 + z * 0.5}})`);
         ctx.fill();
       }}
 
-      // Kinetic multi-word stagger + chromatic split flash on beat
-      const baseSize = Math.round(Math.min(W, H) * 0.098);
+      // Orbital reticle rings behind primary headline
+      const minDim = Math.min(W, H);
+      ctx.save();
+      ctx.translate(W * 0.5, H * 0.45);
+      ctx.rotate(t * 0.42);
+      ctx.strokeStyle = `rgba(56,189,248,${{0.16 + 0.14 * beatPulse}})`;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([minDim * 0.06, minDim * 0.03]);
+      ctx.beginPath();
+      ctx.arc(0, 0, minDim * (0.31 + 0.02 * beatPulse), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.rotate(-t * 0.78);
+      ctx.strokeStyle = 'rgba(244,114,182,0.16)';
+      ctx.setLineDash([minDim * 0.025, minDim * 0.04]);
+      ctx.beginPath();
+      ctx.arc(0, 0, minDim * 0.24, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+
+      // Editorial top pill + directional mask-wiped headline stack
+      const baseSize = Math.round(minDim * (WORDS.length >= 4 ? 0.082 : 0.098));
+      const lineStep = baseSize * 1.1;
+      const totalH = WORDS.length * lineStep;
+      const startY = H * 0.46 - totalH * 0.5 + baseSize * 0.54;
+      const badgeP = easeOutExpo(t * 2.2);
+      ctx.save();
+      ctx.globalAlpha = badgeP;
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.72)';
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
+      ctx.lineWidth = 1.2;
+      const bw = Math.min(W * 0.54, minDim * 0.42), bh = Math.max(24, Math.round(minDim * 0.04));
+      const bx = W * 0.5 - bw * 0.5, by = startY - baseSize * 0.85 - bh - 12;
+      ctx.beginPath();
+      ctx.roundRect(bx, by, bw, bh, bh * 0.5);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#7dd3fc';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      const totalH = WORDS.length * baseSize * 1.08;
-      const startY = H * 0.46 - totalH * 0.5 + baseSize * 0.54;
+      ctx.font = `700 ${{Math.max(10, Math.round(bh * 0.42))}}px "Segoe UI", system-ui, sans-serif`;
+      ctx.fillText('STUDIO KINETIC SEQUENCE', W * 0.5, by + bh * 0.52);
+      ctx.restore();
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
       WORDS.forEach((word, idx) => {{
-        const sp = spring(t, idx * 0.24 + 0.08);
+        const sp = spring(t, idx * 0.22 + 0.06);
+        const maskP = easeOutExpo((t - idx * 0.20) * 1.85);
         const dir = idx % 2 === 0 ? -1 : 1;
-        const offsetX = (1 - sp) * dir * W * 0.28;
-        const y = startY + idx * baseSize * 1.08;
-        const rgbSplit = beatPulse * 6.5 * sp;
+        const offsetX = (1 - sp) * dir * W * 0.24;
+        const y = startY + idx * lineStep;
+        const rgbSplit = (beatPulse * 6.5 + dropImpact * 5.0) * sp;
         ctx.save();
-        ctx.globalAlpha = Math.max(0, Math.min(1, sp));
+        ctx.beginPath();
+        ctx.rect(0, y - lineStep * 0.54, W * (0.1 + 0.9 * maskP), lineStep * 1.08);
+        ctx.clip();
+        ctx.globalAlpha = clamp01(sp);
         ctx.font = `900 ${{baseSize}}px "Segoe UI", system-ui, sans-serif`;
         if (rgbSplit > 0.6) {{
-          ctx.fillStyle = 'rgba(244, 63, 94, 0.55)';
+          ctx.fillStyle = 'rgba(244, 63, 94, 0.58)';
           ctx.fillText(word, W * 0.5 + offsetX - rgbSplit, y);
-          ctx.fillStyle = 'rgba(34, 211, 238, 0.55)';
+          ctx.fillStyle = 'rgba(34, 211, 238, 0.58)';
           ctx.fillText(word, W * 0.5 + offsetX + rgbSplit, y);
         }}
-        ctx.fillStyle = idx === 1 ? '#38bdf8' : '#f8fafc';
+        ctx.fillStyle = idx === 1 ? '#38bdf8' : (idx === 3 ? '#f472b6' : '#f8fafc');
         ctx.fillText(word, W * 0.5 + offsetX, y);
         ctx.restore();
       }});
 
-      const subAlpha = Math.min(1, Math.max(0, (t - 0.55) * 1.8));
+      // Animated gradient accent divider + tracked subtitle
+      const ruleY = startY + totalH - baseSize * 0.14;
+      const ruleP = easeOutExpo((t - 0.35) * 1.6);
+      const rw = minDim * 0.44 * ruleP;
+      if (rw > 2) {{
+        const lg = ctx.createLinearGradient(W * 0.5 - rw * 0.5, ruleY, W * 0.5 + rw * 0.5, ruleY);
+        lg.addColorStop(0, '#38bdf8');
+        lg.addColorStop(1, '#ec4899');
+        ctx.fillStyle = lg;
+        ctx.fillRect(W * 0.5 - rw * 0.5, ruleY, rw, 3);
+      }}
+      const subAlpha = clamp01((t - 0.48) * 1.8);
       ctx.globalAlpha = subAlpha;
       ctx.fillStyle = '#cbd5e1';
-      ctx.font = `600 ${{Math.round(Math.min(W, H) * 0.026)}}px "Segoe UI", system-ui, sans-serif`;
-      ctx.fillText(SUB.toUpperCase(), W * 0.5, startY + totalH + baseSize * 0.12);
+      ctx.font = `600 ${{Math.round(minDim * 0.025)}}px "Segoe UI", system-ui, sans-serif`;
+      ctx.fillText(SUB.toUpperCase(), W * 0.5, ruleY + Math.round(minDim * 0.048));
       ctx.restore();
 
-      // Clean broadcast timecode & progress scrubber HUD
+      // Viewfinder HUD brackets & broadcast timeline bar
+      const pad = Math.round(minDim * 0.045), bLen = Math.round(minDim * 0.032);
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.42)';
+      ctx.lineWidth = 2;
+      [[pad, pad, 1, 1], [W - pad, pad, -1, 1], [pad, H - pad, 1, -1], [W - pad, H - pad, -1, -1]].forEach(([cx, cy, dx, dy]) => {{
+        ctx.beginPath();
+        ctx.moveTo(cx + dx * bLen, cy); ctx.lineTo(cx, cy); ctx.lineTo(cx, cy + dy * bLen);
+        ctx.stroke();
+      }});
       ctx.fillStyle = 'rgba(255,255,255,0.16)';
-      ctx.fillRect(W * 0.08, H - 34, W * 0.84, 3);
+      ctx.fillRect(W * 0.08, H - 30, W * 0.84, 3);
       ctx.fillStyle = '#38bdf8';
-      ctx.fillRect(W * 0.08, H - 34, W * 0.84 * p, 3);
+      ctx.fillRect(W * 0.08, H - 30, W * 0.84 * p, 3);
     }};
     window.setAnimationTime(0);
   </script>
@@ -379,6 +449,73 @@ _STUDIO_FX_SCRIPT = """<script>
     ctx.fillText(text, x, y);
     ctx.restore();
   }
+  function maskRevealText(ctx, text, x, y, progress, color, font, align, slidePx) {
+    const p = easeOutExpo(progress);
+    if (p <= 0.01) return;
+    ctx.save();
+    if (font) ctx.font = font;
+    ctx.textAlign = align || 'center';
+    ctx.textBaseline = 'middle';
+    const sz = parseInt((font || '48px').match(/(\\d+)px/)?.[1] || '48', 10);
+    const clipH = sz * 1.45;
+    ctx.beginPath();
+    ctx.rect(0, y - clipH * 0.5, (ctx.canvas?.width || 1920), clipH * p);
+    ctx.clip();
+    ctx.globalAlpha = Math.min(1, p * 1.15);
+    ctx.fillStyle = color || '#f8fafc';
+    ctx.fillText(text, x, y + (1 - p) * (slidePx ?? sz * 0.45));
+    ctx.restore();
+  }
+  function drawBokehField(ctx, w, h, t, count, colA, colB) {
+    const n = count || 18;
+    ctx.save();
+    for (let i = 0; i < n; i++) {
+      const x = ((hash(i * 3 + 1) + Math.sin(t * (0.2 + 0.15 * hash(i)) + i) * 0.08) * w);
+      const y = ((hash(i * 7 + 2) + Math.cos(t * (0.18 + 0.12 * hash(i + 5)) + i) * 0.08) * h);
+      const r = (0.018 + 0.045 * hash(i + 11)) * Math.min(w, h);
+      drawGlow(ctx, x, y, r, (i % 2 === 0 ? colA : colB) || (i % 2 === 0 ? 'rgba(56,189,248,0.16)' : 'rgba(244,114,182,0.14)'));
+    }
+    ctx.restore();
+  }
+  function drawKineticRule(ctx, x1, y1, x2, y2, progress, color, lineWidth) {
+    const p = easeOutExpo(progress);
+    if (p <= 0.01) return;
+    ctx.save();
+    ctx.strokeStyle = color || '#38bdf8';
+    ctx.lineWidth = lineWidth || 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x1 + (x2 - x1) * p, y1 + (y2 - y1) * p);
+    ctx.stroke();
+    ctx.restore();
+  }
+  function drawHUDCorners(ctx, w, h, pad, size, color, alpha) {
+    const p = pad || 36, s = size || 24;
+    ctx.save();
+    ctx.globalAlpha = alpha ?? 0.45;
+    ctx.strokeStyle = color || '#94a3b8';
+    ctx.lineWidth = 2;
+    [[p, p, 1, 1], [w - p, p, -1, 1], [p, h - p, 1, -1], [w - p, h - p, -1, -1]].forEach(([cx, cy, dx, dy]) => {
+      ctx.beginPath();
+      ctx.moveTo(cx + dx * s, cy); ctx.lineTo(cx, cy); ctx.lineTo(cx, cy + dy * s);
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+  function cameraShake(t, dropTimes, amp) {
+    let sx = 0, sy = 0;
+    const a = amp || 8;
+    for (const d of (dropTimes || [0])) {
+      const dt = t - d;
+      if (dt >= 0 && dt < 0.45) {
+        const dec = Math.exp(-15 * dt);
+        sx += Math.sin(dt * 72) * a * dec;
+        sy += Math.cos(dt * 63) * a * 0.7 * dec;
+      }
+    }
+    return { x: sx, y: sy };
+  }
   function graphemes(text) {
     if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
       return Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(String(text || '')), (s) => s.segment);
@@ -387,7 +524,9 @@ _STUDIO_FX_SCRIPT = """<script>
   }
   window.StudioFX = {
     spring, easeOutExpo, easeInOutCubic, beat, hash,
-    drawGlow, drawStarfield, drawPerspectiveGrid, drawSweepFlare, drawChromaticText, graphemes,
+    drawGlow, drawStarfield, drawBokehField, drawPerspectiveGrid,
+    drawSweepFlare, drawChromaticText, maskRevealText, drawKineticRule,
+    drawHUDCorners, cameraShake, graphemes,
   };
 })();
 </script>"""
@@ -571,6 +710,49 @@ class RenderCodeAnimationParams(BaseModel):
     normalize_audio: bool = Field(True, description="Apply EBU R128 loudness normalization (-14 LUFS) to audio.")
     workspace_root: str | None = Field(None, max_length=500, description="Optional workspace root override for html_path.")
     userId: str = Field("default_user", max_length=120)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_aliases_and_even_dims(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        if not out.get("html_code") and isinstance(out.get("html"), str):
+            out["html_code"] = out["html"]
+        if not out.get("html_path"):
+            p = out.get("path") or out.get("file_path")
+            if isinstance(p, str):
+                out["html_path"] = p
+        if "duration_seconds" not in out and out.get("duration") is not None:
+            out["duration_seconds"] = out["duration"]
+        prompt_fb = out.get("prompt") or out.get("description") or out.get("topic")
+        if not out.get("title") and isinstance(prompt_fb, str) and prompt_fb.strip():
+            first = prompt_fb.strip().splitlines()[0].strip()
+            out["title"] = first[:140] or "HINAA Kinetic Animation"
+            if not out.get("subtitle"):
+                out["subtitle"] = prompt_fb.strip()[:240]
+        elif isinstance(out.get("title"), str):
+            out["title"] = out["title"].strip()[:140] or "HINAA Kinetic Animation"
+        if isinstance(out.get("subtitle"), str):
+            out["subtitle"] = out["subtitle"].strip()[:240]
+        if out.get("duration_seconds") is not None:
+            try:
+                out["duration_seconds"] = max(0.5, min(30.0, float(out["duration_seconds"])))
+            except (TypeError, ValueError):
+                pass
+        if out.get("fps") is not None:
+            try:
+                out["fps"] = max(1, min(60, int(round(float(out["fps"])))))
+            except (TypeError, ValueError):
+                pass
+        for dim_k in ("width", "height"):
+            if out.get(dim_k) is not None:
+                try:
+                    val = max(64, min(1920, int(round(float(out[dim_k])))))
+                    out[dim_k] = (val // 2) * 2
+                except (TypeError, ValueError):
+                    pass
+        return out
 
 
 async def render_code_animation_handler(params: RenderCodeAnimationParams) -> dict[str, Any]:

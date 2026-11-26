@@ -705,3 +705,185 @@ def test_build_compact_tool_prompt_builds_scratchpad_digest_for_long_transcripts
     prompt = build_compact_tool_prompt({"workspace_read_file"}, transcript, 14, 16)
     assert "[Rolling Workspace Scratchpad" in prompt
     assert "read `src/mod_1.py` L1-120" in prompt
+
+
+def test_motion_and_render_params_coerce_llm_aliases() -> None:
+    from pydantic import ValidationError
+    from hinaa_api.creative.motion import MotionScene
+    from hinaa_api.tools.code_animation_tool import RenderCodeAnimationParams
+    from hinaa_api.tools.motion_video_tool import MotionVideoParams
+
+    # Regression for LLM passing duration/description keys instead of subtitle/title
+    mv = MotionVideoParams.model_validate({
+        "title": "Kinetic Typography Reel",
+        "scenes": [
+            {"duration": 4, "description": "Near-black editorial title reveal"},
+            "Second Beat Drop",
+        ],
+    })
+    assert mv.scenes[0].subtitle == "Near-black editorial title reveal"
+    assert mv.scenes[0].title == "Scene 1"
+    assert mv.scenes[1].title == "Second Beat Drop"
+    with pytest.raises(ValidationError):
+        MotionScene(title="Bad", accent="javascript:alert(1)")
+
+    rp = RenderCodeAnimationParams.model_validate({
+        "prompt": "Kinetic Typography Reel\nNeon beat drop showcase",
+        "html": "<html><body><canvas></canvas></body></html>",
+        "duration": 6,
+        "width": 1081,
+        "height": 721,
+    })
+    assert rp.duration_seconds == 6.0
+    assert rp.html_code == "<html><body><canvas></canvas></body></html>"
+    assert rp.width == 1080 and rp.height == 720
+
+
+def test_build_agentic_tool_schemas_and_messages_pairs() -> None:
+    from hinaa_api.agent.live_agentic_service import build_agentic_messages, build_agentic_tool_schemas
+
+    schemas = build_agentic_tool_schemas({"workspace_read_file", "workspace_delete_file"})
+    names = {s["function"]["name"] for s in schemas}
+    assert names == {"workspace_read_file", "workspace_delete_file"}
+
+    msgs = build_agentic_messages(
+        {"workspace_read_file"},
+        [
+            {"role": "user", "content": "Inspect app.py"},
+            {
+                "role": "tool_observation",
+                "step": 1,
+                "call_id": "call_1_0",
+                "tool": "workspace_read_file",
+                "arguments": {"file_path": "app.py"},
+                "observation": {"status": "success", "filePath": "app.py"},
+            },
+        ],
+        2,
+        16,
+    )
+    assert msgs[0]["role"] == "user"
+    assert msgs[1]["role"] == "assistant" and msgs[1]["tool_calls"][0]["id"] == "call_1_0"
+    assert msgs[2]["role"] == "tool" and msgs[2]["tool_call_id"] == "call_1_0"
+
+
+@pytest.mark.asyncio
+async def test_openai_native_tool_calls_and_gateway_fallback(monkeypatch) -> None:
+    import contextlib
+    import httpx
+    from hinaa_api.providers.openai_llm import OpenAILLMProvider
+
+    adapter = OpenAILLMProvider(
+        key="sk-test",
+        model="deepseek/deepseek-v4.1-flash",
+        base_url="https://api.example.com/v1",
+        provider_id="custom",
+    )
+    payloads_seen: list[dict] = []
+
+    class _FakeClient:
+        async def post(self, _url, headers=None, json=None):
+            payloads_seen.append(dict(json or {}))
+            if "tools" in (json or {}):
+                # 1st test triggers native tool_calls response unless fallback flag set
+                if headers is not None and len(payloads_seen) == 1:
+                    return httpx.Response(
+                        200,
+                        json={
+                            "choices": [{
+                                "message": {
+                                    "content": "",
+                                    "tool_calls": [{
+                                        "id": "tc_1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "workspace_glob",
+                                            "arguments": "{\"pattern\": \"*.py\"}",
+                                        },
+                                    }],
+                                }
+                            }]
+                        },
+                    )
+                return httpx.Response(400, json={"error": {"message": "tools unsupported"}})
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": "{\"action\": \"final\", \"summary\": \"ok\"}"}}]},
+            )
+
+    @contextlib.asynccontextmanager
+    async def _fake_pool():
+        yield _FakeClient()
+
+    monkeypatch.setattr("hinaa_api.providers.openai_llm._pooled_client", _fake_pool)
+
+    schemas = [{"type": "function", "function": {"name": "workspace_glob", "parameters": {"type": "object"}}}]
+    res1 = await adapter.complete_raw_agentic(
+        system_prompt="sys",
+        user_prompt="flat",
+        tool_schemas=schemas,
+        messages=[{"role": "user", "content": "hi"}],
+    )
+    parsed1 = json.loads(res1)
+    assert parsed1["action"] == "call_tool"
+    assert parsed1["tool"] == "workspace_glob"
+    assert parsed1["arguments"] == {"pattern": "*.py"}
+
+    # Second call simulates 400 on `tools` and proves seamless fallback to prompt mode
+    res2 = await adapter.complete_raw_agentic(
+        system_prompt="sys",
+        user_prompt="flat",
+        tool_schemas=schemas,
+        messages=[{"role": "user", "content": "hi"}],
+    )
+    assert json.loads(res2)["action"] == "final"
+    assert "tools" not in payloads_seen[-1]
+
+
+@pytest.mark.asyncio
+async def test_agentic_runner_rejects_step1_planning_monologue_and_executes_tool(tmp_path) -> None:
+    calls = 0
+
+    async def _planner(_transcript, step_num: int):
+        nonlocal calls
+        calls += 1
+        if step_num == 1:
+            return "Let me first check the workspace and write out a quick sample:\n```html\n<div>unclosed"
+        if step_num == 2:
+            return {
+                "action": "call_tool",
+                "tool": "workspace_write_file",
+                "arguments": {"file_path": "out.html", "content": "<!doctype html><html><body>OK</body></html>"},
+            }
+        return {"action": "final", "summary": "Wrote out.html cleanly."}
+
+    runner = AgenticLoopRunner(max_steps=5, workspace_root=str(tmp_path))
+    res = await runner.run(goal="Build out.html webpage", planner=_planner)
+    assert res.status == "completed"
+    assert calls == 3
+    assert res.files_changed == ["out.html"]
+    assert (tmp_path / "out.html").exists()
+
+
+@pytest.mark.asyncio
+async def test_openai_reasoning_only_without_tool_call_never_leaks_prose(monkeypatch) -> None:
+    import contextlib
+    import httpx
+    from hinaa_api.providers.openai_llm import OpenAILLMProvider
+
+    adapter = OpenAILLMProvider(key="sk-test", model="deepseek-v4-1-flash-1017", base_url="https://api.example.com/v1", provider_id="custom")
+
+    class _ReasoningClient:
+        async def post(self, _url, headers=None, json=None):
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": "", "reasoning_content": "Let me think through step 1..."}}]},
+            )
+
+    @contextlib.asynccontextmanager
+    async def _fake_pool():
+        yield _ReasoningClient()
+
+    monkeypatch.setattr("hinaa_api.providers.openai_llm._pooled_client", _fake_pool)
+    out = await adapter.complete_raw_agentic(system_prompt="sys", user_prompt="flat")
+    assert out == ""

@@ -7308,7 +7308,8 @@ class ConversationService:
                 "coding_agent", "clean_room_loop", "terminal_hands", "subagent_fork",
                 "video_create", "ffmpeg_export", "record_frames", "create_motion_video",
                 "html_anime_generate", "workspace", "auto_goal_decomposer", "parallel_executor",
-                "self_improver", "system_info",
+                "self_improver", "system_info", "agent_spawn", "browser_screenshot",
+                "server_start", "ultra_memory_get", "ultra_memory_save",
             })
             allowed_for_agentic = {
                 t for t in (self._builtin_turn_tool_whitelist(goal_text, None, history=request.history) or ())
@@ -7319,6 +7320,7 @@ class ConversationService:
                 "workspace_read_file",
                 "workspace_write_file",
                 "workspace_edit_file",
+                "workspace_delete_file",
                 "workspace_glob",
                 "workspace_grep",
                 "workspace_run_command",
@@ -7365,17 +7367,26 @@ class ConversationService:
             persisted = await agentic_task
             res = persisted.result
             report_md = format_agentic_markdown(res)
+            clean_spoken = re.sub(r"```[\s\S]*?```", "", res.summary or "").strip()
+            clean_spoken = re.sub(r"\s+", " ", re.sub(r"[`*_#\[\]()]", "", clean_spoken)).strip()
+            if any(a.get("kind") == "video" for a in (res.artifacts or [])):
+                spoken_short = clean_spoken[:180] or "Rendered your MP4 animation and loaded it in chat."
+            elif res.files_changed:
+                spoken_short = clean_spoken[:180] or f"Updated {len(res.files_changed)} workspace file(s) cleanly."
+            else:
+                spoken_short = clean_spoken[:180] or "Finished executing the workspace task."
             agentic_plan = build_plan_from_text(
                 text=report_md,
                 companion_id=request.companionId or "hinaa",
                 language=getattr(request, "language", None) or "en-US",
                 depth="report",
             )
+            agentic_plan.spokenText = spoken_short
             agentic_plan.requestedProvider = request.providerMode
             agentic_plan.requestedModel = request.brainModel
             agentic_plan.resolvedProvider = request.providerMode
             agentic_plan.resolvedModel = request.brainModel
-            yield _make_delta_event(report_md)
+            yield _make_delta_event(spoken_short)
             elapsed_ms = int((time.time() - start_time) * 1000)
             yield self._event("planning.completed", {"step": res.steps_executed or 1, "durationMs": elapsed_ms, "correlationId": correlation_id})
             yield self._event("plan", {"plan": agentic_plan.model_dump(), "provider": f"{request.providerMode}:agentic"})

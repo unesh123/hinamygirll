@@ -158,4 +158,17 @@ describe("AgentActivityCard", () => {
     expect(screen.getByText(/Execution Stopped/i)).toBeInTheDocument();
     expect(screen.getByText("Stopped by user")).toBeInTheDocument();
   });
+
+  it("resets the elapsed clock cleanly when runId changes", () => {
+    const { rerender } = render(
+      <AgentActivityCard isActive runId="run-1" steps={[runningStep]} />
+    );
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(screen.getByTestId("agent-activity-card").textContent).toMatch(/5\.0s elapsed/);
+
+    rerender(<AgentActivityCard isActive runId="run-2" steps={[runningStep]} />);
+    expect(screen.getByTestId("agent-activity-card").textContent).toMatch(/0\.0s elapsed/);
+  });
 });

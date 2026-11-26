@@ -1494,6 +1494,7 @@ export function WorkMode({
           {isExecutionLive && convertedActivitySteps.length > 0 && (
             <AgentActivityCard
               isActive={isExecutionLive}
+              runId={currentAgentRunId}
               steps={convertedActivitySteps}
               onCancel={() => {
                 onCancelAgentRun?.();
@@ -1513,9 +1514,8 @@ export function WorkMode({
             </div>
           )}
 
-          {/* Hina Brain Orchestration Panel */}
-          {/* Shows live multi-specialist status during agent/research workflows */}
-          {(isSearching || isAgentActive || agentSteps.length > 0 || Boolean(currentAgentRunId)) && (
+          {/* Hina Brain Orchestration Panel — shown for search/brain orchestration without stacking on AgentActivityCard */}
+          {!(isExecutionLive && convertedActivitySteps.length > 0) && (isSearching || isAgentActive || agentSteps.length > 0 || Boolean(currentAgentRunId)) && (
             <_BrainOrchestrationInline
               agentSteps={agentSteps}
               isThinking={isThinking}

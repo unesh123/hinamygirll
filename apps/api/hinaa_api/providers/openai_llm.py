@@ -399,8 +399,10 @@ class OpenAILLMProvider:
         user_prompt: str,
         max_tokens: int = 8192,
         images: list[tuple[str, bytes]] | None = None,
+        tool_schemas: list[dict[str, Any]] | None = None,
+        messages: list[dict[str, Any]] | None = None,
     ) -> str:
-        """Direct raw completion for bounded coding/studio agent loops without companion persona schema."""
+        """Direct raw completion for bounded coding/studio agent loops with native OpenAI tool_calls + gateway fallback."""
         can_exec, reason, _ = self._circuit_breaker.can_execute()
         if not can_exec:
             code = "PROVIDER_RATE_LIMIT" if "rate_limited" in (reason or "") else "PROVIDER_UNAVAILABLE"
@@ -409,21 +411,52 @@ class OpenAILLMProvider:
         started = perf_counter()
         use_max_tokens = self._provider_id in {"qwen", "agent-router", "codecraft"} | _GATEWAY_PROVIDERS
 
-        def _build_payload(include_images: bool) -> dict[str, object]:
-            if include_images and images:
-                import base64
+        def _image_blocks() -> list[dict[str, Any]]:
+            blocks: list[dict[str, Any]] = []
+            for mime_type, raw_bytes in (images or [])[:4]:
+                if raw_bytes:
+                    b64 = base64.b64encode(raw_bytes).decode("ascii")
+                    blocks.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime_type or 'image/jpeg'};base64,{b64}"},
+                    })
+            return blocks
 
-                user_content: Any = [{"type": "text", "text": user_prompt}]
-                for mime_type, raw_bytes in images[:4]:
-                    if raw_bytes:
-                        b64 = base64.b64encode(raw_bytes).decode("ascii")
-                        user_content.append({
-                            "type": "image_url",
-                            "image_url": {"url": f"data:{mime_type or 'image/jpeg'};base64,{b64}"},
+        def _build_payload(include_images: bool, include_tools: bool) -> dict[str, object]:
+            img_blocks = _image_blocks() if (include_images and images) else []
+            if include_tools and tool_schemas and messages:
+                msg_list: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+                for m in messages:
+                    msg_list.append(dict(m))
+                if img_blocks:
+                    if msg_list and msg_list[-1].get("role") == "user" and isinstance(msg_list[-1].get("content"), str):
+                        msg_list[-1] = {
+                            "role": "user",
+                            "content": [{"type": "text", "text": msg_list[-1]["content"]}, *img_blocks],
+                        }
+                    else:
+                        msg_list.append({
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": "Inspect the attached visual preview carefully before responding."},
+                                *img_blocks,
+                            ],
                         })
+                payload: dict[str, object] = {
+                    "model": self._model_for_payload(),
+                    "messages": msg_list,
+                    "tools": tool_schemas,
+                    "tool_choice": "auto",
+                    "temperature": self._effective_temperature(0.2),
+                    ("max_tokens" if use_max_tokens else "max_completion_tokens"): max_tokens,
+                }
+                return payload
+
+            if img_blocks:
+                user_content: Any = [{"type": "text", "text": user_prompt}, *img_blocks]
             else:
                 user_content = user_prompt
-            return {
+            payload = {
                 "model": self._model_for_payload(),
                 "messages": [
                     {"role": "system", "content": system_prompt},
@@ -432,19 +465,83 @@ class OpenAILLMProvider:
                 "temperature": self._effective_temperature(0.2),
                 ("max_tokens" if use_max_tokens else "max_completion_tokens"): max_tokens,
             }
+            if include_tools and tool_schemas:
+                payload["tools"] = tool_schemas
+                payload["tool_choice"] = "auto"
+            return payload
+
+        def _extract_native_decision(msg: dict[str, Any]) -> str:
+            tcalls = msg.get("tool_calls")
+            if isinstance(tcalls, list) and tcalls:
+                normalized: list[dict[str, Any]] = []
+                for tc in tcalls[:6]:
+                    if not isinstance(tc, dict):
+                        continue
+                    fn = tc.get("function") or {}
+                    tname = str(fn.get("name") or "").strip()
+                    if not tname:
+                        continue
+                    raw_args = fn.get("arguments")
+                    parsed_args: dict[str, Any] = {}
+                    if isinstance(raw_args, dict):
+                        parsed_args = raw_args
+                    elif isinstance(raw_args, str) and raw_args.strip():
+                        try:
+                            cand = json.loads(raw_args)
+                            if isinstance(cand, dict):
+                                parsed_args = cand
+                        except Exception:
+                            return json.dumps({
+                                "action": "_parse_error",
+                                "error": f"Truncated JSON arguments for native tool '{tname}'. Retry concisely.",
+                            })
+                    normalized.append({"tool": tname, "arguments": parsed_args})
+                rationale = str(msg.get("content") or msg.get("reasoning") or "Native tool call")[:240]
+                if len(normalized) == 1:
+                    return json.dumps({
+                        "action": "call_tool",
+                        "tool": normalized[0]["tool"],
+                        "arguments": normalized[0]["arguments"],
+                        "rationale": rationale,
+                    }, ensure_ascii=False)
+                if len(normalized) > 1:
+                    return json.dumps({
+                        "action": "call_tools",
+                        "calls": normalized,
+                        "rationale": rationale,
+                    }, ensure_ascii=False)
+            content = msg.get("content")
+            if isinstance(content, str) and content.strip():
+                return content
+            reasoning_raw = msg.get("reasoning") or msg.get("reasoning_content")
+            if isinstance(reasoning_raw, str) and reasoning_raw.strip():
+                # Only salvage reasoning tokens if the model emitted an explicit <tool> or action JSON block;
+                # never leak raw internal chain-of-thought prose as a final assistant reply.
+                if re.search(r"<\s*tool\b|\{\s*[\"']action[\"']\s*:", reasoning_raw, re.IGNORECASE):
+                    return reasoning_raw
+            return ""
 
         last_resp: httpx.Response | None = None
         num_keys = max(1, len(self._keys))
         use_vision = bool(images)
+        use_tools = bool(tool_schemas)
         try:
             for key_idx in range(num_keys):
-                payload = _build_payload(use_vision)
                 async with _pooled_client() as client:
                     response = await client.post(
                         self._chat_url(),
                         headers=self._headers(),
-                        json=payload,
+                        json=_build_payload(use_vision, use_tools),
                     )
+                if use_tools and response.status_code in {400, 404, 415, 422, 501}:
+                    # Gateway does not support native OpenAI tools/tool roles; fall back seamlessly.
+                    use_tools = False
+                    async with _pooled_client() as client:
+                        response = await client.post(
+                            self._chat_url(),
+                            headers=self._headers(),
+                            json=_build_payload(use_vision, False),
+                        )
                 if use_vision and response.status_code in {400, 415, 422}:
                     # Text-only gateway rejected multimodal content blocks; fall back seamlessly.
                     use_vision = False
@@ -452,7 +549,7 @@ class OpenAILLMProvider:
                         response = await client.post(
                             self._chat_url(),
                             headers=self._headers(),
-                            json=_build_payload(False),
+                            json=_build_payload(False, use_tools),
                         )
                 last_resp = response
                 if response.status_code in {401, 403, 429} and key_idx < num_keys - 1:
@@ -462,8 +559,21 @@ class OpenAILLMProvider:
                 data = response.json()
                 choices = data.get("choices") or []
                 msg = choices[0].get("message", {}) if choices else {}
-                content = msg.get("content") or msg.get("reasoning") or msg.get("reasoning_content")
-                text_out = content if isinstance(content, str) else ""
+                text_out = _extract_native_decision(msg)
+                if use_tools and not text_out.strip():
+                    # Some proxies return empty content when `tools` is supplied; retry flattened prompt mode once.
+                    use_tools = False
+                    async with _pooled_client() as client:
+                        fb_resp = await client.post(
+                            self._chat_url(),
+                            headers=self._headers(),
+                            json=_build_payload(use_vision, False),
+                        )
+                    if fb_resp.is_success:
+                        fb_data = fb_resp.json()
+                        fb_choices = fb_data.get("choices") or []
+                        fb_msg = fb_choices[0].get("message", {}) if fb_choices else {}
+                        text_out = _extract_native_decision(fb_msg)
                 self._circuit_breaker.record_success(int((perf_counter() - started) * 1000))
                 return text_out
             if last_resp is not None:
@@ -825,8 +935,16 @@ class OpenAILLMProvider:
             data = response.json()
             choices = data.get("choices") or []
             msg = choices[0].get("message", {}) if choices else {}
-            content = msg.get("content") or msg.get("reasoning") or msg.get("reasoning_content")
-            return content if isinstance(content, str) else ""
+            content = msg.get("content")
+            if isinstance(content, str) and content.strip():
+                return content
+            reasoning_raw = msg.get("reasoning") or msg.get("reasoning_content")
+            if isinstance(reasoning_raw, str) and reasoning_raw.strip():
+                # Only salvage reasoning tokens if the model emitted an explicit <tool> or action JSON block;
+                # never leak raw internal chain-of-thought prose as a final assistant reply.
+                if re.search(r"<\s*tool\b|\{\s*[\"']action[\"']\s*:", reasoning_raw, re.IGNORECASE):
+                    return reasoning_raw
+            return ""
         if last_resp is not None:
             self._raise_for_status(last_resp)
         return ""

@@ -189,6 +189,65 @@ async def workspace_read_file_handler(params: WorkspaceReadFileParams) -> dict[s
     }
 
 
+def _check_js_or_html_syntax(ext: str, content: str) -> str | None:
+    """Validate `.js`/`.mjs` files and inline non-JSON `<script>` blocks via `node --check` when available."""
+    import shutil as _shutil
+
+    if ext not in (".js", ".mjs", ".html", ".htm"):
+        return None
+    node_bin = _shutil.which("node")
+    if not node_bin:
+        return None
+    if ext in (".js", ".mjs"):
+        blocks = [content]
+        label_prefix = "JavaScript syntax error"
+    else:
+        blocks = re.findall(
+            r"<script(?![^>]*\btype\s*=\s*[\"'](?:application/(?:json|ld\+json)|importmap)[\"'])[^>]*>([\s\S]*?)</script>",
+            content,
+            flags=re.IGNORECASE,
+        )
+        label_prefix = "Inline <script> syntax error"
+    for idx_b, js_body in enumerate(blocks):
+        if not js_body.strip():
+            continue
+        fd_js, tmp_js = tempfile.mkstemp(prefix=".hinaa_chk_", suffix=".js")
+        try:
+            with os.fdopen(fd_js, "w", encoding="utf-8") as fh:
+                fh.write(js_body)
+            chk = subprocess.run([node_bin, "--check", tmp_js], capture_output=True, text=True, timeout=8)
+            if chk.returncode != 0:
+                detail = (chk.stderr or chk.stdout or "").strip()[:300]
+                prefix = f"{label_prefix} #{idx_b + 1}" if len(blocks) > 1 else label_prefix
+                return f"{prefix}: {detail}"
+        finally:
+            if os.path.exists(tmp_js):
+                os.unlink(tmp_js)
+    return None
+
+
+def _unique_normalized_target(existing_content: str, target_content: str) -> str | None:
+    """Recover exact original slice when only CRLF, trailing spaces, or horizontal whitespace differs uniquely."""
+    norm_file_lines = existing_content.replace("\r\n", "\n").splitlines()
+    raw_file_lines = existing_content.splitlines(keepends=True)
+    raw_target_lines = target_content.replace("\r\n", "\n").splitlines()
+    if not raw_target_lines or len(raw_target_lines) > len(norm_file_lines):
+        return None
+    n = len(raw_target_lines)
+
+    for norm_fn in (lambda s: s.rstrip(), lambda s: " ".join(s.split())):
+        target_norm = [norm_fn(ln) for ln in raw_target_lines]
+        file_norm = [norm_fn(ln) for ln in norm_file_lines]
+        matches = [i for i in range(len(file_norm) - n + 1) if file_norm[i : i + n] == target_norm]
+        if len(matches) == 1:
+            start = matches[0]
+            joined = "".join(raw_file_lines[start : start + n])
+            if target_content and not target_content.endswith(("\n", "\r")) and joined.endswith(("\r\n", "\n")):
+                return joined.rstrip("\r\n")
+            return joined
+    return None
+
+
 async def workspace_edit_file_handler(params: WorkspaceEditFileParams) -> dict[str, Any]:
     try:
         root = _resolve_workspace_root(params.workspace_root)
@@ -197,11 +256,25 @@ async def workspace_edit_file_handler(params: WorkspaceEditFileParams) -> dict[s
         return {"status": "error", "code": "WORKSPACE_ESCAPE", "error": str(err)}
 
     rel = _relative_posix(root, target)
+    if _is_sensitive_write_target(rel):
+        return {
+            "status": "error",
+            "code": "SENSITIVE_PATH_BLOCKED",
+            "filePath": rel,
+            "error": f"Refusing to modify sensitive path {rel!r}.",
+        }
+    prior_content = target.read_text(encoding="utf-8", errors="replace") if target.exists() and target.is_file() else ""
+    target_snippet = params.target_content
+    if prior_content and target_snippet not in prior_content:
+        recovered = _unique_normalized_target(prior_content, target_snippet)
+        if recovered:
+            target_snippet = recovered
+
     result = apply_code_patch(
         str(root),
         CodePatch(
             file_path=rel,
-            target_content=params.target_content,
+            target_content=target_snippet,
             replacement_content=params.replacement_content,
             base_hash=params.base_hash,
             allow_multiple=params.allow_multiple,
@@ -215,11 +288,63 @@ async def workspace_edit_file_handler(params: WorkspaceEditFileParams) -> dict[s
             "filePath": rel,
             "error": result.error or "Patch could not be applied.",
         }
+    ext = target.suffix.lower()
+    if ext in (".js", ".mjs", ".html", ".htm"):
+        patched_text = target.read_text(encoding="utf-8", errors="replace")
+        js_err = _check_js_or_html_syntax(ext, patched_text)
+        if js_err:
+            # Roll back immediately so disk never retains broken HTML/JS syntax
+            target.write_text(prior_content, encoding="utf-8")
+            return {
+                "status": "error",
+                "code": "SYNTAX_ERROR",
+                "filePath": rel,
+                "error": js_err,
+            }
     return {
         "status": "success",
         "filePath": rel,
         "newHash": result.new_hash,
         "diff": result.diff,
+    }
+
+
+class WorkspaceDeleteFileParams(BaseModel):
+    file_path: str = Field(..., min_length=1, max_length=500, description="Relative path inside workspace root to delete.")
+    workspace_root: str | None = Field(None, max_length=500, description="Optional workspace root override.")
+
+
+async def workspace_delete_file_handler(params: WorkspaceDeleteFileParams) -> dict[str, Any]:
+    try:
+        root = _resolve_workspace_root(params.workspace_root)
+        target = _resolve_inside_workspace(root, params.file_path)
+    except ValueError as err:
+        return {"status": "error", "code": "WORKSPACE_ESCAPE", "error": str(err)}
+
+    rel = _relative_posix(root, target)
+    if _is_sensitive_write_target(rel):
+        return {
+            "status": "error",
+            "code": "SENSITIVE_PATH_BLOCKED",
+            "filePath": rel,
+            "error": f"Refusing to delete sensitive path {rel!r}.",
+        }
+    if not target.exists():
+        return {"status": "error", "code": "FILE_NOT_FOUND", "filePath": rel, "error": f"File not found: {rel}"}
+    if target.is_dir():
+        return {"status": "error", "code": "IS_A_DIRECTORY", "filePath": rel, "error": f"Refusing to delete directory {rel!r}."}
+
+    prior = target.read_text(encoding="utf-8", errors="replace")
+    deleted_bytes = target.stat().st_size
+    target.unlink()
+    diff_lines = list(
+        difflib.unified_diff(prior.splitlines(keepends=True), [], fromfile=f"a/{rel}", tofile="/dev/null")
+    )
+    return {
+        "status": "success",
+        "filePath": rel,
+        "deletedBytes": deleted_bytes,
+        "diff": "".join(diff_lines)[:4000],
     }
 
 
@@ -369,6 +494,26 @@ registry.register(
         effect=ToolEffect.MUTATE_WORKSPACE,
     ),
     workspace_edit_file_handler,
+)
+
+registry.register(
+    ToolDefinition(
+        name="workspace_delete_file",
+        display_name="Workspace: Delete Confined File",
+        description="Safely delete a non-sensitive workspace file inside workspace_root and return deleted diff.",
+        parameters={
+            "file_path": {"type": "string", "description": "Relative path inside workspace root to delete."},
+            "workspace_root": {"type": "string", "description": "Optional workspace root override."},
+        },
+        required_parameters=["file_path"],
+        is_read_only=False,
+        is_concurrency_safe=False,
+        requires_confirmation=False,
+        risk_tier=RiskTier.TIER_1_REVERSIBLE,
+        risk_level="medium",
+        effect=ToolEffect.MUTATE_WORKSPACE,
+    ),
+    workspace_delete_file_handler,
 )
 
 registry.register(
@@ -631,54 +776,15 @@ async def workspace_write_file_handler(params: WorkspaceWriteFileParams) -> dict
                 "filePath": rel,
                 "error": f"JSON syntax error line {je.lineno}: {je.msg}",
             }
-    elif ext in (".js", ".mjs"):
-        import shutil as _shutil
-
-        node_bin = _shutil.which("node")
-        if node_bin:
-            fd_js, tmp_js = tempfile.mkstemp(prefix=".hinaa_chk_", suffix=ext)
-            try:
-                with os.fdopen(fd_js, "w", encoding="utf-8") as fh:
-                    fh.write(params.content)
-                chk = subprocess.run([node_bin, "--check", tmp_js], capture_output=True, text=True, timeout=8)
-                if chk.returncode != 0:
-                    return {
-                        "status": "error",
-                        "code": "SYNTAX_ERROR",
-                        "filePath": rel,
-                        "error": f"JavaScript syntax error: {(chk.stderr or chk.stdout or '').strip()[:300]}",
-                    }
-            finally:
-                if os.path.exists(tmp_js):
-                    os.unlink(tmp_js)
-    elif ext in (".html", ".htm"):
-        import shutil as _shutil
-
-        node_bin = _shutil.which("node")
-        if node_bin:
-            script_blocks = re.findall(
-                r"<script(?![^>]*\btype\s*=\s*[\"'](?:application/(?:json|ld\+json)|importmap)[\"'])[^>]*>([\s\S]*?)</script>",
-                params.content,
-                flags=re.IGNORECASE,
-            )
-            for idx_s, js_body in enumerate(script_blocks):
-                if not js_body.strip():
-                    continue
-                fd_js, tmp_js = tempfile.mkstemp(prefix=".hinaa_htmljs_", suffix=".js")
-                try:
-                    with os.fdopen(fd_js, "w", encoding="utf-8") as fh:
-                        fh.write(js_body)
-                    chk = subprocess.run([node_bin, "--check", tmp_js], capture_output=True, text=True, timeout=8)
-                    if chk.returncode != 0:
-                        return {
-                            "status": "error",
-                            "code": "SYNTAX_ERROR",
-                            "filePath": rel,
-                            "error": f"Inline <script> #{idx_s + 1} syntax error: {(chk.stderr or chk.stdout or '').strip()[:300]}",
-                        }
-                finally:
-                    if os.path.exists(tmp_js):
-                        os.unlink(tmp_js)
+    elif ext in (".js", ".mjs", ".html", ".htm"):
+        js_err = _check_js_or_html_syntax(ext, params.content)
+        if js_err:
+            return {
+                "status": "error",
+                "code": "SYNTAX_ERROR",
+                "filePath": rel,
+                "error": js_err,
+            }
 
     prior = target.read_text(encoding="utf-8", errors="replace") if target.exists() and target.is_file() else ""
     target.parent.mkdir(parents=True, exist_ok=True)

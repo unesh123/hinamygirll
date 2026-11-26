@@ -724,6 +724,24 @@ export const toolRegistry: Record<string, ToolDefinition> = {
     },
   },
 
+  workspace_delete_file: {
+    id: "workspace_delete_file",
+    displayName: "Workspace: Delete File",
+    description: "Safely remove a non-sensitive workspace file inside workspace root",
+    group: "files",
+    permission: "low",
+    requiresConfirmation: false,
+    cancellable: false,
+    rollbackAvailable: false,
+    resultType: "file",
+    voiceAliases: ["delete workspace file"],
+    suggestedActions: [],
+    availability: "connected",
+    inputSchema: {
+      file_path: { type: "string", description: "Relative file path", required: true },
+    },
+  },
+
   workspace_glob: {
     id: "workspace_glob",
     displayName: "Workspace: Glob Search",

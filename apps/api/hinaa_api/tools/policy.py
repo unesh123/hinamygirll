@@ -65,6 +65,7 @@ LOCAL_EFFECT_TOOLS: frozenset[str] = frozenset(
         "coding_agent",
         "workspace_write_file",
         "workspace_edit_file",
+        "workspace_delete_file",
         "workspace_run_command",
         "workspace_start_process",
         "workspace_stop_process",

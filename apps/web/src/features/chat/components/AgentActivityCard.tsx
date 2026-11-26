@@ -14,6 +14,7 @@ export interface ActivityStep {
 export interface AgentActivityCardProps {
   isActive: boolean;
   steps: ActivityStep[];
+  runId?: string;
   currentAction?: string;
   onCancel?: () => void;
   onResume?: () => void;
@@ -25,6 +26,7 @@ export interface AgentActivityCardProps {
 export function AgentActivityCard({
   isActive,
   steps,
+  runId,
   currentAction = "Thinking & Planning...",
   onCancel,
   onResume,
@@ -51,7 +53,7 @@ export function AgentActivityCard({
       setElapsedMs(Math.max(0, Date.now() - (startedAtRef.current ?? Date.now())));
     }, 100);
     return () => clearInterval(interval);
-  }, [isActive]);
+  }, [isActive, runId]);
 
   // Keep the pre-flight state honest: until the server emits steps we show an
   // indeterminate stage instead of inventing completed work or fake percentages.
