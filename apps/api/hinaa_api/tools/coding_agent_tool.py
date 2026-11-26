@@ -79,6 +79,7 @@ def _configured_code_backends(settings: Settings) -> list[dict[str, str]]:
     _add("experiential", settings.explabs_api_key, settings.explabs_base_url, settings.explabs_model)
     _add("apmix", settings.apmix_api_key, settings.apmix_base_url, settings.apmix_model)
     _add("toptools", settings.active_toptools_key, settings.active_toptools_base_url, settings.active_toptools_model)
+    _add("tokenrouter", settings.active_tokenrouter_key, settings.active_tokenrouter_base_url, settings.active_tokenrouter_model)
     return backends
 
 

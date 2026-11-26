@@ -147,6 +147,7 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
     if (providerId === "respan") return "Respan AI";
     if (providerId === "coarena") return "Coarena AI";
     if (providerId === "toptools") return "Top-Tools AI";
+    if (providerId === "tokenrouter") return "TokenRouter";
     if (providerId === "experiential") return "Experiential Labs";
     if (providerId === "cx-gateway") return "CX Gateway";
     return providerId.toUpperCase();

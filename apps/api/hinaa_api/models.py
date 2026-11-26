@@ -41,6 +41,7 @@ ProviderMode = Literal[
     "respan",
     "coarena",
     "toptools",
+    "tokenrouter",
     "experiential",
 ]
 CompanionId = Literal["hinaa", "hiro"]

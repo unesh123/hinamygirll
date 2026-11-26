@@ -84,7 +84,7 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
-    provider_mode: Literal["gmi", "mock", "local", "groq", "openai", "custom", "real", "claude", "cantrustai", "cantrust", "qwen", "agent-router", "cx-gateway", "gemini-live", "codecraft", "experiential", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "oxion", "articul8", "respan", "coarena", "toptools"] = Field(
+    provider_mode: Literal["gmi", "mock", "local", "groq", "openai", "custom", "real", "claude", "cantrustai", "cantrust", "qwen", "agent-router", "cx-gateway", "gemini-live", "codecraft", "experiential", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "oxion", "articul8", "respan", "coarena", "toptools", "tokenrouter"] = Field(
         "gemini-live", alias="HINAA_PROVIDER_MODE"
     )
     azure_speech_key: SecretStr | None = Field(None, alias="AZURE_SPEECH_KEY")
@@ -530,6 +530,23 @@ class Settings(BaseSettings):
     toptools_allowed_models_raw: str = Field(
         "Top-Tools-Ai-Pro,Top-Tools-Ai-Basic,Top-Tools-Ai-Max,*",
         validation_alias=AliasChoices("TOPTOOLS_ALLOWED_MODELS", "TOPTOOLS_AI_ALLOWED_MODELS"),
+    )
+    # TokenRouter Gateway — OpenAI-compatible multi-provider router (DeepSeek & frontier models)
+    tokenrouter_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("TOKENROUTER_API_KEY", "TOKEN_ROUTER_API_KEY", "TOKENROUTER_KEY"),
+    )
+    tokenrouter_base_url: str = Field(
+        "https://api.tokenrouter.com/v1",
+        validation_alias=AliasChoices("TOKENROUTER_BASE_URL", "TOKEN_ROUTER_BASE_URL"),
+    )
+    tokenrouter_model: str = Field(
+        "deepseek/deepseek-chat",
+        validation_alias=AliasChoices("TOKENROUTER_MODEL", "TOKEN_ROUTER_MODEL"),
+    )
+    tokenrouter_allowed_models_raw: str = Field(
+        "deepseek/deepseek-chat,deepseek/deepseek-reasoner,deepseek-chat,deepseek-reasoner,*",
+        validation_alias=AliasChoices("TOKENROUTER_ALLOWED_MODELS", "TOKEN_ROUTER_ALLOWED_MODELS"),
     )
     # CanTrustAI Gateway — high-speed DeepSeek and Claude models
     cantrust_api_key: SecretStr | None = Field(
@@ -1824,6 +1841,7 @@ class Settings(BaseSettings):
             "qwen": self.qwen_configured,
             "coarena": self.coarena_configured,
             "toptools": self.toptools_configured,
+            "tokenrouter": self.tokenrouter_configured,
             "cavoti": self.cavoti_configured,
             "explabs": self.explabs_configured,
             "xkiro": bool(
@@ -2083,6 +2101,44 @@ class Settings(BaseSettings):
         if "*" not in self.toptools_allowed_models and model not in self.toptools_allowed_models:
             allowed = ", ".join(self.toptools_allowed_models)
             raise ValueError(f"Top-Tools AI model is not in TOPTOOLS_ALLOWED_MODELS: {allowed}")
+        return model
+
+    @property
+    def tokenrouter_configured(self) -> bool:
+        return bool(
+            self.tokenrouter_api_key
+            and self.tokenrouter_api_key.get_secret_value()
+            and self.active_tokenrouter_base_url
+        )
+
+    @property
+    def active_tokenrouter_key(self) -> SecretStr | None:
+        if self.tokenrouter_api_key and self.tokenrouter_api_key.get_secret_value():
+            return self.tokenrouter_api_key
+        return None
+
+    @property
+    def active_tokenrouter_base_url(self) -> str | None:
+        value = (self.tokenrouter_base_url or "").strip().rstrip("/")
+        return value or "https://api.tokenrouter.com/v1"
+
+    @property
+    def active_tokenrouter_model(self) -> str:
+        return self.tokenrouter_model or "deepseek/deepseek-chat"
+
+    @property
+    def tokenrouter_allowed_models(self) -> list[str]:
+        configured = [m.strip() for m in self.tokenrouter_allowed_models_raw.split(",") if m.strip()]
+        models = configured or [self.active_tokenrouter_model]
+        if self.active_tokenrouter_model and self.active_tokenrouter_model not in models:
+            models.insert(0, self.active_tokenrouter_model)
+        return list(dict.fromkeys(models))
+
+    def resolve_tokenrouter_model(self, requested: str | None = None) -> str:
+        model = (requested or "").strip() or self.active_tokenrouter_model
+        if "*" not in self.tokenrouter_allowed_models and model not in self.tokenrouter_allowed_models:
+            allowed = ", ".join(self.tokenrouter_allowed_models)
+            raise ValueError(f"TokenRouter model is not in TOKENROUTER_ALLOWED_MODELS: {allowed}")
         return model
 
     @property

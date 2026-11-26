@@ -286,6 +286,7 @@ _SETTINGS_PREFIX: dict[str, str] = {
     "respan": "respan",
     "coarena": "coarena",
     "toptools": "toptools",
+    "tokenrouter": "tokenrouter",
 }
 
 

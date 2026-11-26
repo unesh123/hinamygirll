@@ -101,6 +101,7 @@ const AUTO_PRIORITY: ConcreteProviderMode[] = [
   "groq",
   "ollama",
   "toptools",
+  "tokenrouter",
   "local",
   "mock",
 ];

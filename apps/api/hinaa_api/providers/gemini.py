@@ -210,7 +210,7 @@ class GeminiLLMProvider:
             if not use_structured_msgs or not messages:
                 if images:
                     parts: list[Any] = [user_prompt]
-                    for mime_type, raw_bytes in images[:4]:
+                    for mime_type, raw_bytes in images[:8]:
                         if raw_bytes:
                             parts.append(types.Part.from_bytes(data=raw_bytes, mime_type=mime_type or "image/jpeg"))
                     if len(parts) > 1:
@@ -267,7 +267,7 @@ class GeminiLLMProvider:
             if images:
                 img_parts: list[Any] = [
                     types.Part.from_bytes(data=raw_bytes, mime_type=mime_type or "image/jpeg")
-                    for mime_type, raw_bytes in images[:4]
+                    for mime_type, raw_bytes in images[:8]
                     if raw_bytes
                 ]
                 if img_parts:

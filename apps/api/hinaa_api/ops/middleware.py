@@ -30,6 +30,12 @@ UPLOAD_PATHS = frozenset(
         "/api/v1/avatar-assets/import",
         "/v1/creative/assets/upload",
         "/api/creative/assets/upload",
+        "/v1/assets",
+        "/api/v1/assets",
+        "/v1/documents/extract",
+        "/api/v1/documents/extract",
+        "/v1/media/inspect-video",
+        "/api/v1/media/inspect-video",
     }
 )
 

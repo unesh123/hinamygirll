@@ -347,6 +347,7 @@ _BRAIN_PROVIDER_IDS = frozenset(
         "respan",
         "coarena",
         "toptools",
+        "tokenrouter",
         "experiential",
     }
 )
@@ -1596,6 +1597,87 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             await file.close()
 
+    @app.post("/v1/media/inspect-video")
+    @app.post("/api/v1/media/inspect-video")
+    async def inspect_video_file(
+        file: UploadFile = File(...),
+        start_sec: float = Form(0.0),
+        end_sec: float | None = Form(None),
+        num_frames: int = Form(6),
+    ) -> dict[str, Any]:
+        """Store an uploaded video reference and return frame-by-frame keyframes + contact sheet."""
+        from .media.video_inspector import MAX_VIDEO_INSPECT_BYTES, VIDEO_EXTENSIONS, inspect_video_frames
+
+        try:
+            raw_bytes = await file.read(MAX_VIDEO_INSPECT_BYTES + 1)
+            if len(raw_bytes) > MAX_VIDEO_INSPECT_BYTES:
+                raise HTTPException(status_code=413, detail="Video exceeds the 100 MiB upload limit.")
+            if not raw_bytes:
+                raise HTTPException(status_code=400, detail="The uploaded video is empty.")
+
+            fname = file.filename or "reference.mp4"
+            ext = Path(fname).suffix.lower() or ".mp4"
+            mime = (file.content_type or "").lower().strip()
+            if not mime.startswith("video/") and ext not in VIDEO_EXTENSIONS:
+                raise HTTPException(status_code=400, detail=f"Unsupported video format: {fname}")
+            if not mime or mime == "application/octet-stream":
+                mime = f"video/{ext.lstrip('.') or 'mp4'}"
+
+            stored = asset_store.store_bytes(
+                raw_bytes=raw_bytes,
+                filename=fname,
+                mime_type=mime,
+                source=AssetSource.UPLOAD,
+            )
+            disk_path = asset_store.get_file_path(stored.id)
+            if disk_path is None or not disk_path.is_file():
+                raise HTTPException(status_code=500, detail="Stored video file unavailable for inspection.")
+
+            inspected = await asyncio.to_thread(
+                inspect_video_frames,
+                disk_path,
+                start_sec=start_sec,
+                end_sec=end_sec,
+                num_frames=num_frames,
+                store_frames=True,
+            )
+            if inspected.get("status") != "success":
+                raise HTTPException(status_code=400, detail="Could not decode video frames via FFmpeg.")
+
+            return {
+                "success": True,
+                "asset_id": stored.id,
+                "video_url": stored.public_url,
+                "filename": stored.filename,
+                "mime_type": stored.mime_type,
+                "metadata": inspected["metadata"],
+                "contact_sheet_asset_id": inspected.get("contact_sheet_asset_id"),
+                "contact_sheet_url": inspected.get("contact_sheet_url"),
+                "contact_sheet_data_url": inspected.get("contact_sheet_data_url"),
+                "frames": [
+                    {
+                        "index": f["index"],
+                        "frame_number": f["frame_number"],
+                        "timestamp_sec": f["timestamp_sec"],
+                        "timestamp_label": f["timestamp_label"],
+                        "asset_id": f.get("asset_id"),
+                        "asset_url": f.get("asset_url"),
+                        "data_url": f.get("data_url"),
+                    }
+                    for f in inspected.get("frames", [])
+                ],
+                "summary": inspected["summary_text"],
+            }
+        except HTTPException:
+            raise
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception:
+            logger.warning("Video inspection failed", exc_info=True)
+            raise HTTPException(status_code=400, detail="Could not inspect video frames.")
+        finally:
+            await file.close()
+
     @app.post("/v1/conversations/{conversation_id}/assets/select")
     @app.post("/api/v1/conversations/{conversation_id}/assets/select")
     async def select_conversation_asset(
@@ -1958,6 +2040,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             omniroute_serving = omniroute_probe.model_count
         omniroute_live = omniroute_serving > 0
 
+        toptools_models_cap = list(active_settings.toptools_allowed_models)
+        if getattr(active_settings, "toptools_configured", False) and "*" in toptools_models_cap:
+            tt_probe = await probe_gateway_models(
+                active_settings.active_toptools_base_url,
+                api_key=active_settings.active_toptools_key.get_secret_value() if active_settings.active_toptools_key else None,
+                timeout=2.0,
+            )
+            if tt_probe.serving and tt_probe.model_ids:
+                toptools_models_cap = list(dict.fromkeys([*toptools_models_cap, *tt_probe.model_ids[:40]]))
+
+        tokenrouter_models_cap = list(active_settings.tokenrouter_allowed_models)
+        tokenrouter_cap_probe: GatewayModelsOutcome | None = None
+        if getattr(active_settings, "tokenrouter_configured", False):
+            tokenrouter_cap_probe = await probe_gateway_models(
+                active_settings.active_tokenrouter_base_url,
+                api_key=active_settings.active_tokenrouter_key.get_secret_value() if active_settings.active_tokenrouter_key else None,
+                timeout=2.0,
+            )
+            if tokenrouter_cap_probe.serving and tokenrouter_cap_probe.model_ids and "*" in tokenrouter_models_cap:
+                tokenrouter_models_cap = list(dict.fromkeys([*tokenrouter_models_cap, *tokenrouter_cap_probe.model_ids[:40]]))
+
         has_cantrust = bool(getattr(active_settings, "cantrust_configured", False))
 
         providers = [
@@ -2151,8 +2254,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "name": "Top-Tools AI",
                 "configured": bool(getattr(active_settings, "toptools_configured", False)),
                 "defaultModel": active_settings.active_toptools_model,
-                "allowedModels": list(active_settings.toptools_allowed_models),
+                "allowedModels": toptools_models_cap,
                 "protocol": "openai-compatible",
+            },
+            {
+                "id": "tokenrouter",
+                "name": "TokenRouter",
+                "configured": bool(getattr(active_settings, "tokenrouter_configured", False)),
+                "defaultModel": active_settings.active_tokenrouter_model,
+                "allowedModels": tokenrouter_models_cap,
+                "protocol": "openai-compatible",
+                **(
+                    {"health": "unavailable", "healthMessage": f"TokenRouter access failed: {tokenrouter_cap_probe.detail}"}
+                    if tokenrouter_cap_probe is not None
+                    and tokenrouter_cap_probe.reason in ("http_401", "http_403", "refused", "no_url")
+                    else {}
+                ),
             },
             {
                 "id": "articul8",
@@ -2221,6 +2338,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if verdict:
                 provider["health"] = verdict.state
                 provider["healthMessage"] = verdict.message
+            elif provider.get("health") == "unavailable" and provider.get("healthMessage"):
+                pass
             elif provider.get("configured"):
                 provider["health"] = "untested"
                 provider["healthMessage"] = (
@@ -2517,8 +2636,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 api_key=active_settings.active_coarena_key.get_secret_value() if active_settings.active_coarena_key else None,
             )
 
+        async def _probe_tokenrouter_gw():
+            if not active_settings.tokenrouter_configured:
+                return GatewayModelsOutcome(False, 0, "no_url", "TokenRouter needs TOKENROUTER_API_KEY.")
+            return await probe_gateway_models(
+                active_settings.active_tokenrouter_base_url,
+                api_key=active_settings.active_tokenrouter_key.get_secret_value() if active_settings.active_tokenrouter_key else None,
+                timeout=3.5,
+            )
+
         gw_results = await asyncio.gather(
-            _probe_xkiro_gw(), _probe_apmix_gw(), _probe_oxion_gw(), _probe_explabs_gw(), _probe_respan_gw(), _probe_coarena_gw(), _probe_toptools_gw(),
+            _probe_xkiro_gw(), _probe_apmix_gw(), _probe_oxion_gw(), _probe_explabs_gw(), _probe_respan_gw(), _probe_coarena_gw(), _probe_toptools_gw(), _probe_tokenrouter_gw(),
             return_exceptions=True,
         )
         xkiro_probe = gw_results[0] if isinstance(gw_results[0], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[0]))
@@ -2528,6 +2656,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         respan_probe = gw_results[4] if isinstance(gw_results[4], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[4]))
         coarena_probe = gw_results[5] if isinstance(gw_results[5], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[5]))
         toptools_probe = gw_results[6] if isinstance(gw_results[6], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[6]))
+        tokenrouter_probe = gw_results[7] if isinstance(gw_results[7], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[7]))
 
         xkiro_state = "unavailable"
         xkiro_message = "XKiro AI needs XKIRO_API_KEY and XKIRO_BASE_URL."
@@ -2625,6 +2754,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             else:
                 toptools_state = "degraded"
                 toptools_message = f"Top-Tools AI configured: {toptools_probe.detail}"
+
+        tokenrouter_state = "unavailable"
+        tokenrouter_message = "TokenRouter needs TOKENROUTER_API_KEY."
+        if active_settings.tokenrouter_configured:
+            if tokenrouter_probe.serving:
+                tokenrouter_state = "healthy"
+                probe_measured.add("tokenrouter")
+                tokenrouter_message = f"TokenRouter is connected ({tokenrouter_probe.model_count} models serving; default: {active_settings.active_tokenrouter_model})."
+            elif tokenrouter_probe.reason in ("http_401", "http_403", "refused", "no_url"):
+                tokenrouter_state = "unavailable"
+                tokenrouter_message = f"TokenRouter access failed: {tokenrouter_probe.detail}"
+            else:
+                tokenrouter_state = "degraded"
+                tokenrouter_message = f"TokenRouter configured: {tokenrouter_probe.detail}"
 
         # Gemini / real is measured healthy when credentials are configured
         if active_settings.gemini_configured:
@@ -3117,10 +3260,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "text-stream",
                     "openai-compatible",
                     f"default-model:{active_settings.active_toptools_model}",
-                    *[f"model:{model}" for model in active_settings.toptools_allowed_models],
+                    *[
+                        f"model:{model}"
+                        for model in list(
+                            dict.fromkeys([
+                                *active_settings.toptools_allowed_models,
+                                *(list(toptools_probe.model_ids[:40]) if toptools_probe.serving else []),
+                            ])
+                        )
+                        if model != "*"
+                    ],
                 ],
                 state=toptools_state,
                 userMessage=toptools_message,
+            ),
+            ProviderStatus(
+                id="tokenrouter",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.active_tokenrouter_model}",
+                    *[
+                        f"model:{model}"
+                        for model in list(
+                            dict.fromkeys([
+                                *active_settings.tokenrouter_allowed_models,
+                                *(list(tokenrouter_probe.model_ids[:40]) if tokenrouter_probe.serving else []),
+                            ])
+                        )
+                        if model != "*"
+                    ],
+                ],
+                state=tokenrouter_state,
+                userMessage=tokenrouter_message,
             ),
             ProviderStatus(
                 id="tinyfish",
@@ -3203,7 +3377,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 for name in (
                     "claude", "gemini", "openai", "qwen", "groq", "custom",
                     "agent_router", "codecraft", "cx_gateway",
-                    "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "explabs", "coarena", "toptools",
+                    "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "explabs", "coarena", "toptools", "tokenrouter",
                 )
             )
         ) or bool(os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("DEEPSEEK_PKAY_API_KEY"))
@@ -4560,10 +4734,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
 
     @app.post("/v1/agent/runs/{run_id}/cancel")
+    @app.post("/api/v1/agent/runs/{run_id}/cancel")
     async def cancel_agent_run(request: Request, run_id: str) -> dict[str, Any]:
         user_id = _agent_user_ids(request)
         run = agent_runtime.cancel(run_id, user_id)
         if run is None:
+            from .agent.live_agentic_service import cancel_active_agentic_run, get_agentic_store
+
+            if cancel_active_agentic_run(run_id, store=get_agentic_store()):
+                return {"run_id": run_id, "status": "cancelled", "idempotent": True}
             raise HTTPException(status_code=404, detail="Run not found")
         return {"run_id": run.run_id, "status": run.status.value, "idempotent": True}
 

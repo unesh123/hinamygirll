@@ -332,6 +332,7 @@ _GATEWAY_PROVIDERS = {
     "oxion",
     "articul8",
     "toptools",
+    "tokenrouter",
     "experiential",
 }
 
@@ -417,7 +418,7 @@ class OpenAILLMProvider:
 
         def _image_blocks() -> list[dict[str, Any]]:
             blocks: list[dict[str, Any]] = []
-            for mime_type, raw_bytes in (images or [])[:4]:
+            for mime_type, raw_bytes in (images or [])[:8]:
                 if raw_bytes:
                     b64 = base64.b64encode(raw_bytes).decode("ascii")
                     blocks.append({
@@ -1364,6 +1365,8 @@ class OpenAILLMProvider:
             return "Coarena AI"
         if self._provider_id == "toptools":
             return "Top-Tools AI"
+        if self._provider_id == "tokenrouter":
+            return "TokenRouter"
         return "OpenAI"
 
 

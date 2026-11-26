@@ -235,11 +235,11 @@ export interface CompanionController {
   isSearching: boolean;
   searchQuery: string;
   currentAgentRunId?: string;
-  currentAgentConfirmationStepId?: string;
-  currentAgentApprovalInfo: AgentApprovalInfo | null;
-  approvalPending: boolean;
-  approvalError: string | null;
-  backgroundBuild: BackgroundBuildState | null;
+  currentAgentConfirmationStepId?: string;
+  currentAgentApprovalInfo: AgentApprovalInfo | null;
+  approvalPending: boolean;
+  approvalError: string | null;
+  backgroundBuild: BackgroundBuildState | null;
   cancelBackgroundBuild: () => Promise<void>;
   cancelCurrentAgentRun: () => Promise<void>;
   resumeCurrentAgentRun: () => Promise<void>;
@@ -271,6 +271,11 @@ export interface BackgroundBuildState {
   runId: string;
   goal: string;
   status: "running" | "awaiting_approval" | "completed" | "failed" | "cancelled";
+  phase?: string;
+  headline?: string;
+  elapsedMs?: number;
+  step?: number;
+  previewUrls?: string[];
   summary?: string;
   artifacts?: string[];
   filesChanged?: string[];
@@ -436,6 +441,7 @@ export function useCompanionController({ conversationId, routing, languagePolicy
   backgroundBuildRef.current = backgroundBuild;
   const bgAbortRef = useRef<AbortController | null>(null);
   const bgFinalizedRunIdsRef = useRef<Set<string>>(new Set());
+  const bgMilestonesRef = useRef<Map<string, string[]>>(new Map());
 
   useEffect(() => {
     return () => {
@@ -698,6 +704,69 @@ export function useCompanionController({ conversationId, routing, languagePolicy
             return;
           }
 
+          if (evtType === "agent.progress_update") {
+            const phase = String(frame.phase ?? "building");
+            const headline = String(frame.headline ?? frame.summary ?? "Working in workspace...");
+            const filesChanged = Array.isArray(frame.filesChanged)
+              ? frame.filesChanged.map(String)
+              : undefined;
+            const previewUrls = Array.isArray(frame.previewUrls)
+              ? frame.previewUrls.map(String)
+              : undefined;
+            const elapsedMs = typeof frame.elapsedMs === "number" ? frame.elapsedMs : undefined;
+            const stepNum = typeof frame.step === "number" ? frame.step : undefined;
+
+            setBackgroundBuild((prev) => ({
+              runId,
+              goal: prev?.goal || goalHint || "",
+              status: phase === "awaiting_approval" ? "awaiting_approval" : (prev?.status ?? "running"),
+              phase,
+              headline,
+              elapsedMs: elapsedMs ?? prev?.elapsedMs,
+              step: stepNum ?? prev?.step,
+              filesChanged: filesChanged ?? prev?.filesChanged,
+              previewUrls: previewUrls ?? prev?.previewUrls,
+              summary: prev?.summary,
+              artifacts: prev?.artifacts,
+            }));
+
+            const prevList = bgMilestonesRef.current.get(runId) ?? [];
+            const entry = `- **${phase.toUpperCase()}**: ${headline}`;
+            const nextList = prevList[prevList.length - 1] === entry ? prevList : [...prevList, entry].slice(-6);
+            bgMilestonesRef.current.set(runId, nextList);
+
+            const liveCardId = `bg-live-${runId}`;
+            const filesLine =
+              filesChanged && filesChanged.length > 0
+                ? `\n\n**Files Changed (${filesChanged.length}):** ${filesChanged.slice(-6).map((f) => `\`${f}\``).join(", ")}`
+                : "";
+            const previewLine =
+              previewUrls && previewUrls.length > 0
+                ? `\n\n**Live Preview:** ${previewUrls.map((u) => `[${u}](${u})`).join(" · ")}`
+                : "";
+            const cardText = `### Workspace Builder · ${phase.toUpperCase()}\n${nextList.join("\n")}${filesLine}${previewLine}`;
+            setMessages((current) => {
+              const idx = current.findIndex((m) => m.id === liveCardId);
+              if (idx >= 0) {
+                const copy = [...current];
+                copy[idx] = { ...copy[idx], text: cardText };
+                return copy;
+              }
+              return [...current, { ...createMessage("assistant", cardText), id: liveCardId }];
+            });
+            if (
+              typeof window !== "undefined" &&
+              (phase === "preview" || phase === "awaiting_approval" || phase === "completed")
+            ) {
+              window.dispatchEvent(
+                new CustomEvent("hinaa:build-milestone", {
+                  detail: { runId, phase, headline, previewUrls },
+                }),
+              );
+            }
+            return;
+          }
+
           if (evtType === "agentic.finalized") {
             pendingAgenticApprovalRef.current = null;
             setCurrentAgentConfirmationStepId(undefined);
@@ -715,6 +784,9 @@ export function useCompanionController({ conversationId, routing, languagePolicy
               : Array.isArray(frame.files_changed)
                 ? frame.files_changed.map(String)
                 : undefined;
+            const previewUrls = Array.isArray(frame.previewUrls)
+              ? frame.previewUrls.map(String)
+              : undefined;
             const artifactLinks = Array.isArray(frame.artifacts)
               ? frame.artifacts
                   .map((a: any) => String(a?.download_url || a?.filePath || ""))
@@ -724,8 +796,11 @@ export function useCompanionController({ conversationId, routing, languagePolicy
               runId,
               goal: prev?.goal || goalHint || "",
               status: mappedStatus,
+              phase: mappedStatus,
+              headline: typeof frame.summary === "string" ? frame.summary.slice(0, 120) : prev?.headline,
               summary: typeof frame.summary === "string" ? frame.summary : undefined,
-              filesChanged,
+              filesChanged: filesChanged ?? prev?.filesChanged,
+              previewUrls: previewUrls ?? prev?.previewUrls,
               artifacts: artifactLinks,
             }));
             setAgentSteps((current) =>
@@ -737,7 +812,14 @@ export function useCompanionController({ conversationId, routing, languagePolicy
               const sum = typeof frame.summary === "string" ? frame.summary.trim() : "";
               const deliverable = md || sum;
               if (deliverable) {
-                setMessages((current) => [...current, createMessage("assistant", deliverable)]);
+                const liveCardId = `bg-live-${runId}`;
+                setMessages((current) => {
+                  const hasLive = current.some((m) => m.id === liveCardId);
+                  if (hasLive) {
+                    return current.map((m) => (m.id === liveCardId ? createMessage("assistant", deliverable) : m));
+                  }
+                  return [...current, createMessage("assistant", deliverable)];
+                });
               }
             }
             return;
@@ -753,7 +835,11 @@ export function useCompanionController({ conversationId, routing, languagePolicy
               runId,
               goal: prev?.goal || goalHint || "",
               status: isCancelled ? "cancelled" : "failed",
+              phase: isCancelled ? "cancelled" : "failed",
+              headline: sum.slice(0, 120),
               summary: sum,
+              filesChanged: prev?.filesChanged,
+              previewUrls: prev?.previewUrls,
             }));
             setAgentSteps((current) =>
               current.map((s) =>
@@ -764,7 +850,12 @@ export function useCompanionController({ conversationId, routing, languagePolicy
             );
             if (!isCancelled && !bgFinalizedRunIdsRef.current.has(runId)) {
               bgFinalizedRunIdsRef.current.add(runId);
-              setMessages((current) => [...current, createMessage("assistant", `### Build Stopped\n${sum}`)]);
+              const liveCardId = `bg-live-${runId}`;
+              setMessages((current) => {
+                const hasLive = current.some((m) => m.id === liveCardId);
+                const msg = createMessage("assistant", `### Build Stopped\n${sum}`);
+                return hasLive ? current.map((m) => (m.id === liveCardId ? msg : m)) : [...current, msg];
+              });
             }
             return;
           }

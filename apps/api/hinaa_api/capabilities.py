@@ -87,6 +87,7 @@ def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
     has_codecraft = settings.codecraft_configured
     has_explabs = settings.explabs_configured
     has_toptools = settings.toptools_configured
+    has_tokenrouter = settings.tokenrouter_configured
 
     models: list[ModelCapabilityRecord] = [
         ModelCapabilityRecord(
@@ -124,6 +125,30 @@ def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
             document=True,
             availability="healthy" if has_toptools else "unavailable",
             description="Top-Tools AI Max tier (requires Max plan entitlement).",
+        ),
+        ModelCapabilityRecord(
+            id="deepseek/deepseek-chat",
+            display_name="TokenRouter · DeepSeek Chat",
+            provider="tokenrouter",
+            kind="brain",
+            input_modalities=["text", "document"],
+            output_modalities=["text"],
+            vision=False,
+            document=True,
+            availability="healthy" if has_tokenrouter else "unavailable",
+            description="TokenRouter DeepSeek Chat unified endpoint (text and document workflows).",
+        ),
+        ModelCapabilityRecord(
+            id="deepseek/deepseek-reasoner",
+            display_name="TokenRouter · DeepSeek Reasoner",
+            provider="tokenrouter",
+            kind="brain",
+            input_modalities=["text", "document"],
+            output_modalities=["text"],
+            vision=False,
+            document=True,
+            availability="healthy" if has_tokenrouter else "unavailable",
+            description="TokenRouter DeepSeek Reasoner (R1) unified endpoint.",
         ),
         # Brain Models
         ModelCapabilityRecord(
@@ -452,6 +477,8 @@ def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
         default_brain = settings.active_coarena_model
     elif effective_mode == "toptools":
         default_brain = settings.active_toptools_model
+    elif effective_mode == "tokenrouter":
+        default_brain = settings.active_tokenrouter_model
     elif effective_mode == "apmix":
         default_brain = settings.active_apmix_model
     elif effective_mode == "oxion":

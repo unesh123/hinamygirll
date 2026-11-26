@@ -1303,6 +1303,15 @@ class ProviderRouter:
                 user_action_required=True,
             )
 
+    def _require_tokenrouter_brain(self) -> None:
+        if self.settings.active_tokenrouter_key is None or self.settings.active_tokenrouter_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "TokenRouter is not configured. Add TOKENROUTER_API_KEY to apps/api/.env.local.",
+                503,
+                user_action_required=True,
+            )
+
     def _require_articul8_brain(self) -> None:
         if self.settings.active_articul8_key is None or self.settings.active_articul8_base_url is None:
             raise HinaaError(
@@ -1739,6 +1748,26 @@ class ProviderRouter:
                 model,
                 base_url=active_toptools_base_url,
                 provider_id="toptools",
+            )
+        if mode == "tokenrouter":
+            self._require_tokenrouter_brain()
+            active_tokenrouter_key = self.settings.active_tokenrouter_key
+            active_tokenrouter_base_url = self.settings.active_tokenrouter_base_url
+            assert active_tokenrouter_key and active_tokenrouter_base_url
+            try:
+                model = self.settings.resolve_tokenrouter_model(brain_model)
+            except ValueError as error:
+                raise HinaaError(
+                    "PROVIDER_MODEL_NOT_ALLOWED",
+                    str(error),
+                    422,
+                    user_action_required=True,
+                ) from error
+            return OpenAILLMProvider(
+                active_tokenrouter_key.get_secret_value(),
+                model,
+                base_url=active_tokenrouter_base_url,
+                provider_id="tokenrouter",
             )
         if mode == "coarena":
             self._require_coarena_brain()
@@ -4354,6 +4383,7 @@ class ConversationService:
             "xkiro": self.settings.active_xkiro_model,
             "coarena": self.settings.active_coarena_model,
             "toptools": self.settings.active_toptools_model,
+            "tokenrouter": self.settings.active_tokenrouter_model,
             "cavoti": self.settings.active_cavoti_model,
             "apmix": self.settings.active_apmix_model,
             "oxion": self.settings.active_oxion_model,
@@ -4445,6 +4475,7 @@ class ConversationService:
             "custom": (self.settings.custom_configured, self.settings.active_custom_model),
             "cx-gateway": (self.settings.cx_gateway_configured, self.settings.cx_gateway_model),
             "toptools": (self.settings.toptools_configured, self.settings.active_toptools_model),
+            "tokenrouter": (self.settings.tokenrouter_configured, self.settings.active_tokenrouter_model),
             "qwen": (self.settings.qwen_configured, self.settings.qwen_model),
             "real": (self.settings.gemini_configured, self.settings.gemini_model),
             "openai": (self.settings.openai_configured, self.settings.active_openai_model),
@@ -4516,42 +4547,130 @@ class ConversationService:
         return candidates
 
     async def _resolve_turn_media(self, request: TurnRequest) -> list[Any]:
+        import asyncio
+        from dataclasses import is_dataclass, replace
         from .media import MediaResolver
+        from .media.asset_store import get_asset_store
+
         resolver = MediaResolver()
         resolved: list[Any] = []
+        seen_refs: set[str] = set()
+
         # Check attachment_ids
         for aid in (request.attachment_ids or []):
+            if not aid or aid in seen_refs:
+                continue
             try:
                 res = await resolver.resolve(aid)
                 resolved.append(res)
+                seen_refs.add(aid)
             except Exception:
                 logger.warning("Failed to resolve attachment ID %s", aid, exc_info=True)
+
         # Check attachments
         for att in (request.attachments or []):
             aid = att.get("asset_id") or att.get("assetId")
             url = att.get("url")
             ref = aid if (aid and not str(aid).startswith("client-")) else (url or aid)
-            if ref and ref not in (request.attachment_ids or []):
+            if ref and ref not in seen_refs:
                 try:
                     res = await resolver.resolve(ref, role=att.get("role"))
                     resolved.append(res)
+                    seen_refs.add(ref)
                 except Exception:
-                    if url and url != ref:
+                    if url and url != ref and url not in seen_refs:
                         try:
                             res = await resolver.resolve(url, role=att.get("role"))
                             resolved.append(res)
+                            seen_refs.add(url)
                         except Exception:
                             logger.warning("Failed to resolve attachment fallback %s", str(url)[:50], exc_info=True)
                     else:
                         logger.warning("Failed to resolve attachment %s", str(ref)[:50], exc_info=True)
-        # Check imageUrl
-        if request.imageUrl and not resolved:
+
+        # Check imageUrl (even when other attachments exist, unless duplicate)
+        if getattr(request, "imageUrl", None) and request.imageUrl not in seen_refs:
+            if not any(getattr(r, "data_url", None) == request.imageUrl for r in resolved):
+                try:
+                    res = await resolver.resolve(request.imageUrl, role="inspection")
+                    resolved.append(res)
+                    seen_refs.add(request.imageUrl)
+                except Exception:
+                    logger.warning("Failed to resolve imageUrl", exc_info=True)
+
+        # Check additional reference_images (style/multi-image references)
+        for ref_img in (getattr(request, "reference_images", None) or []):
+            if not ref_img or ref_img in seen_refs:
+                continue
+            if any(getattr(r, "asset_id", None) == ref_img or getattr(r, "data_url", None) == ref_img for r in resolved):
+                seen_refs.add(ref_img)
+                continue
             try:
-                res = await resolver.resolve(request.imageUrl)
+                res = await resolver.resolve(ref_img, role="style_reference")
                 resolved.append(res)
+                seen_refs.add(ref_img)
             except Exception:
-                logger.warning("Failed to resolve imageUrl", exc_info=True)
-        return resolved
+                logger.warning("Failed to resolve reference_image %s", str(ref_img)[:50], exc_info=True)
+
+        # Expand uploaded videos into frame-by-frame timeline metadata + keyframe images
+        expanded: list[Any] = []
+        store = get_asset_store()
+        for item in resolved:
+            mime = str(getattr(item, "mime_type", "") or "").lower()
+            is_video = mime.startswith("video/")
+            if not is_video:
+                expanded.append(item)
+                continue
+
+            v_aid = getattr(item, "asset_id", None)
+            v_path = store.get_file_path(v_aid) if v_aid else None
+            v_info: dict[str, Any] | None = None
+            if v_path is not None and v_path.is_file():
+                try:
+                    from .media.video_inspector import inspect_video_frames
+
+                    v_info = await asyncio.to_thread(
+                        inspect_video_frames,
+                        v_path,
+                        num_frames=6,
+                        store_frames=(getattr(request, "providerMode", None) != "mock"),
+                    )
+                except Exception:
+                    logger.warning("Video frame inspection failed for %s", v_aid, exc_info=True)
+
+            if v_info and v_info.get("summary_text"):
+                existing_txt = str(getattr(item, "text_excerpt", "") or "").strip()
+                combined_txt = f"{existing_txt}\n\n{v_info['summary_text']}".strip() if existing_txt else v_info["summary_text"]
+                if is_dataclass(item):
+                    try:
+                        item = replace(item, text_excerpt=combined_txt)
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        setattr(item, "text_excerpt", combined_txt)
+                    except Exception:
+                        pass
+            expanded.append(item)
+
+            if v_info and getattr(request, "providerMode", None) != "mock":
+                key_ids: list[str] = []
+                if v_info.get("contact_sheet_asset_id"):
+                    key_ids.append(str(v_info["contact_sheet_asset_id"]))
+                for frm in (v_info.get("frames") or [])[:4]:
+                    if frm.get("asset_id"):
+                        key_ids.append(str(frm["asset_id"]))
+                for kid in key_ids:
+                    if kid in seen_refs:
+                        continue
+                    try:
+                        f_res = await resolver.resolve(kid, role="inspection")
+                        expanded.append(f_res)
+                        seen_refs.add(kid)
+                    except Exception:
+                        logger.debug("Skipping extracted video frame %s", kid, exc_info=True)
+
+        return expanded
 
     def _durable_conversation_context(
         self,
@@ -5357,7 +5476,7 @@ class ConversationService:
         # must not be paid another full timeout of silence on every turn, and
         # a brain past cooloff proves recovery on a cheap probe budget.
         primary_bench_cooloff = self._primary_cooloff_remaining(request.providerMode)
-        if not primary_bench_cooloff and self._primary_probing(request.providerMode) and request.providerMode not in ("ollama", "cantrustai", "cantrust", "claude", "xkiro", "coarena", "toptools"):
+        if not primary_bench_cooloff and self._primary_probing(request.providerMode) and request.providerMode not in ("ollama", "cantrustai", "cantrust", "claude", "xkiro", "coarena", "toptools", "tokenrouter"):
             primary_plan_timeout = min(primary_plan_timeout, 12.0)
         attempted_brain = request.providerMode
         fast_provider_id = None
@@ -5942,6 +6061,7 @@ class ConversationService:
         user_id: str | None = None,
         emit_event: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
         muse_context: str | None = None,
+        resolved_media: list[Any] | None = None,
     ) -> ProviderResult[AssistantTurnPlan]:
         from .providers.timing import ProviderTiming
         from .models import ToolRequest
@@ -6251,7 +6371,8 @@ class ConversationService:
             live_search_block=live_search_block,
             decision=route_decision_rt,
         )
-        resolved_media = await self._resolve_turn_media(request)
+        if resolved_media is None:
+            resolved_media = await self._resolve_turn_media(request)
         rag_context_block_rt = ""
         if getattr(self, "rag_service", None) and self.rag_service.is_knowledge_seeking(request.text):
             try:
@@ -6327,7 +6448,7 @@ class ConversationService:
         # turn goes straight to the fallback chain. A brain past cooloff but
         # not yet proven healthy gets a cheap probe budget for the same reason.
         primary_bench_cooloff = self._primary_cooloff_remaining(request.providerMode)
-        if not primary_bench_cooloff and self._primary_probing(request.providerMode) and request.providerMode not in ("ollama", "cantrustai", "cantrust", "claude", "xkiro", "coarena", "toptools"):
+        if not primary_bench_cooloff and self._primary_probing(request.providerMode) and request.providerMode not in ("ollama", "cantrustai", "cantrust", "claude", "xkiro", "coarena", "toptools", "tokenrouter"):
             primary_idle_timeout = min(primary_idle_timeout, 12.0)
             primary_live_timeout = min(primary_live_timeout, 45.0)
         primary_text: list[str] = []
@@ -7249,13 +7370,17 @@ class ConversationService:
             r"tsc\b|eslint|ruff|playwright|ffmpeg|render_code_animation|studiofx|"
             r"kinetic[\s-]+typography|motion[\s-]+(?:video|graphics|reel)|"
             r"full[- ]?page\s+html|html\s+(?:file|page|app|site|landing)|\bmp4\b|"
-            r"(?:create|write|build|make|design|scaffold|generate|implement|develop|edit|fix|debug|refactor|upgrade|patch|render|export)\b[^.?!\n]{0,100}\b"
-            r"(?:html|webpage|web\s*page|website|web\s*app|landing\s+page|portfolio|dashboard|visualizer|simulation|game|"
-            r"python|script|program|cli|api|server|backend|frontend|module|component|project|site|file|"
+            r"video_inspect_frames|frame[- ]?by[- ]?frame|"
+            r"vite|three\.?js|webgl|package\.json|multi[- ]?file|multi[- ]?page|"
+            r"storefront|watch\s+hub|ai\s+agents?|"
+            r"(?:create|write|build|make|design|scaffold|generate|implement|develop|edit|fix|debug|refactor|upgrade|patch|render|export|rebuild)\b[\s\S]{0,180}?\b"
+            r"(?:sora|html|webpage|web\s*page|website|web\s*app|webapp|platform|storefront|landing\s+page|portfolio|dashboard|visualizer|simulation|game|"
+            r"python|script|program|cli|api|server|backend|frontend|module|component|project|site|file|app|agent|"
             r"mp4|video|reel|animation|motion\s+graphics|kinetic\s+intro|typography)|"
+            r"(?:product|stack|pages|visual\s+direction|files\s+created)\s*:|"
             r"(?:inspect|debug|trace|fix|check|audit|find|read|analyze|explain)\b[^.?!]{0,90}\b"
             r"(?:in\s+(?:our|the|this)\s+(?:code|repo|codebase|project|file|api|app|ui|server|backend|frontend)|"
-            r"line\s+numbers?|\.py\b|\.tsx?\b|\.jsx?\b|\.html?\b|\.css\b|[A-Z][a-z]+[A-Z][A-Za-z0-9_]*)|"
+            r"line\s+numbers?|frame[- ]?by[- ]?frame|\.py\b|\.tsx?\b|\.jsx?\b|\.html?\b|\.css\b|[A-Z][a-z]+[A-Z][A-Za-z0-9_]*)|"
             r"(?:run|execute)\b[^.?!]{0,60}\b(?:the\s+)?(?:tests?|pytest|vitest|build|linter|typecheck|command|script|python|calculation|code)"
             r")\b)"
         )
@@ -7269,20 +7394,42 @@ class ConversationService:
             r"\b(?:spotify|youtube)\s+play\b|\bremind\s+me\b)"
         )
         _RETRY_FOLLOWUP_RE = re.compile(
-            r"(?i)^(?:ok(?:ay)?[\s,]+|please[\s,]+|now[\s,]+|bro[\s,]+)*(?:try\s+again|retry(?:\s+(?:it|that|now))?|do\s+(?:it|that)(?:\s+(?:again|now|properly))?|execute(?:\s+(?:it|that))?(?:\s+now)?|run\s+(?:it|that)(?:\s+now)?|render\s+(?:it|that|one)(?:\s+now)?|make\s+(?:it|that|one)(?:\s+(?:now|better|high\s+level))?|create\s+(?:it|that|one)(?:\s+now)?|build\s+(?:it|that|one)(?:\s+(?:now|properly))?|upgrade(?:\s+(?:it|that))?(?:\s+now)?|go\s+ahead(?:\s+and\s+(?:execute|render|create|build|do)\s+it)?)\s*[!.]*$"
+            r"(?i)^(?:ok(?:ay)?[\s,]+|please[\s,]+|now[\s,]+|bro[\s,]+)*"
+            r"(?:continue(?:\s+(?:bro|now|please|building))?|try\s+again|retry(?:\s+(?:it|that|now))?|do\s+(?:it|that)(?:\s+(?:again|now|properly))?|execute(?:\s+(?:it|that))?(?:\s+now)?|run\s+(?:it|that)(?:\s+now)?|render\s+(?:it|that|one)(?:\s+now)?|make\s+(?:it|that|one)(?:\s+(?:now|better|high\s+level))?|create\s+(?:it|that|one)(?:\s+now)?|build\s+(?:it|that|one|sora)(?:\s+(?:now|properly))?|upgrade(?:\s+(?:it|that))?(?:\s+now)?|go\s+ahead(?:\s+and\s+(?:execute|render|create|build|do)\s+it)?)"
+            r"(?:[\s,]+(?:bro|please|now))?\s*[!.]*$"
         )
-        _has_visual_attachment = bool(
-            getattr(request, "imageUrl", None)
-            or getattr(request, "reference_images", None)
-            or any(
-                isinstance(att, dict)
-                and (
-                    att.get("kind") == "image"
-                    or str(att.get("mime_type") or att.get("mimeType") or "").startswith("image/")
-                )
-                for att in (getattr(request, "attachments", None) or ())
-            )
-        )
+        resolved_media = await self._resolve_turn_media(request)
+        initial_images: list[tuple[str, bytes]] = []
+        attached_files: list[dict[str, Any]] = []
+        for rm in resolved_media:
+            rm_mime = str(getattr(rm, "mime_type", "") or "")
+            rm_bytes = getattr(rm, "bytes_data", None)
+            rm_kind = str(getattr(getattr(rm, "kind", None), "value", getattr(rm, "kind", "")) or "").lower()
+            rm_name = str(getattr(rm, "filename", None) or getattr(rm, "source", None) or "attachment")
+            rm_aid = str(getattr(rm, "asset_id", None) or "")
+            rm_txt = str(getattr(rm, "text_excerpt", None) or "")
+            if rm_mime.startswith("image/") and rm_bytes and len(initial_images) < 8:
+                initial_images.append((rm_mime, rm_bytes))
+            elif rm_txt or rm_kind in ("document", "pdf", "spreadsheet", "archive", "video") or (rm_mime and not rm_mime.startswith("image/")):
+                attached_files.append({
+                    "filename": rm_name,
+                    "mimeType": rm_mime,
+                    "kind": rm_kind or ("video" if rm_mime.startswith("video/") else "document"),
+                    "assetId": rm_aid,
+                    "textExcerpt": rm_txt[:24_000],
+                })
+        for raw_att in (getattr(request, "attachments", None) or ()):
+            if isinstance(raw_att, dict) and raw_att.get("textExcerpt"):
+                raw_name = str(raw_att.get("filename") or raw_att.get("name") or "attachment.txt")
+                if not any(f.get("filename") == raw_name for f in attached_files):
+                    attached_files.append({
+                        "filename": raw_name,
+                        "mimeType": str(raw_att.get("mimeType") or raw_att.get("mime_type") or "text/plain"),
+                        "kind": str(raw_att.get("kind") or "document"),
+                        "assetId": str(raw_att.get("assetId") or raw_att.get("asset_id") or ""),
+                        "textExcerpt": str(raw_att.get("textExcerpt") or "")[:24_000],
+                    })
+
         recent_hist = self._turn_history(request)
         muse_turn_context: str | None = None
         _active_bg_run_id = (getattr(request, "activeAgentRunId", None) or "").strip() or None
@@ -7293,12 +7440,19 @@ class ConversationService:
                 steer_agentic_run,
             )
 
-            if steer_agentic_run(_active_bg_run_id, _text_clean, store=get_agentic_store()):
+            if steer_agentic_run(
+                _active_bg_run_id,
+                _text_clean,
+                images=initial_images or None,
+                attached_files=attached_files or None,
+                store=get_agentic_store(),
+            ):
                 yield self._event("agent.steered", {"runId": _active_bg_run_id, "message": _text_clean})
                 snap = describe_active_agentic_run(_active_bg_run_id, store=get_agentic_store())
                 muse_turn_context = (
-                    "[MUSE DUAL-BRAIN LIVE STEERING MODE]: Your Background Builder Brain is actively running in the upper-end HUD "
-                    "and has just received the user's message above as live steering direction (`[LIVE USER DIRECTION]`). "
+                    "[MUSE DUAL-BRAIN LIVE STEERING MODE — WORKSPACE RUNNER IS ATTACHED]: Your Background Builder Brain IS actively running in the upper-end HUD "
+                    "and has just received the user's message (plus any newly attached images/files) as live steering direction (`[LIVE USER DIRECTION]`). "
+                    "NEVER claim no workspace/file runner is attached. "
                     "Respond naturally like Muse AI: (1) warmly acknowledge their design/feature preference or question, "
                     "(2) cite ONLY factual progress from the live snapshot below (never invent unverified files or URLs), and "
                     "(3) ask 1-2 crisp follow-up co-creation questions to refine the build.\n\n"
@@ -7310,8 +7464,8 @@ class ConversationService:
         if (
             not muse_turn_context
             and _req_agentic is None
-            and not _has_visual_attachment
-            and _RETRY_FOLLOWUP_RE.match(_text_clean)
+            and bool(_RETRY_FOLLOWUP_RE.match(_text_clean))
+            and bool(_text_clean)
             and recent_hist
         ):
             # Walk backward to locate the latest concrete coding/HTML/video user request in context
@@ -7348,7 +7502,6 @@ class ConversationService:
                 _req_agentic is True
                 or (
                     _req_agentic is None
-                    and not _has_visual_attachment
                     and (
                         bool(_promoted_retry_goal)
                         or (
@@ -7390,6 +7543,9 @@ class ConversationService:
                 "workspace_write_file",
                 "workspace_edit_file",
                 "workspace_delete_file",
+                "workspace_move_file",
+                "workspace_git_status_diff",
+                "workspace_checkpoint",
                 "workspace_glob",
                 "workspace_grep",
                 "workspace_run_command",
@@ -7399,6 +7555,7 @@ class ConversationService:
                 "workspace_process_logs",
                 "workspace_stop_process",
                 "workspace_spawn_subagent",
+                "video_inspect_frames",
                 "web_search",
                 "web_extract",
                 "web_answer",
@@ -7407,14 +7564,22 @@ class ConversationService:
                 "mlai_list_routines",
                 "mlai_run_routine",
             })
+            if re.search(
+                r"(?i)\b(?:react|vite|three\.?js|webgl|typescript|multi[- ]?file|multi[- ]?page|package\.json|src/|ai\s+agent|full[- ]?stack|backend|frontend|storefront|sora|dashboard|interactive)\b",
+                goal_text,
+            ):
+                allowed_for_agentic.discard("design_website")
             ws_dir = _os.environ.get("HINAA_LOCAL_WORKSPACE_DIR") or str(project_root())
             _MUSE_COBUILD_RE = re.compile(
-                r"(?i)\b(?:website|web\s*page|webpage|web\s*app|landing\s*page|ui\b|clone|scrape|merlin|dashboard|portfolio|frontend|old[- ]?new)\b"
+                r"(?i)\b(?:website|web\s*page|webpage|web\s*app|webapp|landing\s*page|ui\b|clone|scrape|merlin|dashboard|portfolio|frontend|old[- ]?new|sora|storefront|platform|ai\s+agents?|agent|vite|react|three\.?js)\b"
+            )
+            _EXPLICIT_VIDEO_RENDER_RE = re.compile(
+                r"(?i)\b(?:render_code_animation|kinetic[\s-]+typography|bridal\s+reel|(?:create|render|export|make)\s+(?:an?\s+)?(?:\w+\s+){0,3}(?:mp4|motion\s+video|animation\s+reel))\b"
             )
             _should_muse_dual_brain = (
                 _req_agentic is None
                 and request.providerMode != "mock"
-                and not re.search(r"(?i)\b(?:mp4|video|animation|kinetic[\s-]+typography|render_code_animation)\b", goal_text)
+                and not bool(_EXPLICIT_VIDEO_RENDER_RE.search(goal_text))
                 and bool(_MUSE_COBUILD_RE.search(goal_text))
             )
             if _should_muse_dual_brain:
@@ -7430,6 +7595,8 @@ class ConversationService:
                     max_steps=16,
                     history=recent_hist,
                     run_id=correlation_id,
+                    initial_images=initial_images or None,
+                    attached_files=attached_files or None,
                 )
                 yield self._event("agentic.started", {"runId": correlation_id, "goal": goal_text, "maxSteps": 16})
                 yield self._event(
@@ -7444,14 +7611,14 @@ class ConversationService:
                 )
                 page_guard = None
                 muse_turn_context = (
-                    "[MUSE DUAL-BRAIN CO-CREATOR LAUNCH]:\n"
+                    "[MUSE DUAL-BRAIN CO-CREATOR LAUNCH — WORKSPACE RUNNER IS ATTACHED]:\n"
                     "You now have TWO active brains working together like Muse AI:\n"
-                    f"1. Background Builder Brain (`{correlation_id}`) just launched in the upper-end HUD to research/scaffold: {goal_text}\n"
-                    "2. YOU are Brain #2 (Muse Co-Creator Chat Brain). Do NOT output raw HTML/code dumps or claim files/URLs are finished yet!\n"
+                    f"1. Background Builder Brain (`{correlation_id}`) IS ATTACHED and just launched in the upper-end HUD to research/scaffold: {goal_text}\n"
+                    "2. YOU are Brain #2 (Muse Co-Creator Chat Brain). NEVER say 'no workspace/file runner attached', and do NOT output raw HTML/code dumps or claim files/URLs are finished yet!\n"
                     "Respond warmly and crisply in 4-7 sentences with numbered questions:\n"
-                    "- Briefly confirm the background builder just kicked off at the upper bar so chat stays live with you.\n"
+                    "- Briefly confirm the background builder just kicked off at the upper bar (with live progress updates) so chat stays live with you.\n"
                     "- Ask 3 focused, high-leverage clarifying design/product questions (e.g. visual vibe/palette, core interactive UI flows, layout sections/controls) so the user can shape the build.\n"
-                    "- Mention they can reply naturally anytime and you'll steer the running builder live."
+                    "- Mention they can reply naturally (even attaching screenshots, videos, or specs) anytime and you'll steer the running builder live."
                 )
             else:
                 ev_queue: asyncio.Queue[tuple[str, dict[str, Any]] | None] = asyncio.Queue()
@@ -7473,6 +7640,8 @@ class ConversationService:
                         history=recent_hist,
                         run_id=correlation_id,
                         on_event=_on_agentic_event,
+                        initial_images=initial_images or None,
+                        attached_files=attached_files or None,
                     )
                 )
                 while not agentic_task.done() or not ev_queue.empty():
@@ -7675,9 +7844,23 @@ class ConversationService:
             })
             return
 
+        import inspect as _inspect_sig
+
         _plan_kwargs: dict[str, Any] = {"user_id": user_id, "emit_event": emit_event}
-        if muse_turn_context is not None:
-            _plan_kwargs["muse_context"] = muse_turn_context
+        try:
+            _sig_params = _inspect_sig.signature(self.create_live_plan).parameters
+            if "resolved_media" in _sig_params or any(
+                p.kind == _inspect_sig.Parameter.VAR_KEYWORD for p in _sig_params.values()
+            ):
+                _plan_kwargs["resolved_media"] = resolved_media
+            if muse_turn_context is not None and (
+                "muse_context" in _sig_params
+                or any(p.kind == _inspect_sig.Parameter.VAR_KEYWORD for p in _sig_params.values())
+            ):
+                _plan_kwargs["muse_context"] = muse_turn_context
+        except (TypeError, ValueError):
+            if muse_turn_context is not None:
+                _plan_kwargs["muse_context"] = muse_turn_context
         turn_task = asyncio.create_task(
             self.create_live_plan(
                 request,

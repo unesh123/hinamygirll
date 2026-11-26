@@ -65,6 +65,15 @@ export interface ComposerV6Props {
     attachmentRole?: AttachmentRole;
     isGoalMode?: boolean;
     text?: string;
+    attachedMedia?: Array<{
+      name: string;
+      kind: string;
+      mimeType?: string;
+      assetId?: string;
+      dataUrl?: string;
+      textExcerpt?: string;
+      contactSheetDataUrl?: string;
+    }>;
   }) => void;
   onStop?: () => void;
   isGenerating?: boolean;
@@ -161,7 +170,21 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const [previewChip, setPreviewChip] = useState<ContextChip | null>(null);
   const [dismissedShapeshiftInput, setDismissedShapeshiftInput] = useState<string>("");
-  const [attachedDocuments, setAttachedDocuments] = useState<Array<{ name: string; text: string; kind: string; charCount: number }>>([]);
+  const [attachedDocuments, setAttachedDocuments] = useState<
+    Array<{
+      name: string;
+      text: string;
+      kind: string;
+      charCount: number;
+      assetId?: string;
+      mimeType?: string;
+      contactSheetDataUrl?: string;
+      durationSec?: number;
+      frameCount?: number;
+    }>
+  >([]);
+  const [extraImages, setExtraImages] = useState<string[]>([]);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [isExtractingDoc, setIsExtractingDoc] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [sendHovered, setSendHovered] = useState(false);
@@ -187,7 +210,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
   const liveBrains = measuredBrains.filter((p) => p.health === "healthy").length;
   const untestedBrains = measuredBrains.filter((p) => p.health === "untested").length;
   const readyModels = discoveredModels.filter((m) => m.configured).length;
-  const contextCount = contextChips.length + (attachedImage ? 1 : 0);
+  const contextCount = contextChips.length + (attachedImage ? 1 : 0) + extraImages.length + attachedDocuments.length;
   const statusTone = !backendConnected
     ? { dot: "#ef4444", label: "Backend offline" }
     : pickableBrains.length === 0
@@ -261,34 +284,51 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
         try { (window as any).__hinaaUnlockAudio(); } catch {}
       }
       e.preventDefault();
-      if (value.trim() || attachedImage || attachedDocuments.length > 0) {
+      if (value.trim() || attachedImage || extraImages.length > 0 || attachedDocuments.length > 0) {
         playSendSound();
         if (isGenerating) {
           onStop?.();
         }
-        if (attachedDocuments.length > 0) {
-          const docContext = attachedDocuments
-            .map((d) => `\n\n📄 [ATTACHED DOCUMENT: ${d.name} (${d.kind})]\n\`\`\`\n${d.text}\n\`\`\`\n`)
-            .join("\n");
-          const finalInput = value.trim()
-            ? `${value.trim()}\n${docContext}`
-            : `Please analyze this attached document:\n${docContext}`;
+        const attachedMediaPayload = [
+          ...extraImages.map((url, idx) => ({
+            name: `reference_image_${idx + 2}.png`,
+            kind: "image",
+            mimeType: "image/png",
+            dataUrl: url,
+          })),
+          ...attachedDocuments.map((d) => ({
+            name: d.name,
+            kind: d.kind.toLowerCase(),
+            mimeType: d.mimeType,
+            assetId: d.assetId,
+            textExcerpt: d.text,
+            contactSheetDataUrl: d.contactSheetDataUrl,
+          })),
+        ];
+        const inlineDocs = attachedDocuments.filter((d) => !d.assetId && d.kind !== "VIDEO" && d.text.trim());
+        const docContext = inlineDocs
+          .map((d) => `\n\n📄 [ATTACHED DOCUMENT: ${d.name} (${d.kind})]\n\`\`\`\n${d.text}\n\`\`\`\n`)
+          .join("\n");
+        const finalText = value.trim()
+          ? (docContext ? `${value.trim()}\n${docContext}` : value.trim())
+          : attachedDocuments.length > 0
+            ? (docContext
+                ? `Please analyze this attached document:\n${docContext}`
+                : `Please inspect the attached files (${attachedDocuments.map((d) => d.name).join(", ")}).`)
+            : undefined;
+        setAttachedDocuments([]);
+        setExtraImages([]);
+        setUploadError(null);
+        if (finalText !== undefined && finalText !== value.trim()) {
           onChange("");
-          setAttachedDocuments([]);
-          onSend({
-            text: finalInput,
-            mode: isGoalMode ? "goal" : actionMode,
-            intelligence: intelligenceLevel,
-            attachmentRole: selectedRole,
-            isGoalMode,
-          });
-          return;
         }
         onSend({
+          text: finalText,
           mode: isGoalMode ? "goal" : actionMode,
           intelligence: intelligenceLevel,
           attachmentRole: selectedRole,
           isGoalMode,
+          attachedMedia: attachedMediaPayload.length > 0 ? attachedMediaPayload : undefined,
         });
       } else if (isGenerating) {
         onStop?.();
@@ -301,60 +341,136 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
     }
   };
 
-  const ingestFile = async (file: File) => {
-    if (file.type.startsWith("image/")) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        onImageAttach?.(reader.result as string, selectedRole);
-      };
-      reader.readAsDataURL(file);
+  const ingestFile = async (file: File, primaryOccupied?: { value: boolean }) => {
+    setUploadError(null);
+    const ext = file.name.split(".").pop()?.toLowerCase() || "";
+    const isImage =
+      file.type.startsWith("image/") ||
+      ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "avif"].includes(ext);
+    if (isImage) {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("Could not read image"));
+        reader.readAsDataURL(file);
+      }).catch(() => "");
+      if (!dataUrl) return;
+      const alreadyHasPrimary = primaryOccupied ? primaryOccupied.value : Boolean(attachedImage);
+      if (!alreadyHasPrimary && onImageAttach) {
+        if (primaryOccupied) primaryOccupied.value = true;
+        onImageAttach(dataUrl, selectedRole);
+      } else {
+        setExtraImages((prev) => [...prev, dataUrl].slice(0, 7));
+      }
       return;
     }
 
-    // Document / PDF / Text handling
-    setIsExtractingDoc(true);
-    try {
-      const ext = file.name.split(".").pop()?.toLowerCase() || "";
-      const isPlain = ["txt", "md", "markdown", "json", "csv", "log", "yaml", "yml", "py", "js", "ts", "html", "css", "sql"].includes(ext);
-
-      let docText = "";
-      if (isPlain) {
-        docText = await file.text();
-      } else {
+    const isVideo =
+      file.type.startsWith("video/") ||
+      ["mp4", "mov", "webm", "mkv", "avi", "m4v", "mpeg", "mpg"].includes(ext);
+    if (isVideo) {
+      setIsExtractingDoc(true);
+      try {
         const formData = new FormData();
         formData.append("file", file);
-        const res = await fetch("/api/v1/documents/extract", {
+        formData.append("num_frames", "6");
+        const res = await fetch("/api/v1/media/inspect-video", {
           method: "POST",
           body: formData,
         });
-        if (res.ok) {
-          const data = await res.json();
-          docText = data.text || "";
-        } else {
-          docText = await file.text().catch(() => "");
+        if (!res.ok) {
+          const errJson = await res.json().catch(() => ({}));
+          setUploadError(String(errJson?.detail || errJson?.error || `Video inspection failed (${res.status})`));
+          return;
         }
+        const data = await res.json();
+        setAttachedDocuments((prev) => [
+          ...prev,
+          {
+            name: file.name,
+            text: String(data?.summary || ""),
+            kind: "VIDEO",
+            charCount: String(data?.summary || "").length,
+            assetId: typeof data?.asset_id === "string" ? data.asset_id : undefined,
+            mimeType: file.type || "video/mp4",
+            contactSheetDataUrl:
+              typeof data?.contact_sheet_data_url === "string" ? data.contact_sheet_data_url : undefined,
+            durationSec: typeof data?.metadata?.duration_seconds === "number" ? data.metadata.duration_seconds : undefined,
+            frameCount: Array.isArray(data?.frames) ? data.frames.length : undefined,
+          },
+        ]);
+      } catch (err) {
+        console.error("Video inspection error:", err);
+        setUploadError("Could not inspect video frames.");
+      } finally {
+        setIsExtractingDoc(false);
       }
+      return;
+    }
 
-      if (docText.trim()) {
+    // All documents, Markdown, archives, spreadsheets, and code files
+    setIsExtractingDoc(true);
+    try {
+      const isPlain = [
+        "txt", "md", "markdown", "mdx", "json", "csv", "tsv", "log", "yaml", "yml", "toml",
+        "py", "js", "jsx", "ts", "tsx", "mjs", "html", "htm", "css", "scss", "sql", "go", "rs", "sh", "ps1", "xml",
+      ].includes(ext);
+
+      let docText = "";
+      let assetId: string | undefined;
+
+      const assetForm = new FormData();
+      assetForm.append("file", file);
+      const assetReq = fetch("/api/v1/assets", { method: "POST", body: assetForm })
+        .then(async (r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+
+      const extractReq = (async () => {
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await fetch("/api/v1/documents/extract", { method: "POST", body: formData }).catch(() => null);
+        if (res && res.ok) {
+          const data = await res.json();
+          return String(data?.text || "");
+        }
+        if (isPlain) {
+          return await file.text().catch(() => "");
+        }
+        return "";
+      })();
+
+      const [assetJson, extractedText] = await Promise.all([assetReq, extractReq]);
+      assetId = typeof assetJson?.asset_id === "string" ? assetJson.asset_id : undefined;
+      docText = extractedText || (isPlain ? await file.text().catch(() => "") : "");
+
+      if (docText.trim() || assetId) {
         const newDoc = {
           name: file.name,
           text: docText,
           kind: ext.toUpperCase() || "DOC",
           charCount: docText.length,
+          assetId,
+          mimeType: file.type || "application/octet-stream",
         };
         setAttachedDocuments((prev) => [...prev, newDoc]);
+      } else {
+        setUploadError(`Could not extract readable content from ${file.name}.`);
       }
     } catch (err) {
       console.error("Document extraction error:", err);
+      setUploadError(`Failed to attach ${file.name}.`);
     } finally {
       setIsExtractingDoc(false);
     }
   };
 
   const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    await ingestFile(file);
+    const files = Array.from(e.target.files ?? []).slice(0, 8);
+    if (files.length === 0) return;
+    const primaryOccupied = { value: Boolean(attachedImage) };
+    for (const file of files) {
+      await ingestFile(file, primaryOccupied);
+    }
     e.target.value = "";
   };
 
@@ -373,9 +489,10 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
     e.preventDefault();
     setIsDragOver(false);
     if (disabled) return;
-    const files = Array.from(e.dataTransfer?.files ?? []);
-    for (const file of files.slice(0, 4)) {
-      await ingestFile(file);
+    const files = Array.from(e.dataTransfer?.files ?? []).slice(0, 8);
+    const primaryOccupied = { value: Boolean(attachedImage) };
+    for (const file of files) {
+      await ingestFile(file, primaryOccupied);
     }
   };
 
@@ -568,6 +685,97 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
           >
             <X size={13} />
           </button>
+        </div>
+      )}
+
+      {/* ── Upload Status / Error Banner ──────────────────────────────────── */}
+      {uploadError && (
+        <div
+          role="alert"
+          data-testid="composer-upload-error"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "6px 10px",
+            borderRadius: 8,
+            background: isDark ? "rgba(239,68,68,0.14)" : "#fef2f2",
+            border: "1px solid rgba(239,68,68,0.3)",
+            color: isDark ? "#fca5a5" : "#b91c1c",
+            fontSize: 11.5,
+          }}
+        >
+          <span>{uploadError}</span>
+          <button type="button" onClick={() => setUploadError(null)} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer" }}>
+            <X size={12} />
+          </button>
+        </div>
+      )}
+
+      {/* ── Multi-File / Video Frame / Multi-Image Strip ───────────────────── */}
+      {(extraImages.length > 0 || attachedDocuments.length > 0 || isExtractingDoc) && (
+        <div data-testid="composer-media-strip" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, padding: "4px 0" }}>
+          {extraImages.map((imgUrl, idx) => (
+            <div key={`extra-img-${idx}`} style={{ position: "relative", width: 52, height: 52, borderRadius: 8, overflow: "hidden", border: "1px solid var(--border-default)" }}>
+              <img src={imgUrl} alt={`Reference ${idx + 2}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              <button
+                type="button"
+                aria-label={`Remove reference image ${idx + 2}`}
+                onClick={() => setExtraImages((prev) => prev.filter((_, i) => i !== idx))}
+                style={{ position: "absolute", top: 2, right: 2, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.65)", color: "#fff", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+              >
+                <X size={11} />
+              </button>
+            </div>
+          ))}
+          {attachedDocuments.map((doc, idx) => (
+            <div
+              key={`doc-${idx}-${doc.name}`}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "4px 8px",
+                borderRadius: 10,
+                background: "var(--surface-subtle)",
+                border: "1px solid var(--border-default)",
+                maxWidth: 260,
+              }}
+            >
+              {doc.contactSheetDataUrl ? (
+                <img
+                  src={doc.contactSheetDataUrl}
+                  alt={`${doc.name} contact sheet`}
+                  style={{ width: 56, height: 34, objectFit: "cover", borderRadius: 5, flexShrink: 0 }}
+                />
+              ) : (
+                <FileText size={14} style={{ color: "var(--accent-primary, #dc5f8b)", flexShrink: 0 }} />
+              )}
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 650, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {doc.name}
+                </div>
+                <div style={{ fontSize: 10, color: "var(--text-tertiary)" }}>
+                  {doc.kind === "VIDEO"
+                    ? `VIDEO${doc.durationSec ? ` · ${doc.durationSec.toFixed(1)}s` : ""}${doc.frameCount ? ` · ${doc.frameCount} frames` : ""}`
+                    : `${doc.kind} · ${doc.charCount.toLocaleString()} chars`}
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label={`Remove ${doc.name}`}
+                onClick={() => setAttachedDocuments((prev) => prev.filter((_, i) => i !== idx))}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-tertiary)", padding: 2 }}
+              >
+                <X size={12} />
+              </button>
+            </div>
+          ))}
+          {isExtractingDoc && (
+            <span style={{ fontSize: 11, color: "var(--text-secondary)", fontWeight: 600 }}>
+              Inspecting attachment…
+            </span>
+          )}
         </div>
       )}
 
@@ -958,12 +1166,21 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                   { label: "Upload Image", icon: ImageIcon, action: () => {
                     if (fileInputRef.current) {
                       fileInputRef.current.accept = "image/*";
+                      fileInputRef.current.multiple = true;
+                      fileInputRef.current.click();
+                    }
+                  }},
+                  { label: "Inspect Video Frames", icon: Sparkles, action: () => {
+                    if (fileInputRef.current) {
+                      fileInputRef.current.accept = "video/*,.mp4,.mov,.webm,.mkv,.avi,.m4v";
+                      fileInputRef.current.multiple = false;
                       fileInputRef.current.click();
                     }
                   }},
                   { label: "Upload Document / PDF", icon: FileText, action: () => {
                     if (fileInputRef.current) {
-                      fileInputRef.current.accept = ".pdf,.txt,.md,.json,.csv,.docx,.doc,.log,.yaml,.yml,.py,.js,.ts";
+                      fileInputRef.current.accept = ".pdf,.docx,.pptx,.xlsx,.zip,.md,.markdown,.mdx,.txt,.json,.csv,.tsv,.log,.yaml,.yml,.toml,.py,.js,.jsx,.ts,.tsx,.mjs,.html,.htm,.css,.scss,.sql,.go,.rs,.sh,.ps1,.xml";
+                      fileInputRef.current.multiple = true;
                       fileInputRef.current.click();
                     }
                   }},
@@ -1100,7 +1317,8 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*,.pdf,.txt,.md,.json,.csv,.docx,.doc,.log,.yaml,.yml,.py,.js,.ts"
+              multiple
+              accept="image/*,video/*,.mp4,.mov,.webm,.mkv,.avi,.m4v,.pdf,.docx,.pptx,.xlsx,.zip,.md,.markdown,.mdx,.txt,.json,.csv,.tsv,.log,.yaml,.yml,.toml,.py,.js,.jsx,.ts,.tsx,.mjs,.html,.htm,.css,.scss,.sql,.go,.rs,.sh,.ps1,.xml"
               style={{ display: "none" }}
               onChange={handleFileChange}
             />
@@ -1348,7 +1566,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
             </button>
           )}
 
-          {isGenerating && !value.trim() && !attachedImage ? (
+          {isGenerating && !value.trim() && !attachedImage && extraImages.length === 0 && attachedDocuments.length === 0 ? (
             <button
               type="button"
               onClick={onStop}
@@ -1381,26 +1599,49 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 if (typeof window !== "undefined" && typeof (window as any).__hinaaUnlockAudio === "function") {
                   try { (window as any).__hinaaUnlockAudio(); } catch {}
                 }
-                if (value.trim() || attachedImage || attachedDocuments.length > 0) {
+                if (value.trim() || attachedImage || extraImages.length > 0 || attachedDocuments.length > 0) {
                   playSendSound();
-                  if (attachedDocuments.length > 0) {
-                    const docContext = attachedDocuments
-                      .map((d) => `\n\n📄 [ATTACHED DOCUMENT: ${d.name} (${d.kind})]\n\`\`\`\n${d.text}\n\`\`\`\n`)
-                      .join("\n");
-                    const finalInput = value.trim()
-                      ? `${value.trim()}\n${docContext}`
-                      : `Please analyze this attached document:\n${docContext}`;
-                    onChange("");
-                    setAttachedDocuments([]);
-                    onSend({
-                      text: finalInput,
-                      mode: isGoalMode ? "goal" : actionMode,
-                      intelligence: intelligenceLevel,
-                      attachmentRole: selectedRole,
-                      isGoalMode,
-                    });
-                    return;
-                  }
+                  const attachedMediaPayload = [
+                    ...extraImages.map((url, idx) => ({
+                      name: `reference_image_${idx + 2}.png`,
+                      kind: "image",
+                      mimeType: "image/png",
+                      dataUrl: url,
+                    })),
+                    ...attachedDocuments.map((d) => ({
+                      name: d.name,
+                      kind: d.kind.toLowerCase(),
+                      mimeType: d.mimeType,
+                      assetId: d.assetId,
+                      textExcerpt: d.text,
+                      contactSheetDataUrl: d.contactSheetDataUrl,
+                    })),
+                  ];
+                  const inlineDocs = attachedDocuments.filter((d) => !d.assetId && d.kind !== "VIDEO" && d.text.trim());
+                  const docContext = inlineDocs
+                    .map((d) => `\n\n📄 [ATTACHED DOCUMENT: ${d.name} (${d.kind})]\n\`\`\`\n${d.text}\n\`\`\`\n`)
+                    .join("\n");
+                  const finalInput = value.trim()
+                    ? (docContext ? `${value.trim()}\n${docContext}` : value.trim())
+                    : attachedDocuments.length > 0
+                      ? (docContext
+                          ? `Please analyze this attached document:\n${docContext}`
+                          : `Please inspect the attached files (${attachedDocuments.map((d) => d.name).join(", ")}).`)
+                      : undefined;
+                  setAttachedDocuments([]);
+                  setExtraImages([]);
+                  setUploadError(null);
+                  if (finalInput !== undefined && finalInput !== value.trim()) onChange("");
+                  if (isGenerating) onStop?.();
+                  onSend({
+                    text: finalInput,
+                    mode: isGoalMode ? "goal" : actionMode,
+                    intelligence: intelligenceLevel,
+                    attachmentRole: selectedRole,
+                    isGoalMode,
+                    attachedMedia: attachedMediaPayload.length > 0 ? attachedMediaPayload : undefined,
+                  });
+                  return;
                 }
                 if (isGenerating) onStop?.();
                 onSend({
@@ -1410,7 +1651,7 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                   isGoalMode,
                 });
               }}
-              disabled={disabled || (!value.trim() && !attachedImage && attachedDocuments.length === 0)}
+              disabled={disabled || (!value.trim() && !attachedImage && extraImages.length === 0 && attachedDocuments.length === 0)}
               onMouseEnter={() => setSendHovered(true)}
               onMouseLeave={() => setSendHovered(false)}
               title="Send Message (Enter)"
@@ -1422,21 +1663,21 @@ export const ComposerV6: React.FC<ComposerV6Props> = ({
                 height: 32,
                 borderRadius: "50%",
                 background:
-                  !value.trim() && !attachedImage && attachedDocuments.length === 0
+                  !value.trim() && !attachedImage && extraImages.length === 0 && attachedDocuments.length === 0
                     ? (isDark ? "rgba(255, 255, 255, 0.08)" : "#f1f5f9")
                     : sendHovered
                       ? "linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%)"
                       : (isDark ? "#f5f5f5" : "#1a232b"),
                 color:
-                  !value.trim() && !attachedImage && attachedDocuments.length === 0
+                  !value.trim() && !attachedImage && extraImages.length === 0 && attachedDocuments.length === 0
                     ? (isDark ? "rgba(255, 255, 255, 0.3)" : "var(--text-muted, #a198a0)")
                     : sendHovered
                       ? "#ffffff"
                       : (isDark ? "#1b1b1b" : "#ffffff"),
                 border: "none",
-                cursor: !value.trim() && !attachedImage && attachedDocuments.length === 0 ? "not-allowed" : "pointer",
+                cursor: !value.trim() && !attachedImage && extraImages.length === 0 && attachedDocuments.length === 0 ? "not-allowed" : "pointer",
                 boxShadow:
-                  !value.trim() && !attachedImage && attachedDocuments.length === 0
+                  !value.trim() && !attachedImage && extraImages.length === 0 && attachedDocuments.length === 0
                     ? "none"
                     : sendHovered
                       ? "0 0 18px rgba(139, 92, 246, 0.6), 0 0 8px rgba(236, 72, 153, 0.45)"

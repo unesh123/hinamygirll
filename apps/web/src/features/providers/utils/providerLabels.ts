@@ -38,6 +38,7 @@ const PROVIDER_LABELS: Record<ProviderMode, { label: string; description: string
   respan:         { label: "Respan AI",     description: "api.respan.ai — unified gateway & multi-model router." },
   coarena:        { label: "Coarena AI",    description: "coarena.ai — free frontier Claude Sonnet 5.5, Gemini 4 Argon, deep reasoning." },
   toptools:       { label: "Top-Tools AI",  description: "top-tools-ai.com — Top-Tools-Ai-Pro (1M context, vision, tool calls)." },
+  tokenrouter:    { label: "TokenRouter",   description: "api.tokenrouter.com — DeepSeek & multi-provider unified LLM router." },
   experiential:   { label: "Experiential Labs", description: "api.experientiallabs.ai — Claude Opus 5.5 frontier gateway." },
 };
 

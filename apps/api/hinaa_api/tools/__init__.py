@@ -34,6 +34,7 @@ from . import whatsapp
 from . import exa_tool
 from . import coding_agent_tool
 from . import workspace_coding_tools
+from ..media import video_inspector  # noqa: F401  registers video_inspect_frames
 from . import mlai_code_tools
 from . import treg_gateway
 from . import ugc_trend_extractor

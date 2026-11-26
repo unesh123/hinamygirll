@@ -166,6 +166,7 @@ function getProviderDisplayName(mode?: string): string {
     case "oxion": return "Oxion AI";
     case "coarena": return "Coarena AI";
     case "toptools": return "Top-Tools AI";
+    case "tokenrouter": return "TokenRouter";
     default:
       return mode.charAt(0).toUpperCase() + mode.slice(1);
   }
@@ -183,7 +184,7 @@ interface WorkModeProps {
   searchQuery?: string;
   input: string;
   onInputChange: (value: string) => void;
-  onSend: (customText?: string, attachmentRole?: AttachmentRole, agenticMode?: boolean) => void;
+  onSend: (customText?: string, attachmentRole?: AttachmentRole, agenticMode?: boolean, extraMedia?: any[]) => void;
   onAddMessage?: (message: TranscriptMessage) => void;
   onStop: () => void;
   disabled: boolean;
@@ -206,7 +207,18 @@ interface WorkModeProps {
   }>;
   currentAgentRunId?: string;
   currentAgentConfirmationStepId?: string;
-  backgroundBuild?: { runId: string; goal: string; status: string } | null;
+  backgroundBuild?: {
+    runId: string;
+    goal: string;
+    status: string;
+    phase?: string;
+    headline?: string;
+    elapsedMs?: number;
+    step?: number;
+    previewUrls?: string[];
+    filesChanged?: string[];
+    summary?: string;
+  } | null;
   pendingApproval?: { stepId: string; actionName: string; command?: string; detail?: string } | null;
   approvalPending?: boolean;
   approvalError?: string | null;
@@ -644,10 +656,12 @@ export function WorkMode({
       attachmentRole?: AttachmentRole;
       isGoalMode?: boolean;
       text?: string;
+      attachedMedia?: any[];
     }) => {
       // Flow B: Enter ALWAYS sends normal chat text! Never block or hijack user input!
       let text = (options?.text ?? input).trim();
-      if (!text && !attachedImage) return;
+      const extraMedia = options?.attachedMedia;
+      if (!text && !attachedImage && !(extraMedia && extraMedia.length > 0)) return;
 
       if (text === "/walk" || text === "/roam") {
         window.dispatchEvent(new CustomEvent("hinaa:toggle-walk-mode"));
@@ -696,7 +710,13 @@ export function WorkMode({
 
       const explicitAgentic = mode === "code" || isGoal || mode === "goal";
       if (explicitAgentic) {
-        onSend(text, options?.attachmentRole, true);
+        if (extraMedia && extraMedia.length > 0) {
+          onSend(text, options?.attachmentRole, true, extraMedia);
+        } else {
+          onSend(text, options?.attachmentRole, true);
+        }
+      } else if (extraMedia && extraMedia.length > 0) {
+        onSend(text, options?.attachmentRole, undefined, extraMedia);
       } else {
         onSend(text, options?.attachmentRole);
       }
@@ -1393,10 +1413,46 @@ export function WorkMode({
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
                       }}
-                      title={backgroundBuild?.goal || activeLiveStep?.title || "Builder Brain"}
+                      title={backgroundBuild?.headline || backgroundBuild?.goal || activeLiveStep?.title || "Builder Brain"}
                     >
-                      {backgroundBuild?.goal || activeLiveStep?.title || "Background Builder Brain"}
+                      {backgroundBuild?.headline || backgroundBuild?.goal || activeLiveStep?.title || "Background Builder Brain"}
                     </span>
+                    {backgroundBuild?.filesChanged && backgroundBuild.filesChanged.length > 0 && (
+                      <span
+                        data-testid="upper-build-files-badge"
+                        style={{
+                          fontSize: 10.5,
+                          fontWeight: 650,
+                          padding: "2px 6px",
+                          borderRadius: 6,
+                          background: isDark ? "rgba(16,185,129,0.16)" : "#dcfce7",
+                          color: isDark ? "#6ee7b7" : "#166534",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {`${backgroundBuild.filesChanged.length} file${backgroundBuild.filesChanged.length === 1 ? "" : "s"}`}
+                      </span>
+                    )}
+                    {backgroundBuild?.previewUrls && backgroundBuild.previewUrls.length > 0 && (
+                      <a
+                        href={backgroundBuild.previewUrls[backgroundBuild.previewUrls.length - 1]}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        data-testid="upper-build-preview-link"
+                        style={{
+                          fontSize: 10.5,
+                          fontWeight: 700,
+                          padding: "2px 8px",
+                          borderRadius: 6,
+                          background: isDark ? "rgba(139,92,246,0.22)" : "#ede9fe",
+                          color: isDark ? "#ddd6fe" : "#5b21b6",
+                          textDecoration: "none",
+                          flexShrink: 0,
+                        }}
+                      >
+                        Open Preview ↗
+                      </a>
+                    )}
                     {convertedActivitySteps.length > 0 && (
                       <span style={{ fontSize: 11, color: isDark ? "#94a3b8" : "#475569", flexShrink: 0 }}>
                         {activeLiveStep

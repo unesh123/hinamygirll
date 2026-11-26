@@ -92,4 +92,22 @@ describe("CompanionStage", () => {
     setup({ plan: { emotion: { primary: "shy" } } as never });
     expect(screen.getByTestId("companion-mood")).toHaveTextContent("shy");
   });
+
+  it("shows live background build pill in companion mode and lets user jump to workspace", async () => {
+    const p = setup({
+      backgroundBuild: {
+        runId: "run-bg-stage",
+        goal: "Build SORA",
+        status: "running",
+        phase: "coding",
+        filesChanged: ["package.json", "src/App.tsx"],
+      },
+      onCancelBackgroundBuild: vi.fn(),
+    });
+    const pill = screen.getByTestId("companion-build-pill");
+    expect(pill).toHaveTextContent("Building (coding)");
+    expect(pill).toHaveTextContent("2 files");
+    await userEvent.click(pill.querySelector("button")!);
+    expect(p.onOpenWorkspace).toHaveBeenCalled();
+  });
 });

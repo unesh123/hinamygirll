@@ -823,6 +823,18 @@ export default function App() {
     return () => window.removeEventListener("hinaa:speak-text", handleSpeak);
   }, [controller.companionId, controller.routing.activeMode, playback, settings.language.activePolicy, unlockAudio, interruptPlayback, voiceEngine]);
 
+  useEffect(() => {
+    const onBuildMilestone = (e: any) => {
+      if (playback.muted || input.trim()) return;
+      if (!live.active && sakuraView !== "companion") return;
+      const headline = String(e?.detail?.headline || "").trim();
+      if (!headline) return;
+      window.dispatchEvent(new CustomEvent("hinaa:speak-text", { detail: { text: headline.slice(0, 180) } }));
+    };
+    window.addEventListener("hinaa:build-milestone", onBuildMilestone);
+    return () => window.removeEventListener("hinaa:build-milestone", onBuildMilestone);
+  }, [playback.muted, input, live.active, sakuraView]);
+
   // A started playback owns its own terminal transition. The hook changes
   // `playing` when decoded audio or browser speech ends; no render effect can
   // initiate another playback, so refresh/rerender cannot replay a turn.
@@ -846,12 +858,23 @@ export default function App() {
     attachmentRole?: AttachmentRole,
     resend?: { historyBase: TranscriptMessage[]; imageUrl?: string },
     agenticMode?: boolean,
+    extraMedia?: Array<{
+      name: string;
+      kind: string;
+      mimeType?: string;
+      assetId?: string;
+      dataUrl?: string;
+      textExcerpt?: string;
+      contactSheetDataUrl?: string;
+    }>,
   ) => {
     if (event && "preventDefault" in event) event.preventDefault();
     const textToSend = (typeof overrideText === "string" ? overrideText : input).trim();
+    const mediaList = Array.isArray(extraMedia) ? extraMedia : [];
+    const firstMediaImage = mediaList.find((m) => m.kind === "image" && m.dataUrl)?.dataUrl ?? null;
     // A resend replays a past message, so it must not consume the composer's draft or attachment.
-    const imageData = resend ? (resend.imageUrl ?? null) : attachedImage;
-    if (!textToSend && !imageData) return;
+    const imageData = resend ? (resend.imageUrl ?? null) : (attachedImage ?? firstMediaImage);
+    if (!textToSend && !imageData && mediaList.length === 0) return;
     // Typed barge-in: a message that arrives while she is speaking stops her
     // mid-sentence — during a live voice session too. The old guard returned
     // early whenever live mode was active, so her previous reply played to
@@ -869,7 +892,7 @@ export default function App() {
     void unlockAudio({ replay: false });
     interruptPlayback();
     const timingTurn = runtimeMeasurements.beginTurn();
-    const text = textToSend || (imageData ? "Look at this image" : "");
+    const text = textToSend || (imageData ? "Look at this image" : mediaList.length > 0 ? `Inspect attached references: ${mediaList.map((m) => m.name).join(", ")}` : "");
     if (!resend) {
       setInput("");
       setAttachedImage(null);
@@ -985,10 +1008,39 @@ export default function App() {
         onError: error => setVoiceReply({ kind: "unavailable", label: "Voice playback failed", detail: error instanceof Error ? error.message : "Your text answer is still available." }),
       });
       progressiveSpeechRef.current = queue;
+      const compiledAttachments: any[] = [];
+      if (imageData) {
+        compiledAttachments.push({ kind: "image", role: attachmentRole ?? "inspection", url: imageData });
+      }
+      const extraRefImages: string[] = [];
+      if (imageData && attachmentRole && attachmentRole !== "inspection") {
+        extraRefImages.push(imageData);
+      }
+      const compiledIds: string[] = [];
+      for (const m of mediaList) {
+        if (m.assetId) compiledIds.push(m.assetId);
+        if (m.kind === "image" && m.dataUrl && m.dataUrl !== imageData) {
+          extraRefImages.push(m.dataUrl);
+          compiledAttachments.push({ kind: "image", role: attachmentRole ?? "style_reference", url: m.dataUrl, filename: m.name });
+        } else if (m.kind !== "image") {
+          compiledAttachments.push({
+            asset_id: m.assetId,
+            assetId: m.assetId,
+            kind: (m.kind === "video" ? "video" : "document") as any,
+            mime_type: m.mimeType,
+            mimeType: m.mimeType,
+            filename: m.name,
+            url: m.contactSheetDataUrl ?? undefined,
+            textExcerpt: m.textExcerpt,
+            contactSheetDataUrl: m.contactSheetDataUrl,
+          });
+        }
+      }
       const result = await controller.sendText(text, {
         imageUrl: imageData || undefined,
-        attachments: imageData ? [{ kind: "image", role: attachmentRole ?? "inspection", url: imageData }] : undefined,
-        reference_images: imageData && attachmentRole && attachmentRole !== "inspection" ? [imageData] : undefined,
+        attachment_ids: compiledIds.length > 0 ? compiledIds : undefined,
+        attachments: compiledAttachments.length > 0 ? compiledAttachments : undefined,
+        reference_images: extraRefImages.length > 0 ? extraRefImages : undefined,
         responseMode: requestResponseMode,
         persona_mode: personaMode,
         agenticMode,
@@ -1548,8 +1600,8 @@ export default function App() {
                 searchQuery={controller.searchQuery || searchQuery}
                 input={input}
                 onInputChange={setInput}
-                onSend={(customText?: string, attachmentRole?: AttachmentRole, agenticMode?: boolean) =>
-                  submit(undefined, customText, attachmentRole, undefined, agenticMode)
+                onSend={(customText?: string, attachmentRole?: AttachmentRole, agenticMode?: boolean, extraMedia?: any[]) =>
+                  submit(undefined, customText, attachmentRole, undefined, agenticMode, extraMedia)
                 }
                 onAddMessage={(msg) => controller.setMessages((prev) => [...prev, msg])}
                 onStop={handleStop}
@@ -1670,6 +1722,8 @@ export default function App() {
                 onToggleVision={() => vision.setConsent(!vision.consent)}
                 onOpenMemory={() => setMemoryOpen(true)}
                 onOpenWorkspace={() => setSakuraView("work")}
+                backgroundBuild={controller.backgroundBuild}
+                onCancelBackgroundBuild={() => { void controller.cancelBackgroundBuild(); }}
                 onSendText={(text: string) => submit(undefined, text)}
               />
             )}

@@ -58,6 +58,7 @@ const MODE_LABELS: Record<ProviderPreferenceMode, string> = {
   respan:         "Respan AI (api.respan.ai)",
   coarena:        "Coarena AI (coarena.ai)",
   toptools:       "Top-Tools AI (top-tools-ai.com)",
+  tokenrouter:    "TokenRouter (api.tokenrouter.com)",
   experiential:   "Experiential Labs (api.experientiallabs.ai)",
 };
 
@@ -88,6 +89,7 @@ const MODE_DESCRIPTIONS: Record<ProviderPreferenceMode, string> = {
   respan:         "api.respan.ai — unified gateway & multi-model router.",
   coarena:        "coarena.ai — free frontier Claude Sonnet 5.5, Gemini 4 Argon, deep reasoning.",
   toptools:       "top-tools-ai.com — Top-Tools-Ai-Pro (1M context, vision, tool calls).",
+  tokenrouter:    "api.tokenrouter.com — DeepSeek & multi-provider unified router.",
   experiential:   "api.experientiallabs.ai — frontier Claude Opus 5.5 gateway.",
 };
 

@@ -112,7 +112,7 @@ _AGENTIC_SYSTEM_PROMPT = (
     "Rules:\n"
     "1. Respond EITHER with one JSON object (`call_tool`, `call_tools`, or `final`) OR one/more XML <tool ...>...</tool> blocks.\n"
     "   - PARALLEL BATCHING: When you need to read/search/audit multiple files or launch parallel subagents at once, emit `{\"action\": \"call_tools\", \"calls\": [{\"tool\": \"...\", \"arguments\": {...}}, ...]}` or multiple `<tool ...>` blocks in one turn (up to 6 read-only calls execute concurrently!).\n"
-    "2. Never guess file contents, line numbers, or test outputs. For LOCAL repo exploration, use workspace_glob / workspace_grep / workspace_read_file (or workspace_spawn_subagent). For EXTERNAL websites, UI inspiration, scraping, or live docs (e.g. Merlin UI), call `web_search` / `web_extract` FIRST instead of searching local files! If a message arrives tagged `[LIVE USER DIRECTION WHILE BUILDING]`, adapt your build/design immediately to honor the user's preferences.\n"
+    "2. Never guess file contents, line numbers, or test outputs. For LOCAL repo exploration, use workspace_glob / workspace_grep / workspace_read_file (or workspace_spawn_subagent). For EXTERNAL websites, UI inspiration, scraping, or live docs (e.g. Merlin UI), call `web_search` / `web_extract` FIRST instead of searching local files! When the user asks for an interactive web app, React/Vite/Three.js project, multi-page platform, or AI agent, scaffold real modular project files (`package.json`, `src/`, components, pages, styles, tests) using `workspace_write_file` / `workspace_edit_file` — NEVER substitute zero-JS `design_website`. Use `workspace_checkpoint` (create/restore) before risky refactors and `workspace_git_status_diff` to review edits. Start local dev servers via `workspace_start_process` and inspect BOTH desktop (`mobile=False`) and mobile (`mobile=True`) viewports via `workspace_verify_url`. For attached videos or `.hina/refs/` reference docs, call `video_inspect_frames` and `workspace_read_file`. If `[LIVE USER DIRECTION WHILE BUILDING]` arrives, adapt immediately.\n"
     "3. PREFERRED for writing full-page HTML/JS/CSS web apps, Python modules, or multi-line files (avoids JSON escaping errors!): use:\n"
     '<tool name="workspace_write_file" path="relative/path.html">\n<!DOCTYPE html>...complete high-craft implementation...\n</tool>\n'
     "   When building a full-page interactive HTML web app/visualizer/site, make it complete and responsive (`100vw x 100vh`, zero external CDN assumptions so it works standalone/offline, full interactive controls + rich visual geometry/Canvas/WebGL/SVG), then IMMEDIATELY verify it using `workspace_verify_html(file_path=\"...\")` (or boot a local server via `workspace_start_process` + `workspace_verify_url`) to confirm zero JS errors and non-blank visuals!\n"
@@ -132,7 +132,7 @@ _AGENTIC_NATIVE_SYSTEM_PROMPT = (
     "You are HINAA's Autonomous Software Engineering & Motion-Studio Agent.\n"
     "You have native tool/function schemas attached directly in this session. Invoke tools directly using native function calls — NEVER write planning monologues ('Let me first check...') or raw code blocks in plain text before executing tools.\n"
     "Rules:\n"
-    "1. Exploration & research: use `web_search` / `web_extract` for external websites, UI inspiration, and scraping; use `workspace_glob` / `workspace_grep` / `workspace_read_file` for local codebase inspection. If `[LIVE USER DIRECTION WHILE BUILDING]` appears, adapt your design immediately.\n"
+    "1. Exploration & research: use `web_search` / `web_extract` for external websites, UI inspiration, and scraping; use `workspace_glob` / `workspace_grep` / `workspace_read_file` for local inspection, `video_inspect_frames` for attached videos, and read any `.hina/refs/` attached docs first. For web apps or AI agents, build real multi-file project structures (React/Vite/TS/Three.js, backend/tests), create checkpoints with `workspace_checkpoint`, start servers with `workspace_start_process`, and verify desktop + mobile with `workspace_verify_url`. Never claim no workspace runner is attached. If `[LIVE USER DIRECTION WHILE BUILDING]` appears, adapt immediately.\n"
     "2. Web apps / interactive HTML builds: write a self-contained responsive HTML file (`100vw x 100vh`, zero external CDNs) using workspace_write_file, then call workspace_verify_html(file_path=...) to check zero JS errors and inspect visuals before finalizing.\n"
     "3. Studio kinetic MP4 / motion graphics: for crisp reels (3–10s), either call render_code_animation(title=..., subtitle=..., duration_seconds=..., fps=24, width=..., height=..., audio_preset='kinetic_pulse') directly right away (HINAA's built-in StudioFX neon waves, HUD corners, bokeh & beat audio engine renders cleanly in seconds), OR write a concise (<140-line) custom HTML animation using `window.StudioFX` + `window.setAnimationTime(t)` via workspace_write_file and render it via render_code_animation(html_path=...).\n"
     "4. Once visual previews/verifications pass cleanly, reply with a concise, factual summary citing only exact files, verified checks, and real asset download URLs returned by tools."
@@ -370,18 +370,48 @@ def make_provider_planner(
         structured_msgs = build_agentic_messages(allowed_tools, transcript, step_num, max_steps)
         prompt_text = build_compact_tool_prompt(allowed_tools, transcript, step_num, max_steps)
         candidates: list[tuple[str, str | None]] = [(provider_mode, brain_model)]
-        for fb_mode, fb_model in (
-            ("real", "gemini-3.5-flash-lite"),
-            ("cantrustai", "deepseek/deepseek-v4.1-flash"),
-            ("xkiro", "mistralai/mistral-large-4-0"),
-            ("coarena", "deepseek-v4-1-flash-1017"),
-            ("toptools", "Top-Tools-Ai-Pro"),
-        ):
-            if fb_mode != provider_mode:
-                candidates.append((fb_mode, fb_model))
+        _vision_fallbacks = (
+            ("real", settings.gemini_model or "gemini-3.5-flash-lite", "gemini_configured"),
+            ("real", "gemini-3-flash-preview", "gemini_configured"),
+            ("xkiro", settings.active_xkiro_model, "xkiro_configured"),
+            ("cantrustai", settings.active_cantrust_model, "cantrust_configured"),
+            ("coarena", "deepseek-v4-1-flash-1017", "coarena_configured"),
+            ("tokenrouter", settings.active_tokenrouter_model, "tokenrouter_configured"),
+            ("toptools", settings.active_toptools_model, "toptools_configured"),
+        )
+        for fb_mode, fb_model, fb_cfg in _vision_fallbacks:
+            if not getattr(settings, fb_cfg, False):
+                continue
+            pair = (fb_mode, fb_model)
+            if pair != (provider_mode, brain_model) and pair not in candidates:
+                candidates.append(pair)
+        if images:
+            try:
+                from ..capabilities import brain_accepts_images
+
+                if not brain_accepts_images(provider_mode, brain_model):
+                    configured_vision = [
+                        (m, md)
+                        for m, md, cfg_attr in _vision_fallbacks
+                        if getattr(settings, cfg_attr, False) and brain_accepts_images(m, md)
+                    ]
+                    if configured_vision:
+                        candidates = configured_vision + [c for c in candidates if c not in configured_vision]
+            except Exception:
+                pass
 
         last_exc: Exception | None = None
-        for mode_cand, model_cand in candidates:
+        for idx_cand, (mode_cand, model_cand) in enumerate(candidates):
+            if idx_cand > 0:
+                try:
+                    from ..circuit_breaker import peek_circuit_breaker
+
+                    brk = peek_circuit_breaker(mode_cand)
+                    if brk is not None and brk.cooldown_remaining() > 0:
+                        continue
+                except Exception:
+                    pass
+            per_call_timeout = 24.0 if (idx_cand > 0 or mode_cand == "toptools") else 35.0
             try:
                 provider = router.llm(mode_cand, model_cand)
                 if hasattr(provider, "complete_raw_agentic"):
@@ -404,7 +434,7 @@ def make_provider_planner(
                             kw["messages"] = structured_msgs
                     except (ValueError, TypeError):
                         pass
-                    raw = await raw_fn(**kw)
+                    raw = await asyncio.wait_for(raw_fn(**kw), timeout=per_call_timeout)
                     if raw.strip():
                         return raw.strip()
                     continue
@@ -422,7 +452,10 @@ def make_provider_planner(
                     allowed_tools=(),
                 )
                 pkg = assemble_prompt(inp)
-                res = await provider.create_plan(prompt_text, safe_comp, safe_lang, [], pkg)
+                res = await asyncio.wait_for(
+                    provider.create_plan(prompt_text, safe_comp, safe_lang, [], pkg),
+                    timeout=per_call_timeout,
+                )
                 raw = (res.value.displayText or res.value.spokenText or "").strip()
                 if raw:
                     return raw
@@ -514,6 +547,9 @@ async def run_agentic_job(
     run_id: str | None = None,
     store: AgenticRunStore | None = None,
     steer_queue: asyncio.Queue[str] | None = None,
+    initial_images: list[tuple[str, bytes]] | None = None,
+    attached_files: list[dict[str, Any]] | None = None,
+    steer_images_queue: asyncio.Queue[list[tuple[str, bytes]]] | None = None,
 ) -> PersistedAgenticRun:
     rid = run_id or f"run-ag-{uuid.uuid4().hex[:8]}"
     st = store or get_agentic_store()
@@ -522,6 +558,7 @@ async def run_agentic_job(
     cancel_ev = asyncio.Event()
     _ACTIVE_CANCELS[rid] = cancel_ev
     q_steer = steer_queue if steer_queue is not None else _STEER_QUEUES.setdefault(rid, asyncio.Queue())
+    q_img_steer = steer_images_queue if steer_images_queue is not None else _STEER_IMAGES.setdefault(rid, asyncio.Queue())
     st.save(
         PersistedAgenticRun(
             run_id=rid,
@@ -552,6 +589,14 @@ async def run_agentic_job(
     )
     try:
         effective_goal = goal
+        refs_note = _persist_attached_reference_files(workspace_root, rid, attached_files)
+        if refs_note:
+            effective_goal = f"{effective_goal}\n\n{refs_note}"
+        if initial_images:
+            effective_goal = (
+                f"{effective_goal}\n\n[ATTACHED VISUAL REFERENCES: {min(len(initial_images), 8)} image/video frame preview(s) "
+                "are directly attached to your vision input in Step 1. Inspect every visual detail directly.]"
+            )
         if history:
             recent = [
                 f"{r}: {str(c)[:600]}"
@@ -568,7 +613,7 @@ async def run_agentic_job(
             ]
             if recent:
                 effective_goal = (
-                    f"{goal}\n\n[Prior conversation context (reference only — do NOT quote greetings inside visuals/code)]:\n"
+                    f"{effective_goal}\n\n[Prior conversation context (reference only — do NOT quote greetings inside visuals/code)]:\n"
                     + "\n".join(recent[-4:])
                 )
         result = await runner.run(
@@ -580,6 +625,8 @@ async def run_agentic_job(
             on_event=on_event,
             run_id=rid,
             steer_queue=q_steer,
+            initial_images=initial_images,
+            steer_images_queue=q_img_steer,
         )
     finally:
         _ACTIVE_CANCELS.pop(rid, None)
@@ -597,6 +644,80 @@ async def run_agentic_job(
     )
     st.save(record)
     return record
+
+
+_STEER_IMAGES: dict[str, asyncio.Queue[list[tuple[str, bytes]]]] = {}
+_LOCAL_PREVIEW_URL_RE = re.compile(r"https?://(?:127\.0\.0\.1|localhost|\[::1\]):\d{2,5}[^\s\"'<>]*")
+
+
+def _persist_attached_reference_files(
+    workspace_root: str | None,
+    run_id: str,
+    attached_files: list[dict[str, Any]] | None,
+) -> str:
+    """Save uploaded non-image reference file excerpts into .hina/refs/<run_id>/ so Brain #1 can read them."""
+    if not attached_files:
+        return ""
+    try:
+        from ..tools.workspace_coding_tools import _resolve_workspace_root
+
+        root = _resolve_workspace_root(workspace_root)
+    except Exception:
+        root = project_root()
+
+    safe_rid = re.sub(r"[^A-Za-z0-9._-]+", "_", run_id)[:48] or "refs"
+    refs_dir = root / ".hina" / "refs" / safe_rid
+    refs_dir.mkdir(parents=True, exist_ok=True)
+    lines: list[str] = ["[ATTACHED REFERENCE FILES — also inspect full details via workspace_read_file]:"]
+    for idx, item in enumerate(attached_files[:12], start=1):
+        fname = str(item.get("filename") or item.get("name") or f"ref_{idx}.txt").strip()
+        mime = str(item.get("mimeType") or item.get("mime_type") or "")
+        kind = str(item.get("kind") or "document")
+        aid = str(item.get("assetId") or item.get("asset_id") or "")
+        excerpt = str(
+            item.get("textExcerpt")
+            or item.get("text_excerpt")
+            or item.get("extracted_text")
+            or item.get("content")
+            or item.get("summary")
+            or ""
+        )
+        if not excerpt.strip() and aid and kind not in ("image",):
+            try:
+                from ..document_ingestion import extract_document_text
+                from ..media.asset_store import get_asset_store
+
+                fp = get_asset_store().get_file_path(aid)
+                if fp is not None and fp.is_file():
+                    raw_bytes = fp.read_bytes()
+                    try:
+                        parsed = extract_document_text(
+                            raw_bytes,
+                            filename=fname,
+                            mime_type=mime or "application/octet-stream",
+                        )
+                        excerpt = parsed.text
+                    except Exception:
+                        if mime.startswith("text/") or Path(fname).suffix.lower() in (".md", ".txt", ".json", ".py", ".ts", ".tsx", ".css", ".html", ".yaml", ".yml"):
+                            excerpt = raw_bytes.decode("utf-8", errors="replace")
+            except Exception:
+                pass
+        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(fname).name)[:72] or f"file_{idx}.txt"
+        rel_ref = f".hina/refs/{safe_rid}/{idx:02d}_{safe_name}.txt"
+        body = (
+            f"Filename: {fname}\nKind: {kind}\nMimeType: {mime}\nAssetId: {aid}\n\n{excerpt[:40_000]}"
+        )
+        try:
+            (root / rel_ref).write_text(body, encoding="utf-8", errors="replace")
+        except Exception:
+            rel_ref = fname
+        meta = f"- #{idx} `{fname}` ({kind}{f', asset_id={aid}' if aid else ''}) -> `{rel_ref}`"
+        if kind == "video" and aid:
+            meta += " (call `video_inspect_frames(asset_id=...)` to inspect keyframes/motion)"
+        lines.append(meta)
+        if excerpt.strip():
+            lines.append(f"  Snippet: {excerpt.strip()[:1200]}")
+    return "\n".join(lines)
 
 
 async def _publish_bg_event(rid: str, evt_name: str, evt_payload: dict[str, Any]) -> None:
@@ -625,6 +746,8 @@ def launch_background_agentic_job(
     history: list[tuple[str, str]] | None = None,
     run_id: str | None = None,
     store: AgenticRunStore | None = None,
+    initial_images: list[tuple[str, bytes]] | None = None,
+    attached_files: list[dict[str, Any]] | None = None,
 ) -> PersistedAgenticRun:
     """Start an agentic build in the background, publishing live SSE events and accepting steering."""
     rid = run_id or f"run-ag-{uuid.uuid4().hex[:8]}"
@@ -632,6 +755,7 @@ def launch_background_agentic_job(
     permitted = set(allowed_tools if allowed_tools is not None else DEFAULT_AGENTIC_TOOLS)
     approved = set(approved_hashes or ())
     steer_q = _STEER_QUEUES.setdefault(rid, asyncio.Queue())
+    steer_img_q = _STEER_IMAGES.setdefault(rid, asyncio.Queue())
     _EVENT_HISTORY[rid] = []
     initial = PersistedAgenticRun(
         run_id=rid,
@@ -646,9 +770,106 @@ def launch_background_agentic_job(
     )
     st.save(initial)
 
+    started_at = time.time()
+    progress_state: dict[str, Any] = {
+        "step": 0,
+        "phase": "initializing",
+        "headline": "Workspace Builder initialized...",
+        "files": [],
+        "preview_urls": [],
+        "milestone_idx": 0,
+        "last_emit_ts": 0.0,
+    }
+
+    def _collect_preview_urls(obj: Any) -> None:
+        raw = json.dumps(obj, ensure_ascii=False, default=str) if not isinstance(obj, str) else obj
+        for m in _LOCAL_PREVIEW_URL_RE.findall(raw):
+            clean = m.rstrip(".,;:")
+            if clean not in progress_state["preview_urls"]:
+                progress_state["preview_urls"].append(clean)
+
+    async def _emit_progress(phase: str, headline: str, *, force: bool = False) -> None:
+        now = time.time()
+        if not force and phase == progress_state["phase"] and (now - progress_state["last_emit_ts"]) < 2.2:
+            return
+        progress_state["phase"] = phase
+        progress_state["headline"] = headline
+        progress_state["milestone_idx"] += 1
+        progress_state["last_emit_ts"] = now
+        await _publish_bg_event(
+            rid,
+            "agent.progress_update",
+            {
+                "runId": rid,
+                "milestoneId": f"{rid}-m-{progress_state['milestone_idx']}",
+                "phase": phase,
+                "headline": headline,
+                "filesChanged": list(progress_state["files"]),
+                "previewUrls": list(progress_state["preview_urls"]),
+                "elapsedMs": int((now - started_at) * 1000),
+                "step": progress_state["step"],
+            },
+        )
+
     async def _runner_bg() -> PersistedAgenticRun:
         async def _on_evt(evt_name: str, evt_payload: dict[str, Any]) -> None:
             await _publish_bg_event(rid, evt_name, evt_payload)
+            if evt_name == "agentic.started":
+                await _emit_progress(
+                    "scaffolding",
+                    "Workspace Builder started — inspecting repository & planning architecture.",
+                    force=True,
+                )
+            elif evt_name == "agent.step.started":
+                progress_state["step"] = int(evt_payload.get("step") or progress_state["step"] or 1)
+            elif evt_name == "tool.started":
+                tname = str(evt_payload.get("toolName") or "")
+                targs = evt_payload.get("arguments") or {}
+                fp = str(targs.get("dest_path") or targs.get("file_path") or "")
+                if tname in ("workspace_write_file", "workspace_edit_file", "workspace_move_file"):
+                    await _emit_progress("coding", f"Writing `{fp or 'workspace file'}`...", force=bool(fp))
+                elif tname == "workspace_run_command":
+                    cmd_s = str(targs.get("command") or "")[:64]
+                    await _emit_progress("testing", f"Running `{cmd_s}`...", force=True)
+                elif tname == "workspace_start_process":
+                    await _emit_progress("preview", "Starting local dev preview server...", force=True)
+                elif tname in ("workspace_verify_html", "workspace_verify_url"):
+                    await _emit_progress("verifying", "Verifying rendered UI, layout, and console...", force=True)
+                elif tname == "video_inspect_frames":
+                    await _emit_progress("analyzing", "Inspecting video frame-by-frame keyframes...", force=True)
+                elif tname in ("web_search", "web_extract", "deep_research"):
+                    await _emit_progress("researching", "Researching live references & documentation...")
+            elif evt_name == "tool.completed":
+                tname = str(evt_payload.get("toolName") or "")
+                obs = evt_payload.get("observation") or evt_payload.get("result") or evt_payload
+                if isinstance(obs, dict):
+                    fp = str(obs.get("destPath") or obs.get("filePath") or evt_payload.get("filePath") or "")
+                    if fp and fp not in progress_state["files"]:
+                        progress_state["files"].append(fp)
+                        await _emit_progress(
+                            "coding",
+                            f"Updated `{fp}` ({len(progress_state['files'])} file(s) changed).",
+                            force=True,
+                        )
+                    prev_count = len(progress_state["preview_urls"])
+                    _collect_preview_urls(obs)
+                    if len(progress_state["preview_urls"]) > prev_count:
+                        await _emit_progress(
+                            "preview",
+                            f"Live preview available at {progress_state['preview_urls'][-1]}",
+                            force=True,
+                        )
+                    elif tname in ("workspace_verify_url", "workspace_verify_html"):
+                        ov = obs.get("horizontalOverflow")
+                        tag = "mobile" if obs.get("mobile") else "desktop"
+                        status_txt = "clean" if obs.get("status") == "success" else "needs polish"
+                        await _emit_progress(
+                            "verifying",
+                            f"Checked {tag} viewport ({status_txt}{', overflow detected' if ov else ''}).",
+                            force=True,
+                        )
+            elif evt_name == "agent.steered":
+                await _emit_progress("steering", f"Applying live feedback: {str(evt_payload.get('message') or '')[:80]}", force=True)
 
         try:
             rec = await run_agentic_job(
@@ -668,11 +889,25 @@ def launch_background_agentic_job(
                 run_id=rid,
                 store=st,
                 steer_queue=steer_q,
+                initial_images=initial_images,
+                attached_files=attached_files,
+                steer_images_queue=steer_img_q,
             )
+            for p_fp in rec.result.files_changed:
+                if p_fp not in progress_state["files"]:
+                    progress_state["files"].append(p_fp)
+            _collect_preview_urls(rec.result.artifacts)
+            _collect_preview_urls(rec.result.summary)
             res = rec.result
             if res.status == "awaiting_approval" and res.pending_approval is not None:
+                await _emit_progress(
+                    "awaiting_approval",
+                    f"Approval needed for `{res.pending_approval.tool}` — click Allow or Deny in Upper HUD.",
+                    force=True,
+                )
                 await _publish_bg_event(rid, "confirmation.required", {"runId": rid, **res.pending_approval.model_dump()})
             elif res.status in ("failed", "blocked", "budget_exhausted"):
+                await _emit_progress("failed", str(res.summary or "Build stopped.")[:180], force=True)
                 await _publish_bg_event(
                     rid,
                     "agent.run.failed",
@@ -686,6 +921,11 @@ def launch_background_agentic_job(
                     },
                 )
             else:
+                await _emit_progress(
+                    "completed",
+                    f"Build finished cleanly ({len(res.files_changed)} file(s) changed).",
+                    force=True,
+                )
                 await _publish_bg_event(
                     rid,
                     "agentic.finalized",
@@ -696,6 +936,7 @@ def launch_background_agentic_job(
                         "markdown": format_agentic_markdown(res),
                         "filesChanged": res.files_changed,
                         "artifacts": res.artifacts,
+                        "previewUrls": list(progress_state["preview_urls"]),
                         "stepsExecuted": res.steps_executed,
                     },
                 )
@@ -726,22 +967,38 @@ def launch_background_agentic_job(
     return initial
 
 
-def steer_agentic_run(run_id: str, direction: str, store: AgenticRunStore | None = None) -> bool:
-    """Inject live user guidance/design answers into an active background builder run."""
+def steer_agentic_run(
+    run_id: str,
+    direction: str,
+    *,
+    images: list[tuple[str, bytes]] | None = None,
+    attached_files: list[dict[str, Any]] | None = None,
+    store: AgenticRunStore | None = None,
+) -> bool:
+    """Inject live user guidance/design answers/images/files into an active background builder run."""
     text = (direction or "").strip()
-    if not text:
+    if not text and not images and not attached_files:
         return False
-    q = _STEER_QUEUES.get(run_id)
-    if q is not None and run_id in _BG_TASKS:
-        q.put_nowait(text)
-        return True
+
     st = store or get_agentic_store()
     rec = st.load(run_id)
-    if rec is not None and rec.result.status in ("running", "awaiting_approval"):
-        q = _STEER_QUEUES.setdefault(run_id, asyncio.Queue())
+    active = run_id in _BG_TASKS or (rec is not None and rec.result.status in ("running", "awaiting_approval"))
+    if not active:
+        return False
+
+    if attached_files:
+        refs_note = _persist_attached_reference_files(rec.workspace_root if rec else None, f"{run_id}_steer", attached_files)
+        if refs_note:
+            text = f"{text}\n\n{refs_note}".strip()
+    if images:
+        text = f"{text or 'Inspect these newly attached live reference images.'}\n[LIVE IMAGES ATTACHED: {len(images)} visual reference(s)]"
+        img_q = _STEER_IMAGES.setdefault(run_id, asyncio.Queue())
+        img_q.put_nowait(list(images)[:8])
+
+    q = _STEER_QUEUES.setdefault(run_id, asyncio.Queue())
+    if text:
         q.put_nowait(text)
-        return True
-    return False
+    return True
 
 
 def describe_active_agentic_run(run_id: str, store: AgenticRunStore | None = None) -> str:

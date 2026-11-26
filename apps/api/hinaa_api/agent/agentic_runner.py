@@ -38,6 +38,10 @@ PlannerCallback = Callable[[list[dict[str, Any]], int], Awaitable[str | dict[str
 DEFAULT_AGENTIC_TOOLS: frozenset[str] = frozenset({
     "workspace_list_dir",
     "workspace_read_file",
+    "workspace_move_file",
+    "workspace_git_status_diff",
+    "workspace_checkpoint",
+    "video_inspect_frames",
     "workspace_write_file",
     "workspace_edit_file",
     "workspace_delete_file",
@@ -285,7 +289,13 @@ class AgenticLoopRunner:
         scoped_edit = bool(
             self.workspace_root
             and self.auto_approve_workspace_edits
-            and name in ("workspace_edit_file", "workspace_write_file", "workspace_delete_file")
+            and name in (
+                "workspace_edit_file",
+                "workspace_write_file",
+                "workspace_delete_file",
+                "workspace_move_file",
+                "workspace_checkpoint",
+            )
         )
         scoped_verify_cmd = False
         if (
@@ -349,7 +359,11 @@ class AgenticLoopRunner:
             return {"status": "error", "code": "TOOL_NO_HANDLER", "error": f"No handler registered for {tdef.name}"}
 
         args = dict(raw_args or {})
-        if self.workspace_root and (tdef.name.startswith("workspace_") or tdef.name == "render_code_animation") and not args.get("workspace_root"):
+        if (
+            self.workspace_root
+            and (tdef.name.startswith("workspace_") or tdef.name in ("render_code_animation", "video_inspect_frames"))
+            and not args.get("workspace_root")
+        ):
             args["workspace_root"] = self.workspace_root
 
         # Validate against callable's pydantic parameter model when present
@@ -379,6 +393,26 @@ class AgenticLoopRunner:
             res = await asyncio.wait_for(asyncio.to_thread(handler, call_arg), timeout=timeout)
         return res if isinstance(res, dict) else {"status": "success", "result": res}
 
+    def _verify_artifacts_on_disk(self, artifacts: list[dict[str, Any]]) -> None:
+        """Annotate workspace file artifacts with real on-disk verification."""
+        if not self.workspace_root:
+            return
+        from pathlib import Path
+
+        root = Path(self.workspace_root).resolve()
+        for art in artifacts:
+            if not isinstance(art, dict):
+                continue
+            fp = str(art.get("filePath") or "").strip()
+            if not fp or art.get("tool") == "workspace_delete_file":
+                continue
+            try:
+                resolved = (root / fp).resolve()
+                inside = resolved.is_relative_to(root)
+                art["verifiedOnDisk"] = bool(inside and resolved.is_file())
+            except Exception:
+                art["verifiedOnDisk"] = False
+
     def _collect_artifacts(
         self,
         tool_name: str,
@@ -389,10 +423,19 @@ class AgenticLoopRunner:
     ) -> None:
         if obs.get("status") != "success":
             return
-        if tool_name in ("workspace_edit_file", "workspace_write_file", "workspace_delete_file"):
-            fp = str(obs.get("filePath") or args.get("file_path") or "")
+        if tool_name in ("workspace_edit_file", "workspace_write_file", "workspace_delete_file", "workspace_move_file"):
+            fp = str(obs.get("destPath") or obs.get("filePath") or args.get("dest_path") or args.get("file_path") or "")
             if fp and fp not in files_changed:
                 files_changed.append(fp)
+            if tool_name == "workspace_move_file":
+                sp = str(obs.get("sourcePath") or args.get("source_path") or "")
+                artifacts.append({
+                    "kind": "diff",
+                    "tool": tool_name,
+                    "filePath": fp,
+                    "diff": f"Moved {sp} -> {fp}",
+                })
+                return
             artifacts.append({
                 "kind": "diff",
                 "tool": tool_name,
@@ -456,6 +499,8 @@ class AgenticLoopRunner:
         on_event: StepCallback | None = None,
         run_id: str | None = None,
         steer_queue: asyncio.Queue[str] | None = None,
+        initial_images: list[tuple[str, bytes]] | None = None,
+        steer_images_queue: asyncio.Queue[list[tuple[str, bytes]]] | None = None,
     ) -> AgenticRunResult:
         rid = run_id or f"run-ag-{uuid.uuid4().hex[:8]}"
         t0 = time.perf_counter()
@@ -483,7 +528,7 @@ class AgenticLoopRunner:
                 except Exception:
                     logger.debug("Agentic callback %s failed", evt_type, exc_info=True)
 
-        pending_vision_images: list[tuple[str, bytes]] = []
+        pending_vision_images: list[tuple[str, bytes]] = list(initial_images or [])[:8]
         await _emit("agentic.started", {"goal": goal[:300], "maxSteps": self.max_steps})
 
         async def _call_planner(cur_step: int) -> str | dict[str, Any]:
@@ -511,6 +556,8 @@ class AgenticLoopRunner:
                     "workspace_glob",
                     "workspace_grep",
                     "workspace_read_file",
+                    "workspace_git_status_diff",
+                    "video_inspect_frames",
                     "workspace_verify_html",
                     "workspace_verify_url",
                 )
@@ -601,6 +648,17 @@ class AgenticLoopRunner:
                         ),
                     })
                     await _emit("agent.steered", {"message": s_msg, "step": step_num})
+            if steer_images_queue is not None:
+                while not steer_images_queue.empty():
+                    try:
+                        img_batch = steer_images_queue.get_nowait() or []
+                        for mime_t, raw_b in img_batch:
+                            if raw_b:
+                                pending_vision_images.append((mime_t, raw_b))
+                    except asyncio.QueueEmpty:
+                        break
+                if len(pending_vision_images) > 8:
+                    pending_vision_images = pending_vision_images[-8:]
 
             await _emit("agent.step.started", {"step": step_num, "maxSteps": self.max_steps})
             try:
@@ -683,6 +741,7 @@ class AgenticLoopRunner:
                     ))
                     transcript.append({"role": "tool_observation", "trusted": False, "observation": retry_obs, "result": retry_obs})
                     continue
+                self._verify_artifacts_on_disk(artifacts)
                 await _emit("agentic.completed", {"steps": len(steps), "artifacts": len(artifacts)})
                 return AgenticRunResult(
                     run_id=rid,

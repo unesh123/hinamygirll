@@ -73,6 +73,7 @@ export type ProviderPreferenceMode =
   | "respan"
   | "coarena"
   | "toptools"
+  | "tokenrouter"
   | "experiential";
 
 /** Saved model selection per provider. Null = automatic. */
@@ -128,6 +129,7 @@ export const DEFAULT_SETTINGS: HinaaSettings = {
       ollama: "dolphin-mistral:7b",
       coarena: "gemini-4-argon",
       toptools: "Top-Tools-Ai-Pro",
+      tokenrouter: "deepseek/deepseek-chat",
       xkiro: "mistralai/codestral-2508",
     },
   },

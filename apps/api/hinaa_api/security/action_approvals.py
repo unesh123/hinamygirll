@@ -60,9 +60,13 @@ TOOL_RISK_TIERS: dict[str, int] = {
     "memory_consolidate_cycle": 0,
     "file_list": 0,
     "ultra_memory_get": 0,
+    "video_inspect_frames": 0,
+    "workspace_git_status_diff": 0,
 
     # Tier 1 (Reversible local workspace modification)
     "workspace": 1,
+    "workspace_checkpoint": 1,
+    "workspace_move_file": 1,
     "money_guard": 1,
     "file_read": 1,
     "clipboard_get": 1,

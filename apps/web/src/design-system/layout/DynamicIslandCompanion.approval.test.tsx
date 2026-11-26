@@ -227,4 +227,136 @@ describe("Robot HUD & Upper Build Dock Approval UI", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it("handles agent.progress_update milestones cleanly in Upper HUD, live thread, and CompanionStage", async () => {
+    const encoder = new TextEncoder();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("turns:stream")) {
+        const bgStart =
+          JSON.stringify({ type: "agentic.background", runId: "run-prog-1", goal: "Build SORA" }) +
+          "\n" +
+          JSON.stringify({
+            type: "plan",
+            plan: {
+              spokenText: "Started SORA builder.",
+              displayText: "Started SORA builder! What accent glow should lead?",
+              language: "en-US",
+              emotion: { primary: "warm", intensity: 0.7 },
+              performance: { expression: "happy", gesture: "nod" },
+              memoryCandidates: [],
+              toolRequests: [],
+            },
+          }) +
+          "\n" +
+          JSON.stringify({ type: "run.completed", status: "completed" }) +
+          "\n";
+        return new Response(
+          new ReadableStream({
+            start(c) {
+              c.enqueue(encoder.encode(bgStart));
+              c.close();
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
+        );
+      }
+      if (url.includes("/agent/agentic-runs/run-prog-1/stream")) {
+        const lines =
+          JSON.stringify({
+            type: "agent.progress_update",
+            runId: "run-prog-1",
+            phase: "coding",
+            headline: "Writing src/App.tsx...",
+            filesChanged: ["package.json", "src/App.tsx"],
+            previewUrls: ["http://127.0.0.1:4173/"],
+          }) +
+          "\n" +
+          JSON.stringify({
+            type: "agentic.finalized",
+            runId: "run-prog-1",
+            status: "completed",
+            summary: "Built SORA cleanly.",
+            markdown: "### SORA Built\nVerified desktop and mobile.",
+            filesChanged: ["package.json", "src/App.tsx"],
+            previewUrls: ["http://127.0.0.1:4173/"],
+          }) +
+          "\n";
+        return new Response(
+          new ReadableStream({
+            start(c) {
+              c.enqueue(encoder.encode(lines));
+              c.close();
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
+        );
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const { result } = renderHook(() =>
+        useCompanionController({
+          conversationId: "conv-prog-test",
+          routing: { activeMode: "mock", activeModel: "mock-model" } as any,
+          languagePolicy: DEFAULT_TEST_LANGUAGE_POLICY,
+        }),
+      );
+
+      await act(async () => {
+        await result.current.sendText("Build SORA hub", { forceBackend: true });
+      });
+
+      await waitFor(() => {
+        expect(result.current.backgroundBuild?.status).toBe("completed");
+      });
+      expect(result.current.backgroundBuild?.filesChanged).toEqual(["package.json", "src/App.tsx"]);
+      expect(result.current.backgroundBuild?.previewUrls).toEqual(["http://127.0.0.1:4173/"]);
+      expect(result.current.messages.some((m) => m.text.includes("SORA Built"))).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    render(
+      <WorkMode
+        companionState="idle"
+        messages={[]}
+        streamingText=""
+        partialTranscript=""
+        isThinking={false}
+        input=""
+        onInputChange={vi.fn()}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        disabled={false}
+        isVoiceActive={false}
+        onStartVoice={vi.fn()}
+        onStopVoice={vi.fn()}
+        voiceFeedback={{ kind: "idle", label: "" }}
+        powerUps={[]}
+        onPowerUpToggle={vi.fn()}
+        onResolveTool={vi.fn(async () => {})}
+        autoRunTools={false}
+        agentSteps={[]}
+        backgroundBuild={{
+          runId: "run-prog-2",
+          goal: "Build SORA",
+          status: "running",
+          phase: "preview",
+          headline: "Live preview available at http://127.0.0.1:4173/",
+          filesChanged: ["package.json", "src/App.tsx"],
+          previewUrls: ["http://127.0.0.1:4173/"],
+        }}
+        onCancelBackgroundBuild={vi.fn()}
+        onWelcomeAction={vi.fn()}
+        attachedImage={null}
+        onImageAttach={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("upper-build-hud")).toHaveTextContent("Live preview available at http://127.0.0.1:4173/");
+    expect(screen.getByTestId("upper-build-files-badge")).toHaveTextContent("2 files");
+    expect(screen.getByTestId("upper-build-preview-link")).toHaveAttribute("href", "http://127.0.0.1:4173/");
+  });
 });

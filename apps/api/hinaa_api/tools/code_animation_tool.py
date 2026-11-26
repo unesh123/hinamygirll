@@ -904,14 +904,25 @@ class WorkspaceVerifyHtmlParams(BaseModel):
     wait_ms: int = Field(700, ge=100, le=5000, description="Milliseconds to let scripts run before inspecting DOM & visual pixels.")
     width: int = Field(1280, ge=320, le=1920, description="Browser viewport width.")
     height: int = Field(800, ge=240, le=1200, description="Browser viewport height.")
+    mobile: bool = Field(False, description="When true, inspect in a mobile viewport (390x844, is_mobile=True) and report horizontal overflow.")
     workspace_root: str | None = Field(None, max_length=500, description="Optional workspace root override.")
 
 
-def _inspect_page_sync(target_uri: str, *, allow_loopback: bool, wait_ms: int, width: int, height: int) -> dict[str, Any]:
+def _inspect_page_sync(
+    target_uri: str,
+    *,
+    allow_loopback: bool,
+    wait_ms: int,
+    width: int,
+    height: int,
+    mobile: bool = False,
+) -> dict[str, Any]:
     from PIL import Image, ImageStat
     from playwright.sync_api import sync_playwright
     from ..runtime_paths import project_root
 
+    eff_width = 390 if mobile else width
+    eff_height = 844 if mobile else height
     page_errors: list[str] = []
     console_errors: list[str] = []
     previews_dir = project_root() / ".hina" / "previews"
@@ -921,7 +932,11 @@ def _inspect_page_sync(target_uri: str, *, allow_loopback: bool, wait_ms: int, w
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
         try:
-            context = browser.new_context(viewport={"width": width, "height": height}, device_scale_factor=1)
+            context = browser.new_context(
+                viewport={"width": eff_width, "height": eff_height},
+                is_mobile=bool(mobile),
+                device_scale_factor=2 if mobile else 1,
+            )
             page = context.new_page()
             page.on("pageerror", lambda err: page_errors.append(str(err)[:300]))
             page.on(
@@ -955,6 +970,11 @@ def _inspect_page_sync(target_uri: str, *, allow_loopback: bool, wait_ms: int, w
                     textLength: (document.body?.innerText || "").trim().length,
                     scrollWidth: document.documentElement?.scrollWidth || 0,
                     scrollHeight: document.documentElement?.scrollHeight || 0,
+                    innerWidth: window.innerWidth || 0,
+                    horizontalOverflow: (document.documentElement?.scrollWidth || 0) > ((window.innerWidth || 0) + 2),
+                    interactiveCount: document.querySelectorAll('a,button,input,select,textarea,[role="button"]').length,
+                    headingCount: document.querySelectorAll('h1,h2,h3').length,
+                    brokenImageCount: Array.from(document.querySelectorAll('img')).filter(img => !img.complete || img.naturalWidth === 0).length,
                 })"""
             )
             page.screenshot(path=str(preview_path), type="jpeg", quality=82)
@@ -978,9 +998,15 @@ def _inspect_page_sync(target_uri: str, *, allow_loopback: bool, wait_ms: int, w
         "canvasCount": dom_info.get("canvasCount", 0),
         "svgCount": dom_info.get("svgCount", 0),
         "textLength": dom_info.get("textLength", 0),
-        "viewport": f"{width}x{height}",
+        "viewport": f"{390 if mobile else width}x{844 if mobile else height}",
+        "mobile": bool(mobile),
+        "innerWidth": dom_info.get("innerWidth", 390 if mobile else width),
         "scrollWidth": dom_info.get("scrollWidth", 0),
         "scrollHeight": dom_info.get("scrollHeight", 0),
+        "horizontalOverflow": bool(dom_info.get("horizontalOverflow", False)),
+        "interactiveCount": dom_info.get("interactiveCount", 0),
+        "headingCount": dom_info.get("headingCount", 0),
+        "brokenImageCount": dom_info.get("brokenImageCount", 0),
         "lumaStddev": luma_stddev,
         "hasVisualRender": has_visual,
         "pageErrors": page_errors[:10],
@@ -994,15 +1020,16 @@ def _inspect_page_sync(target_uri: str, *, allow_loopback: bool, wait_ms: int, w
     }
 
 
-def _verify_html_sync(html_file: Path, *, wait_ms: int, width: int, height: int) -> dict[str, Any]:
-    return _inspect_page_sync(html_file.as_uri(), allow_loopback=False, wait_ms=wait_ms, width=width, height=height)
+def _verify_html_sync(html_file: Path, *, wait_ms: int, width: int, height: int, mobile: bool = False) -> dict[str, Any]:
+    return _inspect_page_sync(html_file.as_uri(), allow_loopback=False, wait_ms=wait_ms, width=width, height=height, mobile=mobile)
 
 
 class WorkspaceVerifyUrlParams(BaseModel):
     url: str = Field(..., min_length=10, max_length=500, description="Local loopback URL (http://127.0.0.1:... or http://localhost:...).")
     wait_ms: int = Field(800, ge=100, le=5000, description="Wait ms before inspecting DOM & visual pixels.")
-    width: int = Field(1280, ge=320, le=1920)
-    height: int = Field(800, ge=240, le=1200)
+    width: int = Field(1280, ge=320, le=1920, description="Desktop viewport width.")
+    height: int = Field(800, ge=240, le=1200, description="Desktop viewport height.")
+    mobile: bool = Field(False, description="When true, inspect in a mobile viewport (390x844, is_mobile=True) and report horizontal overflow.")
 
 
 async def workspace_verify_url_handler(params: WorkspaceVerifyUrlParams) -> dict[str, Any]:
@@ -1022,6 +1049,7 @@ async def workspace_verify_url_handler(params: WorkspaceVerifyUrlParams) -> dict
         wait_ms=params.wait_ms,
         width=params.width,
         height=params.height,
+        mobile=params.mobile,
     )
     res["url"] = params.url.strip()
     return res
@@ -1044,6 +1072,7 @@ async def workspace_verify_html_handler(params: WorkspaceVerifyHtmlParams) -> di
         wait_ms=params.wait_ms,
         width=params.width,
         height=params.height,
+        mobile=params.mobile,
     )
     res["filePath"] = _relative_posix(root, target)
     return res
@@ -1053,12 +1082,13 @@ registry.register(
     ToolDefinition(
         name="workspace_verify_html",
         display_name="Workspace: Verify HTML Render in Chromium",
-        description="Load a workspace HTML page in network-isolated headless Chromium and verify DOM elements, zero JS page/console errors, and non-blank pixel rendering.",
+        description="Load a workspace HTML page in network-isolated headless Chromium and verify DOM elements, zero JS page/console errors, mobile responsiveness, and non-blank pixel rendering.",
         parameters={
             "file_path": {"type": "string", "description": "Relative HTML file path inside workspace."},
             "wait_ms": {"type": "integer", "description": "Wait duration in ms before DOM/pixel inspection (default 700)."},
             "width": {"type": "integer", "description": "Viewport width (default 1280)."},
             "height": {"type": "integer", "description": "Viewport height (default 800)."},
+            "mobile": {"type": "boolean", "description": "Inspect mobile viewport (390x844) and check horizontal overflow."},
             "workspace_root": {"type": "string", "description": "Optional workspace root override."},
         },
         required_parameters=["file_path"],
@@ -1067,7 +1097,7 @@ registry.register(
         requires_confirmation=False,
         risk_tier=RiskTier.TIER_0_READ_ONLY,
         risk_level="low",
-        effect=ToolEffect.READ,
+        tool_effect=ToolEffect.READ,
         timeout_seconds=60,
     ),
     workspace_verify_html_handler,
@@ -1077,12 +1107,13 @@ registry.register(
     ToolDefinition(
         name="workspace_verify_url",
         display_name="Workspace: Verify Loopback URL in Chromium",
-        description="Load a running http://127.0.0.1 or http://localhost dev-server URL in Playwright and capture HTTP status, DOM metrics, JS errors, and screenshot preview.",
+        description="Load a running http://127.0.0.1 or http://localhost dev-server URL in Playwright and capture HTTP status, desktop/mobile layout metrics, JS errors, and screenshot preview.",
         parameters={
             "url": {"type": "string", "description": "Loopback URL such as http://127.0.0.1:8123/"},
             "wait_ms": {"type": "integer", "description": "Wait ms before inspecting DOM/pixels (default 800)."},
             "width": {"type": "integer", "description": "Viewport width (default 1280)."},
             "height": {"type": "integer", "description": "Viewport height (default 800)."},
+            "mobile": {"type": "boolean", "description": "Inspect mobile viewport (390x844) and check horizontal overflow."},
         },
         required_parameters=["url"],
         is_read_only=True,
@@ -1090,7 +1121,7 @@ registry.register(
         requires_confirmation=False,
         risk_tier=RiskTier.TIER_0_READ_ONLY,
         risk_level="low",
-        effect=ToolEffect.READ,
+        tool_effect=ToolEffect.READ,
         timeout_seconds=60,
     ),
     workspace_verify_url_handler,

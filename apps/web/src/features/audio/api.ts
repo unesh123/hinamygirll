@@ -26,6 +26,7 @@ export type ProviderMode =
   | "respan"
   | "coarena"
   | "toptools"
+  | "tokenrouter"
   | "experiential";
 
 

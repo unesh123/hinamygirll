@@ -207,6 +207,15 @@ export const CANONICAL_PROVIDERS: CanonicalProvider[] = [
     ],
   },
   {
+    mode: "tokenrouter",
+    label: "🔀 TokenRouter (DeepSeek / Unified)",
+    defaultModel: "deepseek/deepseek-chat",
+    models: [
+      { id: "deepseek/deepseek-chat", label: "DeepSeek Chat", isDefault: true },
+      { id: "deepseek/deepseek-reasoner", label: "DeepSeek Reasoner (R1)" },
+    ],
+  },
+  {
     mode: "coarena",
     label: "✨ Coarena AI (Free Frontier)",
     defaultModel: "gemini-4-argon",
@@ -398,6 +407,8 @@ export function ModelControlBar({
                       ? "Coarena AI"
                     : currentMode === "toptools"
                       ? "Top-Tools AI"
+                    : currentMode === "tokenrouter"
+                      ? "TokenRouter"
                     : providerOptions.find((p) => p.mode === currentMode)?.label || currentMode;
 
   const currentImageObj = IMAGE_ENGINES.find((e) => e.id === imageEngine) || IMAGE_ENGINES[0];

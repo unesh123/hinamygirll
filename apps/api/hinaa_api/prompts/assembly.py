@@ -140,6 +140,7 @@ def _self_state_layer(voice: bool = False, allowed_tools: tuple[str, ...] | None
                 ("cantrustai", "cantrust_configured"),
                 ("coarena", "coarena_configured"),
                 ("toptools", "toptools_configured"),
+        ("tokenrouter", "tokenrouter_configured"),
                 ("claude", "claude_configured"),
                 ("gemini", "gemini_configured"),
                 ("openai", "openai_configured"),
@@ -289,13 +290,27 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
         actual_mode,
         mode_inferred=inp.response_mode is None,
     )
+    muse_runner_active = bool(
+        inp.dialogue_state_block
+        and (
+            "MUSE" in inp.dialogue_state_block
+            or "Active Background Builder Run" in inp.dialogue_state_block
+            or "WORKSPACE RUNNER" in inp.dialogue_state_block
+        )
+    )
+    pid_text = _product_identity_layer(voice=inp.interaction_mode == "realtime", allowed_tools=inp.allowed_tools)
+    if muse_runner_active:
+        pid_text = pid_text.replace(
+            "Mode: Conversational Engagement. No tools are available on this turn.",
+            "Mode: Muse Co-Builder (Live Workspace Builder Runner IS attached & executing in parallel).",
+        )
     layers = [
         PromptLayer(name="safety", priority=1, trusted=True, text=SAFETY_LAYER),
         PromptLayer(
             name="product_identity",
             priority=2,
             trusted=True,
-            text=_product_identity_layer(voice=inp.interaction_mode == "realtime", allowed_tools=inp.allowed_tools),
+            text=pid_text,
         ),
         PromptLayer(
             name="companion_identity",
@@ -349,15 +364,24 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
             priority=9,
             trusted=True,
             text=(
-                NO_TOOLS_POLICY_LAYER
-                if (inp.allowed_tools is not None and len(inp.allowed_tools) == 0)
+                (
+                    "[MUSE WORKSPACE RUNNER ATTACHED — PARALLEL CO-BUILDER MODE]\n"
+                    "Brain #1 (Workspace Builder Runner) IS attached and executing real files/commands in parallel right now! "
+                    "Do NOT emit fake tool calls in this conversational stream, and NEVER claim that no workspace/file runner is attached. "
+                    "Chat naturally, share honest progress, ask concise clarifying design questions when helpful, and relay user feedback directly to the builder."
+                )
+                if (muse_runner_active and inp.allowed_tools is not None and len(inp.allowed_tools) == 0)
                 else (
-                    REALTIME_TOOL_POLICY_LAYER
-                    if inp.interaction_mode == "realtime"
+                    NO_TOOLS_POLICY_LAYER
+                    if (inp.allowed_tools is not None and len(inp.allowed_tools) == 0)
                     else (
-                        TOOL_POLICY_LAYER + "\n\n" + registry.generate_system_prompt(inp.allowed_tools)
-                        if inp.allowed_tools is not None
-                        else TOOL_POLICY_LAYER + "\n\n" + registry.generate_system_prompt()
+                        REALTIME_TOOL_POLICY_LAYER
+                        if inp.interaction_mode == "realtime"
+                        else (
+                            TOOL_POLICY_LAYER + "\n\n" + registry.generate_system_prompt(inp.allowed_tools)
+                            if inp.allowed_tools is not None
+                            else TOOL_POLICY_LAYER + "\n\n" + registry.generate_system_prompt()
+                        )
                     )
                 )
             ),

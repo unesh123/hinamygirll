@@ -152,6 +152,18 @@ async def workspace_read_file_handler(params: WorkspaceReadFileParams) -> dict[s
         return {"status": "error", "code": "WORKSPACE_ESCAPE", "error": str(err)}
 
     if not target.exists() or not target.is_file():
+        refs_root = root / ".hina" / "refs"
+        bare_name = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(params.file_path).name)
+        if bare_name and refs_root.is_dir():
+            root_resolved = root.resolve()
+            candidates = sorted(
+                (p for p in refs_root.rglob(f"*{bare_name}*") if p.is_file() and p.resolve().is_relative_to(root_resolved)),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            if candidates:
+                target = candidates[0]
+    if not target.exists() or not target.is_file():
         return {"status": "error", "code": "FILE_NOT_FOUND", "error": f"File not found: {params.file_path}"}
 
     content = target.read_text(encoding="utf-8", errors="replace")
@@ -1230,4 +1242,347 @@ registry.register(
         effect=ToolEffect.EXECUTE_PROCESS,
     ),
     workspace_stop_process_handler,
+)
+
+# ---------------------------------------------------------------------------
+# Phase 2 Workspace Navigation, Git Inspection, and Snapshot Checkpoints
+# ---------------------------------------------------------------------------
+
+
+class WorkspaceMoveFileParams(BaseModel):
+    source_path: str = Field(..., min_length=1, max_length=500, description="Existing relative path inside workspace root.")
+    dest_path: str = Field(..., min_length=1, max_length=500, description="Destination relative path inside workspace root.")
+    overwrite: bool = Field(False, description="Allow replacing an existing non-sensitive destination file.")
+    workspace_root: str | None = Field(None, max_length=500, description="Optional workspace root override.")
+
+
+class WorkspaceGitStatusDiffParams(BaseModel):
+    stat_only: bool = Field(False, description="Return compact --stat summary instead of full unified diff.")
+    staged: bool = Field(False, description="Inspect staged changes (--cached) instead of working tree diff.")
+    path_filter: str | None = Field(None, max_length=500, description="Optional relative path to scope git diff.")
+    max_diff_chars: int = Field(24000, ge=500, le=80000, description="Maximum diff characters to return.")
+    workspace_root: str | None = Field(None, max_length=500, description="Optional workspace root override.")
+
+
+class WorkspaceCheckpointParams(BaseModel):
+    action: str = Field(..., description="One of 'create', 'list', or 'restore'.")
+    checkpoint_id: str | None = Field(None, max_length=120, description="Checkpoint ID required for 'restore'.")
+    label: str = Field("", max_length=160, description="Human-friendly label when creating a checkpoint.")
+    workspace_root: str | None = Field(None, max_length=500, description="Optional workspace root override.")
+
+
+async def workspace_move_file_handler(params: WorkspaceMoveFileParams) -> dict[str, Any]:
+    import shutil
+
+    try:
+        root = _resolve_workspace_root(params.workspace_root)
+        src = _resolve_inside_workspace(root, params.source_path)
+        dst = _resolve_inside_workspace(root, params.dest_path)
+    except ValueError as err:
+        return {"status": "error", "code": "WORKSPACE_ESCAPE", "error": str(err)}
+
+    if src == root or dst == root:
+        return {"status": "error", "code": "INVALID_TARGET", "error": "Cannot move or overwrite workspace root."}
+
+    src_rel = _relative_posix(root, src)
+    dst_rel = _relative_posix(root, dst)
+    if _is_sensitive_write_target(src_rel) or _is_sensitive_write_target(dst_rel):
+        return {
+            "status": "error",
+            "code": "SENSITIVE_TARGET_BLOCKED",
+            "error": f"Refusing move touching sensitive path: {src_rel} -> {dst_rel}",
+        }
+    if not src.exists():
+        return {"status": "error", "code": "FILE_NOT_FOUND", "error": f"Source path does not exist: {src_rel}"}
+    if dst.exists() and not params.overwrite:
+        return {
+            "status": "error",
+            "code": "FILE_EXISTS",
+            "error": f"Destination already exists (pass overwrite=True to replace): {dst_rel}",
+        }
+
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.exists() and params.overwrite:
+        if dst.is_dir():
+            return {"status": "error", "code": "DEST_IS_DIR", "error": f"Cannot overwrite directory {dst_rel}"}
+        dst.unlink()
+    shutil.move(str(src), str(dst))
+    return {
+        "status": "success",
+        "sourcePath": src_rel,
+        "destPath": dst_rel,
+        "filePath": dst_rel,
+    }
+
+
+async def workspace_git_status_diff_handler(params: WorkspaceGitStatusDiffParams) -> dict[str, Any]:
+    import asyncio
+
+    try:
+        root = _resolve_workspace_root(params.workspace_root)
+        filter_rel: str | None = None
+        if params.path_filter:
+            fp = _resolve_inside_workspace(root, params.path_filter)
+            filter_rel = _relative_posix(root, fp)
+    except ValueError as err:
+        return {"status": "error", "code": "WORKSPACE_ESCAPE", "error": str(err)}
+
+    env = _sanitized_command_env()
+
+    def _run_git() -> tuple[subprocess.CompletedProcess[str], subprocess.CompletedProcess[str]]:
+        st_proc = subprocess.run(
+            ["git", "status", "--short", "--branch", "-u"],
+            cwd=str(root),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            encoding="utf-8",
+            errors="replace",
+        )
+        diff_argv = ["git", "diff"]
+        if params.staged:
+            diff_argv.append("--cached")
+        if params.stat_only:
+            diff_argv.append("--stat")
+        if filter_rel:
+            diff_argv.extend(["--", filter_rel])
+        df_proc = subprocess.run(
+            diff_argv,
+            cwd=str(root),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            encoding="utf-8",
+            errors="replace",
+        )
+        return st_proc, df_proc
+
+    st_proc, df_proc = await asyncio.to_thread(_run_git)
+    if st_proc.returncode != 0 and "not a git repository" in (st_proc.stderr or "").lower():
+        return {"status": "error", "code": "NOT_GIT_REPO", "error": "Workspace root is not a git repository."}
+
+    diff_txt = df_proc.stdout or ""
+    truncated = False
+    if len(diff_txt) > params.max_diff_chars:
+        diff_txt = diff_txt[: params.max_diff_chars] + "\n... [diff truncated] ..."
+        truncated = True
+    status_lines = [line for line in (st_proc.stdout or "").splitlines() if line.strip()]
+    return {
+        "status": "success",
+        "branchLine": status_lines[0] if status_lines else "",
+        "changedEntries": status_lines[1:] if len(status_lines) > 1 else [],
+        "diff": diff_txt,
+        "truncated": truncated,
+        "exitCode": st_proc.returncode,
+    }
+
+
+def _collect_checkpoint_files(
+    root: Path, *, max_files: int = 600, max_total_bytes: int = 25 * 1024 * 1024
+) -> tuple[list[tuple[Path, str]], bool]:
+    collected: list[tuple[Path, str]] = []
+    total_bytes = 0
+    truncated = False
+    for dirpath, dirnames, filenames in os.walk(root):
+        rel_dir = Path(dirpath).relative_to(root).as_posix()
+        dirnames[:] = sorted(
+            d
+            for d in dirnames
+            if d not in _SKIP_DIRS
+            and not any(
+                (f"{rel_dir}/{d}" if rel_dir != "." else d).startswith(pref)
+                for pref in _SKIP_REL_PREFIXES
+            )
+        )
+        for fname in sorted(filenames):
+            fp = Path(dirpath) / fname
+            rel = fp.relative_to(root).as_posix()
+            if _is_sensitive_write_target(rel):
+                continue
+            try:
+                sz = fp.stat().st_size
+            except OSError:
+                continue
+            if sz > 2 * 1024 * 1024:
+                continue
+            if len(collected) >= max_files or (total_bytes + sz) > max_total_bytes:
+                truncated = True
+                return collected, truncated
+            collected.append((fp, rel))
+            total_bytes += sz
+    return collected, truncated
+
+
+async def workspace_checkpoint_handler(params: WorkspaceCheckpointParams) -> dict[str, Any]:
+    import asyncio
+    import shutil
+
+    try:
+        root = _resolve_workspace_root(params.workspace_root)
+    except ValueError as err:
+        return {"status": "error", "code": "WORKSPACE_ESCAPE", "error": str(err)}
+
+    ckpt_root = root / ".hina" / "checkpoints"
+    action = (params.action or "").strip().lower()
+
+    if action == "create":
+        ckpt_root.mkdir(parents=True, exist_ok=True)
+        cid = f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
+        ckpt_dir = ckpt_root / cid
+        files_dir = ckpt_dir / "files"
+
+        def _create() -> tuple[list[str], bool]:
+            items, trunc = _collect_checkpoint_files(root)
+            rel_list: list[str] = []
+            for src_fp, rel in items:
+                dst_fp = files_dir / rel
+                dst_fp.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src_fp, dst_fp)
+                rel_list.append(rel)
+            manifest = {
+                "checkpointId": cid,
+                "label": params.label or "",
+                "createdAt": time.time(),
+                "fileCount": len(rel_list),
+                "truncated": trunc,
+                "files": rel_list,
+            }
+            ckpt_dir.mkdir(parents=True, exist_ok=True)
+            (ckpt_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+            return rel_list, trunc
+
+        rel_list, trunc = await asyncio.to_thread(_create)
+        return {
+            "status": "success",
+            "action": "create",
+            "checkpointId": cid,
+            "label": params.label or "",
+            "fileCount": len(rel_list),
+            "truncated": trunc,
+        }
+
+    if action == "list":
+        if not ckpt_root.exists():
+            return {"status": "success", "action": "list", "checkpoints": []}
+        entries: list[dict[str, Any]] = []
+        for sub in sorted(ckpt_root.iterdir(), key=lambda pt: pt.stat().st_mtime, reverse=True):
+            mp = sub / "manifest.json"
+            if sub.is_dir() and mp.is_file():
+                try:
+                    data = json.loads(mp.read_text(encoding="utf-8"))
+                    entries.append({
+                        "checkpointId": data.get("checkpointId", sub.name),
+                        "label": data.get("label", ""),
+                        "createdAt": data.get("createdAt"),
+                        "fileCount": data.get("fileCount", len(data.get("files") or [])),
+                    })
+                except Exception:
+                    continue
+        return {"status": "success", "action": "list", "checkpoints": entries[:25]}
+
+    if action == "restore":
+        cid = (params.checkpoint_id or "").strip()
+        if not cid or not re.fullmatch(r"[A-Za-z0-9._-]+", cid):
+            return {"status": "error", "code": "INVALID_CHECKPOINT_ID", "error": "Provide a valid checkpoint_id to restore."}
+        ckpt_dir = ckpt_root / cid
+        mp = ckpt_dir / "manifest.json"
+        files_dir = ckpt_dir / "files"
+        if not mp.is_file() or not files_dir.is_dir():
+            return {"status": "error", "code": "CHECKPOINT_NOT_FOUND", "error": f"Checkpoint not found: {cid}"}
+
+        def _restore() -> list[str]:
+            manifest = json.loads(mp.read_text(encoding="utf-8"))
+            restored: list[str] = []
+            for rel in manifest.get("files") or []:
+                rel_s = str(rel).replace("\\", "/").lstrip("/")
+                if _is_sensitive_write_target(rel_s):
+                    continue
+                src_fp = files_dir / rel_s
+                if not src_fp.is_file():
+                    continue
+                dst_fp = _resolve_inside_workspace(root, rel_s)
+                dst_fp.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src_fp, dst_fp)
+                restored.append(rel_s)
+            return restored
+
+        restored = await asyncio.to_thread(_restore)
+        return {
+            "status": "success",
+            "action": "restore",
+            "checkpointId": cid,
+            "restoredCount": len(restored),
+            "filesRestored": restored[:40],
+        }
+
+    return {"status": "error", "code": "INVALID_ACTION", "error": "action must be 'create', 'list', or 'restore'."}
+
+
+registry.register(
+    ToolDefinition(
+        name="workspace_move_file",
+        display_name="Workspace: Move / Rename File",
+        description="Move or rename a non-sensitive file inside workspace_root cleanly without shell commands.",
+        parameters={
+            "source_path": {"type": "string", "description": "Existing relative path inside workspace root."},
+            "dest_path": {"type": "string", "description": "Target relative path inside workspace root."},
+            "overwrite": {"type": "boolean", "description": "Allow overwriting existing destination file (default false)."},
+            "workspace_root": {"type": "string", "description": "Optional workspace root override."},
+        },
+        required_parameters=["source_path", "dest_path"],
+        is_read_only=False,
+        is_concurrency_safe=False,
+        requires_confirmation=False,
+        risk_tier=RiskTier.TIER_1_REVERSIBLE,
+        risk_level="medium",
+        tool_effect=ToolEffect.MUTATE_WORKSPACE,
+    ),
+    workspace_move_file_handler,
+)
+
+registry.register(
+    ToolDefinition(
+        name="workspace_git_status_diff",
+        display_name="Workspace: Git Status & Diff",
+        description="Inspect clean git branch status and working tree / staged diff inside workspace_root.",
+        parameters={
+            "stat_only": {"type": "boolean", "description": "Return --stat summary only (default false)."},
+            "staged": {"type": "boolean", "description": "Inspect staged diff (--cached) instead of unstaged."},
+            "path_filter": {"type": "string", "description": "Optional relative file/folder path filter."},
+            "max_diff_chars": {"type": "integer", "description": "Max diff chars to return (default 24000)."},
+            "workspace_root": {"type": "string", "description": "Optional workspace root override."},
+        },
+        required_parameters=[],
+        is_read_only=True,
+        is_concurrency_safe=True,
+        requires_confirmation=False,
+        risk_tier=RiskTier.TIER_0_READ_ONLY,
+        risk_level="low",
+        tool_effect=ToolEffect.READ,
+    ),
+    workspace_git_status_diff_handler,
+)
+
+registry.register(
+    ToolDefinition(
+        name="workspace_checkpoint",
+        display_name="Workspace: Checkpoint Snapshot & Rollback",
+        description="Create, list, or restore safe workspace file checkpoints inside .hina/checkpoints/ before/after big edits.",
+        parameters={
+            "action": {"type": "string", "description": "One of 'create', 'list', or 'restore'."},
+            "checkpoint_id": {"type": "string", "description": "Checkpoint ID to restore."},
+            "label": {"type": "string", "description": "Label when creating a checkpoint."},
+            "workspace_root": {"type": "string", "description": "Optional workspace root override."},
+        },
+        required_parameters=["action"],
+        is_read_only=False,
+        is_concurrency_safe=False,
+        requires_confirmation=False,
+        risk_tier=RiskTier.TIER_1_REVERSIBLE,
+        risk_level="medium",
+        tool_effect=ToolEffect.MUTATE_WORKSPACE,
+    ),
+    workspace_checkpoint_handler,
 )
