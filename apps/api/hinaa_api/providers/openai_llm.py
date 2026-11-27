@@ -406,6 +406,7 @@ class OpenAILLMProvider:
         images: list[tuple[str, bytes]] | None = None,
         tool_schemas: list[dict[str, Any]] | None = None,
         messages: list[dict[str, Any]] | None = None,
+        tool_choice: str = "auto",
     ) -> str:
         """Direct raw completion for bounded coding/studio agent loops with native OpenAI tool_calls + gateway fallback."""
         can_exec, reason, _ = self._circuit_breaker.can_execute()
@@ -427,7 +428,7 @@ class OpenAILLMProvider:
                     })
             return blocks
 
-        def _build_payload(include_images: bool, include_tools: bool) -> dict[str, object]:
+        def _build_payload(include_images: bool, include_tools: bool, choice_mode: str = "auto") -> dict[str, object]:
             img_blocks = _image_blocks() if (include_images and images) else []
             if include_tools and tool_schemas and messages:
                 msg_list: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
@@ -451,7 +452,7 @@ class OpenAILLMProvider:
                     "model": self._model_for_payload(),
                     "messages": msg_list,
                     "tools": tool_schemas,
-                    "tool_choice": "auto",
+                    "tool_choice": choice_mode,
                     "temperature": self._effective_temperature(0.2),
                     ("max_tokens" if use_max_tokens else "max_completion_tokens"): max_tokens,
                 }
@@ -472,7 +473,7 @@ class OpenAILLMProvider:
             }
             if include_tools and tool_schemas:
                 payload["tools"] = tool_schemas
-                payload["tool_choice"] = "auto"
+                payload["tool_choice"] = choice_mode
             return payload
 
         def _extract_native_decision(msg: dict[str, Any]) -> str:
@@ -530,14 +531,25 @@ class OpenAILLMProvider:
         num_keys = max(1, len(self._keys))
         use_vision = bool(images)
         use_tools = bool(tool_schemas)
+        req_choice = "required" if (tool_choice == "required" and use_tools) else "auto"
         try:
             for key_idx in range(num_keys):
+                active_choice = req_choice if use_tools else "auto"
                 async with _pooled_client() as client:
                     response = await client.post(
                         self._chat_url(),
                         headers=self._headers(),
-                        json=_build_payload(use_vision, use_tools),
+                        json=_build_payload(use_vision, use_tools, active_choice),
                     )
+                if use_tools and active_choice == "required" and response.status_code in {400, 404, 415, 422, 501}:
+                    # Gateway rejected tool_choice='required'; downgrade to 'auto' while keeping native tools.
+                    active_choice = "auto"
+                    async with _pooled_client() as client:
+                        response = await client.post(
+                            self._chat_url(),
+                            headers=self._headers(),
+                            json=_build_payload(use_vision, True, active_choice),
+                        )
                 if use_tools and response.status_code in {400, 404, 415, 422, 501}:
                     # Gateway does not support native OpenAI tools/tool roles; fall back seamlessly.
                     use_tools = False
@@ -545,7 +557,7 @@ class OpenAILLMProvider:
                         response = await client.post(
                             self._chat_url(),
                             headers=self._headers(),
-                            json=_build_payload(use_vision, False),
+                            json=_build_payload(use_vision, False, "auto"),
                         )
                 if use_vision and response.status_code in {400, 415, 422}:
                     # Text-only gateway rejected multimodal content blocks; fall back seamlessly.
@@ -554,7 +566,7 @@ class OpenAILLMProvider:
                         response = await client.post(
                             self._chat_url(),
                             headers=self._headers(),
-                            json=_build_payload(False, use_tools),
+                            json=_build_payload(False, use_tools, active_choice if use_tools else "auto"),
                         )
                 last_resp = response
                 if response.status_code in {401, 403, 429} and key_idx < num_keys - 1:
@@ -572,7 +584,7 @@ class OpenAILLMProvider:
                         fb_resp = await client.post(
                             self._chat_url(),
                             headers=self._headers(),
-                            json=_build_payload(use_vision, False),
+                            json=_build_payload(use_vision, False, "auto"),
                         )
                     if fb_resp.is_success:
                         fb_data = fb_resp.json()

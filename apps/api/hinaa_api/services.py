@@ -7406,7 +7406,7 @@ class ConversationService:
             r"(?:sora|html|webpage|web\s*page|website|web\s*app|webapp|platform|storefront|landing\s+page|portfolio|dashboard|visualizer|simulation|game|"
             r"python|script|program|cli|api|server|backend|frontend|module|component|project|site|file|app|agent|"
             r"mp4|video|reel|reels|tiktok|youtube\s+short|animation|motion\s+graphics|kinetic\s+intro|typography)|"
-            r"(?:viral\s+(?:edit|video|reel|tiktok|short)|tiktok\s+edit|insta(?:gram)?\s+reel|typography\s+edit|make\s+(?:one|it|that)\s+for\s+me)|"
+            r"(?:viral\s+(?:edit|video|reel|tiktok|short)|tiktok\s+edit|insta(?:gram)?\s+reel|typography\s+edit|make\s+(?:one|it|that)\s+for\s+me|start\s+coding|code\s+and\s+(?:render|create|build)|using\s+(?:html|code|skl|playwright|ffmpeg))|"
             r"(?:product|stack|pages|visual\s+direction|files\s+created)\s*:|"
             r"(?:inspect|debug|trace|fix|check|audit|find|read|analyze|explain)\b[^.?!]{0,90}\b"
             r"(?:in\s+(?:our|the|this)\s+(?:code|repo|codebase|project|file|api|app|ui|server|backend|frontend)|"
@@ -7417,6 +7417,11 @@ class ConversationService:
         _CAPABILITY_Q_RE = re.compile(
             r"(?i)^\s*(?:what\s+(?:kind|types?)\s+of\b|explain\s+what\s+(?:you|hina|html|<)|why\s+is\s+the\s+website\s+broken\b|what\s+does\s+<)"
         )
+        _HAS_EXEC_IMPERATIVE_RE = re.compile(
+            r"(?i)\b(?:start\s+coding|execute\s+(?:it|this|everything|now)|do\s+it\s+(?:in\s+one\s+go|now)|run\s+it\s+now|"
+            r"render\s+(?:it|this|a|an|the)|give\s+me\s+the\s+(?:final|rendered)|create\s+(?:it|this|one)|"
+            r"build\s+(?:it|this|one)|make\s+(?:one|it|that)\s+(?:for\s+me|now))\b"
+        )
         _NON_AGENTIC_GUARD_RE = re.compile(
             r"(?i)(?:^/(?:image|search|pdf|walk|roam)\b|"
             r"\b(?:generate|create|make|draw|paint|render)\s+(?:an?\s+)?(?:image|picture|photo|portrait|illustration|sketch|artwork)\b|"
@@ -7425,7 +7430,7 @@ class ConversationService:
         )
         _RETRY_FOLLOWUP_RE = re.compile(
             r"(?i)^(?:ok(?:ay)?[\s,]+|please[\s,]+|now[\s,]+|bro[\s,]+|hey[\s,]+|hina[\s,]+)*(?:can\s+you\s+)?"
-            r"(?:continue(?:\s+(?:bro|now|please|building))?|try\s+again|retry(?:\s+(?:it|that|now))?|do\s+(?:it|that)(?:\s+(?:again|now|properly))?|execute(?:\s+(?:it|that))?(?:\s+now)?|run\s+(?:it|that)(?:\s+now)?|render\s+(?:it|that|one)(?:\s+(?:for\s+me|now))?|make\s+(?:it|that|one)(?:\s+(?:for\s+me|now|better|high\s+level))?|create\s+(?:it|that|one)(?:\s+(?:for\s+me|now))?|build\s+(?:it|that|one|sora)(?:\s+(?:for\s+me|now|properly))?|upgrade(?:\s+(?:it|that))?(?:\s+now)?|go\s+ahead(?:\s+and\s+(?:execute|render|create|build|do)\s+it)?)"
+            r"(?:continue(?:\s+(?:bro|now|please|building))?|try\s+again|retry(?:\s+(?:it|that|now))?|do\s+(?:it|that)(?:\s+(?:again|now|properly|in\s+one\s+go))?|execute(?:\s+(?:it|that))?(?:\s+(?:now|in\s+one\s+go))?|run\s+(?:it|that)(?:\s+now)?|render\s+(?:it|that|one)(?:\s+(?:for\s+me|now))?|make\s+(?:it|that|one)(?:\s+(?:for\s+me|now|better|high\s+level))?|create\s+(?:it|that|one)(?:\s+(?:for\s+me|now))?|build\s+(?:it|that|one|sora)(?:\s+(?:for\s+me|now|properly))?|upgrade(?:\s+(?:it|that))?(?:\s+now)?|go\s+ahead(?:\s+and\s+(?:execute|render|create|build|do)\s+it)?)"
             r"(?:[\s,?]+|$)"
         )
         resolved_media = await self._resolve_turn_media(request)
@@ -7536,7 +7541,10 @@ class ConversationService:
                         bool(_promoted_retry_goal)
                         or (
                             bool(_AUTO_AGENTIC_RE.search(_text_clean))
-                            and not bool(_CAPABILITY_Q_RE.search(_text_clean))
+                            and (
+                                not bool(_CAPABILITY_Q_RE.search(_text_clean))
+                                or bool(_HAS_EXEC_IMPERATIVE_RE.search(_text_clean))
+                            )
                             and not bool(_NON_AGENTIC_GUARD_RE.search(_text_clean))
                         )
                     )
@@ -7604,12 +7612,19 @@ class ConversationService:
                 r"(?i)\b(?:website|web\s*page|webpage|web\s*app|webapp|landing\s*page|ui\b|clone|scrape|merlin|dashboard|portfolio|frontend|old[- ]?new|sora|storefront|platform|ai\s+agents?|agent|vite|react|three\.?js|game|3d)\b"
             )
             _EXPLICIT_VIDEO_RENDER_RE = re.compile(
-                r"(?i)\b(?:render_code_animation|kinetic[\s-]+typography|bridal\s+reel|(?:create|render|export|make)\s+(?:an?\s+)?(?:\w+\s+){0,3}(?:mp4|motion\s+video|animation\s+reel))\b"
+                r"(?i)\b(?:render_code_animation|kinetic[\s-]+typography|bridal\s+reel|viral\s+(?:edit|reel|tiktok)|insta(?:gram)?\s+reel|tiktok\s+edit|typography\s+edit|(?:create|render|export|make)\s+(?:an?\s+)?(?:\w+\s+){0,3}(?:mp4|motion\s+video|animation\s+reel))\b"
+            )
+            _ONE_GO_RE = re.compile(
+                r"(?i)\b(?:in\s+one\s+(?:go|shot|time|turn|pass)|one\s+time\b|no\s+(?:questions?|clarifications?|asking)|"
+                r"without\s+asking|don'?t\s+ask|do\s+not\s+ask|execute\s+(?:it\s+)?(?:immediately|instantly|right\s+now|now)|"
+                r"start\s+coding|just\s+(?:do|build|create|make|render|run|execute)\s+(?:it|everything|now)|"
+                r"from\s+start\s+to\s+finish|end[- ]?to[- ]?end)\b"
             )
             _should_muse_dual_brain = (
                 _req_agentic is None
                 and request.providerMode != "mock"
                 and not bool(_EXPLICIT_VIDEO_RENDER_RE.search(goal_text))
+                and not bool(_ONE_GO_RE.search(goal_text))
                 and bool(_MUSE_COBUILD_RE.search(goal_text))
             )
             if _should_muse_dual_brain:
@@ -7688,7 +7703,9 @@ class ConversationService:
                 report_md = format_agentic_markdown(res)
                 clean_spoken = re.sub(r"```[\s\S]*?```", "", res.summary or "").strip()
                 clean_spoken = re.sub(r"\s+", " ", re.sub(r"[`*_#\[\]()]", "", clean_spoken)).strip()
-                if any(a.get("kind") == "video" for a in (res.artifacts or [])):
+                if res.status in ("failed", "blocked", "budget_exhausted"):
+                    spoken_short = clean_spoken[:180] or f"Execution stopped ({res.blocker or res.status})."
+                elif any(a.get("kind") == "video" for a in (res.artifacts or [])):
                     spoken_short = clean_spoken[:180] or "Rendered your MP4 animation and loaded it in chat."
                 elif res.files_changed:
                     spoken_short = clean_spoken[:180] or f"Updated {len(res.files_changed)} workspace file(s) cleanly."
@@ -7726,6 +7743,7 @@ class ConversationService:
             "reminder.create",
             "youtube_playback_request",
             "ui_control",
+            "browser_cloud_agent",
             "browser_navigate",
             "browser_execute_task",
             "browser_press_key",
@@ -7736,7 +7754,7 @@ class ConversationService:
         )
         if (
             instant_requests
-            and "?" not in request.text
+            and not request.text.rstrip().endswith("?")
             and all(getattr(req, "reason", None) == "deterministic-intent" for req in instant_requests)
             and all(req.toolName in _INSTANT_ACTION_TOOLS for req in instant_requests)
             and not re.search(

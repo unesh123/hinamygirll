@@ -364,3 +364,194 @@ async def test_viral_tiktok_followup_triggers_agentic_route(settings) -> None:
     ]
     assert not any("agentic.started" in ev for ev in cap_events)
 
+
+@pytest.mark.asyncio
+async def test_native_prompt_required_tool_choice_and_one_go_routing(tmp_path, monkeypatch) -> None:
+    import contextlib
+    import json
+
+    import httpx
+    from pydantic import SecretStr
+
+    from hinaa_api.agent import live_agentic_service as las
+    from hinaa_api.config import Settings
+    from hinaa_api.models import TurnRequest
+    from hinaa_api.providers.openai_llm import OpenAILLMProvider
+    from hinaa_api.services import ConversationService
+
+    # 1. Native system prompt keeps StudioFX, Unicode safety, anti-filler, and anti-fabrication rules
+    assert "window.StudioFX" in las._AGENTIC_NATIVE_SYSTEM_PROMPT
+    assert "HINAA ANIMA" in las._AGENTIC_NATIVE_SYSTEM_PROMPT
+    assert "StudioFX.graphemes" in las._AGENTIC_NATIVE_SYSTEM_PROMPT
+    assert "Zero hallucination" in las._AGENTIC_NATIVE_SYSTEM_PROMPT
+
+    # 2. OpenAILLMProvider forwards tool_choice="required" and downgrades to "auto" cleanly on 400
+    seen_choices: list[object] = []
+
+    class _FakeClient:
+        async def post(self, _url, *, headers=None, json=None):  # noqa: A002
+            seen_choices.append((json or {}).get("tool_choice"))
+            if (json or {}).get("tool_choice") == "required":
+                return httpx.Response(400, json={"error": {"message": "unsupported tool_choice=required"}})
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "tool_calls": [
+                                    {
+                                        "id": "call_1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "workspace_glob",
+                                            "arguments": '{"pattern": "*.py"}',
+                                        },
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                },
+            )
+
+    @contextlib.asynccontextmanager
+    async def _fake_pool():
+        yield _FakeClient()
+
+    monkeypatch.setattr("hinaa_api.providers.openai_llm._pooled_client", _fake_pool)
+
+    adapter = OpenAILLMProvider(
+        key="sk-test-key-1234",
+        model="deepseek-v4.1-flash",
+        base_url="https://example.invalid/v1",
+    )
+    out = await adapter.complete_raw_agentic(
+        system_prompt="sys",
+        user_prompt="usr",
+        tool_schemas=[{"type": "function", "function": {"name": "workspace_glob", "parameters": {"type": "object", "properties": {}}}}],
+        tool_choice="required",
+    )
+    assert seen_choices == ["required", "auto"]
+    parsed_out = json.loads(out)
+    assert parsed_out["action"] == "call_tool"
+    assert parsed_out["tool"] == "workspace_glob"
+
+    # 3. make_provider_planner passes tool_choice="required" on Step 1 action goals & TOOL_REQUIRED retries
+    seen_planner_choices: list[str | None] = []
+
+    class _RecordingRawProvider:
+        async def complete_raw_agentic(
+            self,
+            *,
+            system_prompt: str,
+            user_prompt: str,
+            max_tokens: int = 8192,
+            images=None,
+            tool_schemas=None,
+            messages=None,
+            tool_choice: str = "auto",
+        ) -> str:
+            seen_planner_choices.append(tool_choice)
+            return '{"action": "final", "summary": "done"}'
+
+    class _Router:
+        def llm(self, *_a, **_kw):
+            return _RecordingRawProvider()
+
+    planner = las.make_provider_planner(
+        router=_Router(),
+        settings=Settings(_env_file=None, provider_mode="mock"),
+        provider_mode="toptools",
+        brain_model="deepseek-v4.1-flash",
+        allowed_tools={"workspace_glob"},
+        max_steps=4,
+    )
+    await planner([{"role": "user", "content": "Create a kinetic typography MP4"}], 1)
+    await planner(
+        [
+            {"role": "user", "content": "Create a kinetic typography MP4"},
+            {"role": "tool_observation", "observation": {"status": "error", "code": "TOOL_REQUIRED"}},
+        ],
+        2,
+    )
+    assert seen_planner_choices == ["required", "required"]
+
+    # 4. One-go phrasing bypasses Muse clarifying pause and runs synchronously; URL with ? triggers instant nav
+    monkeypatch.setenv("HINAA_LOCAL_WORKSPACE_DIR", str(tmp_path))
+    monkeypatch.setenv("HINAA_AGENTIC_RUNS_DIR", str(tmp_path / "runs"))
+    monkeypatch.setattr("hinaa_api.agent.live_agentic_service._STORE_SINGLETON", None)
+
+    def _one_go_planner(**_kwargs):
+        async def _p(_transcript, step_num: int, images=None):
+            if step_num == 1:
+                return {
+                    "action": "call_tool",
+                    "tool": "workspace_write_file",
+                    "arguments": {"file_path": "one_go.html", "content": "<h1>One Go</h1>"},
+                }
+            return {"action": "final", "summary": "Built one_go.html in one go."}
+
+        return _p
+
+    monkeypatch.setattr("hinaa_api.agent.live_agentic_service.make_provider_planner", _one_go_planner)
+    toptools_settings = Settings(
+        _env_file=None,
+        provider_mode="toptools",
+        toptools_api_key=SecretStr("sk-toptools-test-12345"),
+        full_autonomy=True,
+        auto_approve=True,
+    )
+    svc = ConversationService(toptools_settings)
+    one_go_events = [
+        json.loads(line)
+        async for chunk in svc.stream_turn(
+            TurnRequest(
+                sessionId="one-go-sess",
+                text="Build me a dark portfolio website landing page in one go, don't ask questions",
+                providerMode="toptools",
+            ),
+            "cid-onego",
+        )
+        for line in chunk.decode("utf-8").splitlines()
+        if line.strip()
+    ]
+    one_go_types = [e.get("type") for e in one_go_events]
+    assert "agentic.started" in one_go_types
+    assert "agentic.background" not in one_go_types
+    assert (tmp_path / "one_go.html").is_file()
+
+    # 5. Capability question followed by imperative execution still triggers agentic execution
+    combo_events = [
+        json.loads(line)
+        async for chunk in svc.stream_turn(
+            TurnRequest(
+                sessionId="combo-exec-sess",
+                text="What kind of animations can you make? Make one for me now!",
+                providerMode="mock",
+            ),
+            "cid-combo",
+        )
+        for line in chunk.decode("utf-8").splitlines()
+        if line.strip()
+    ]
+    assert any(e.get("type") == "agentic.started" for e in combo_events)
+
+    # 6. Query-string URL still uses instant deterministic-intent routing
+    nav_events = [
+        json.loads(line)
+        async for chunk in svc.stream_turn(
+            TurnRequest(
+                sessionId="nav-q-sess",
+                text="browse https://example.com?q=anime",
+                providerMode="mock",
+            ),
+            "cid-navq",
+        )
+        for line in chunk.decode("utf-8").splitlines()
+        if line.strip()
+    ]
+    plan_ev = next(e for e in nav_events if e.get("type") == "plan")
+    assert plan_ev.get("provider") == "deterministic-intent"
+
+

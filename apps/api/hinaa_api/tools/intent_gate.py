@@ -289,6 +289,7 @@ _BROWSER_TASK_ASK = re.compile(
     r"""(?ix)
     \b(?:
         browse | browser | open\s+(?:the\s+)?(?:browser|website|webpage|page|url|link) |
+        open\s+(?:https?://|www\.) |
         navigate\s+to | go\s+to\s+(?:https?://|www\.) |
         automate\s+(?:the\s+)?browser | browser\s+agent | browser\s+automation |
         browser-use | web\s+task | scrape\s+(?:the\s+)?(?:web|page|site) |

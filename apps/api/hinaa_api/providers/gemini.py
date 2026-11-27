@@ -184,6 +184,7 @@ class GeminiLLMProvider:
         images: list[tuple[str, bytes]] | None = None,
         tool_schemas: list[dict[str, Any]] | None = None,
         messages: list[dict[str, Any]] | None = None,
+        tool_choice: str = "auto",
     ) -> str:
         """Direct raw completion for bounded coding/studio agent loops with native function calling + safe fallback."""
         import json as _json
@@ -286,15 +287,22 @@ class GeminiLLMProvider:
         try:
             if decls:
                 try:
+                    gen_cfg_kw: dict[str, Any] = {
+                        "system_instruction": system_prompt,
+                        "temperature": 0.2,
+                        "max_output_tokens": max_tokens,
+                        "tools": [types.Tool(function_declarations=decls)],
+                    }
+                    if tool_choice == "required":
+                        gen_cfg_kw["tool_config"] = types.ToolConfig(
+                            function_calling_config=types.FunctionCallingConfig(
+                                mode=types.FunctionCallingConfigMode.ANY
+                            )
+                        )
                     response = await client.aio.models.generate_content(
                         model=self._model,
                         contents=_build_contents(bool(messages)),
-                        config=types.GenerateContentConfig(
-                            system_instruction=system_prompt,
-                            temperature=0.2,
-                            max_output_tokens=max_tokens,
-                            tools=[types.Tool(function_declarations=decls)],
-                        ),
+                        config=types.GenerateContentConfig(**gen_cfg_kw),
                     )
                     fcs = getattr(response, "function_calls", None) or []
                     if fcs:

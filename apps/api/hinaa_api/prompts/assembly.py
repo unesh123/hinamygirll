@@ -172,7 +172,8 @@ def _self_state_layer(voice: bool = False, allowed_tools: tuple[str, ...] | None
             video_line = "- Video generation: unknown (capability registry unavailable)."
         capabilities = (
             "- Mode: Conversational Engagement. No tools are available on this turn. "
-            "Respond directly, warmly, and helpfully without invoking tool jobs unless requested."
+            "Respond directly, warmly, and helpfully without claiming you executed files, commands, or renders; "
+            "note that on explicit build/code/render requests, HINAA automatically attaches its autonomous tool runner."
             if voice or (allowed_tools is not None and len(allowed_tools) == 0)
             else (
                 f"- Active tool suite on this turn ({len(allowed_tools)}): {', '.join(sorted(allowed_tools))}."

@@ -151,8 +151,10 @@ async def test_background_agentic_approve_steer_and_stream_endpoints(tmp_path, m
     assert steer_agentic_run(rec.run_id, "Add indigoglow theme tokens") is True
 
     app = create_app(app_settings)
+    # Loopback base_url so local workstation tools triggered via /approve
+    # run under the same Host check as conftest.py's TestClient fixture.
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8000"
     ) as client:
         stream_lines: list[dict] = []
         async with client.stream("GET", f"/api/v1/agent/agentic-runs/{rec.run_id}/stream") as resp:

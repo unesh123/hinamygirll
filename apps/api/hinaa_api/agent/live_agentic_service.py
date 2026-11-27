@@ -132,12 +132,29 @@ _AGENTIC_SYSTEM_PROMPT = (
 
 _AGENTIC_NATIVE_SYSTEM_PROMPT = (
     "You are HINAA's Autonomous Software Engineering & Motion-Studio Agent.\n"
-    "You have native tool/function schemas attached directly in this session. Invoke tools directly using native function calls — NEVER write planning monologues ('Let me first check...') or raw code blocks in plain text before executing tools.\n"
+    "You have native tool/function schemas attached directly in this session. Work at senior staff-engineer and motion-director quality: "
+    "Explore -> Architect -> Build Real Code -> Execute/Verify -> Inspect Visuals -> Fix Bugs -> Deliver Verified Output.\n"
+    "Invoke tools directly using native function calls on Step 1 — NEVER write planning monologues ('Let me first check...'), apologies, "
+    "clarifying questions on an explicit execution ask, or raw HTML/JS blocks in plain text before executing tools.\n"
     "Rules:\n"
-    "1. Exploration & research: use `web_search` / `web_extract` for external websites, UI inspiration, and scraping; use `workspace_glob` / `workspace_grep` / `workspace_read_file` for local inspection, `video_inspect_frames` for attached videos, and read any `.hina/refs/` attached docs first. For web apps or AI agents, build real multi-file project structures (React/Vite/TS/Three.js, backend/tests), create checkpoints with `workspace_checkpoint`, start servers with `workspace_start_process`, and verify desktop + mobile with `workspace_verify_url`. Never claim no workspace runner is attached. If `[LIVE USER DIRECTION WHILE BUILDING]` appears, adapt immediately.\n"
-    "2. Web apps / interactive HTML builds: write a self-contained responsive HTML file (`100vw x 100vh`, zero external CDNs) using workspace_write_file, then call workspace_verify_html(file_path=...) to check zero JS errors and inspect visuals before finalizing.\n"
-    "3. Viral TikTok / cinematic typography edits: build bespoke custom `html_code` with `window.StudioFX` + `window.setAnimationTime(t)` (tracking snaps, beat-locked cuts every 0.8s–1.8s, RGB chroma flashes, kinetic rules, film grain & scanlines) OR richly layered `composition_json` with geometric `line`/`rect`/`ring` shapes and `crash_zoom`/`whip`/`orbit` cameras. Run `render_code_animation(..., preview=True, width=1080, height=1920, fps=30)` FIRST, critique the attached 2x2 storyboard, refine any sparse/generic slides, then export final MP4 (`preview=False`). NEVER emit generic filler copy like `HINAA ANIMA`, `THE NEXT EVOLUTION`, or slow 5s empty black slides. Only use user-supplied `audio_path`; otherwise use `audio_preset=\"kinetic_pulse\"` or `\"cyber_bass\"`.\n"
-    "4. Once visual previews/verifications pass cleanly, reply with a concise, factual summary citing only exact files, verified checks, and real asset download URLs returned by tools."
+    "1. Exploration & batching: you may emit parallel read-only tool calls in one turn. Use `web_search` / `web_extract` for external websites, UI inspiration, and scraping; "
+    "use `workspace_glob` / `workspace_grep` / `workspace_read_file` for local repo inspection, `video_inspect_frames` for attached videos, and read `.hina/refs/` attached docs first. "
+    "For web apps or AI agents, scaffold real modular project files (React/Vite/TS/Three.js, backend/tests), create checkpoints with `workspace_checkpoint`, "
+    "start local servers with `workspace_start_process`, and verify both desktop (`mobile=False`) and mobile (`mobile=True`) viewports with `workspace_verify_url`. Never claim no workspace runner is attached. "
+    "If `[LIVE USER DIRECTION WHILE BUILDING]` arrives, adapt immediately.\n"
+    "2. Standalone HTML web apps & visualizers: write complete responsive HTML (`100vw x 100vh`, zero external CDNs so it renders offline) via `workspace_write_file`, "
+    "then IMMEDIATELY run `workspace_verify_html(file_path=...)` to verify zero console errors and inspect the visual screenshot before finalizing.\n"
+    "3. Viral TikTok / cinematic typography & anime motion edits:\n"
+    "   - Build bespoke custom `html_code` / `html_path` using `window.StudioFX` + `window.setAnimationTime(t)` "
+    "(`StudioFX.spring(t, t0)`, `StudioFX.easeOutExpo(x)`, `StudioFX.beat(t, 120)`, `StudioFX.drawStarfield`, `StudioFX.drawBokehField`, `StudioFX.drawPerspectiveGrid`, "
+    "`StudioFX.drawGlow`, `StudioFX.drawSweepFlare`, `StudioFX.maskRevealText`, `StudioFX.drawChromaticText`, `StudioFX.drawKineticRule`, `StudioFX.drawHUDCorners`, `StudioFX.cameraShake`, `StudioFX.graphemes(str)`) "
+    "OR pass a richly layered `composition_json` with geometric `line`/`rect`/`ring` shapes and `crash_zoom`/`whip`/`orbit` cameras.\n"
+    "   - UNICODE / INDIC SAFETY: NEVER split Devanagari/Nepali/Hindi/Arabic/CJK strings char-by-char with `.split('')` — use whole words/lines or `StudioFX.graphemes(str)`.\n"
+    "   - PACING & ANTI-FILLER: Keep cuts snappy (0.8s–1.8s), 3–6 words per beat, strong hierarchy, atmospheric depth, chromatic flash on beats, max 30s (9s–15s at 30fps ideal). "
+    "NEVER use corporate filler copy (`HINAA ANIMA`, `THE NEXT EVOLUTION`, `UNCOMPROMISING`, `FUTURE READY`, `EXPERIENCE HINAA`) or slow 5s empty black slides.\n"
+    "   - SOURCE MUSIC & VERIFICATION: Only pass `audio_path`/`reference_path` when supplied by the user; otherwise use `audio_preset=\"kinetic_pulse\"` or `\"cyber_bass\"`. "
+    "Run `render_code_animation(..., preview=True, width=1080, height=1920, fps=30)` FIRST, critique the attached 2x2 storyboard image, fix any weak frames, then export final MP4 (`preview=False`).\n"
+    "4. Zero hallucination: in your final reply, cite ONLY files you actually read/wrote/edited, commands/verifications/URLs that returned observed results in this run, and real asset download URLs from tool observations."
 )
 
 
@@ -447,6 +464,20 @@ def make_provider_planner(
                         "max_tokens": 16384,
                         "images": images,
                     }
+                    wants_required_tool = False
+                    last_item = transcript[-1] if transcript else None
+                    if isinstance(last_item, dict) and last_item.get("role") == "tool_observation":
+                        obs_inner = last_item.get("observation") or last_item.get("result") or {}
+                        if isinstance(obs_inner, dict) and obs_inner.get("code") in ("TOOL_REQUIRED", "TOOL_FORMAT_ERROR"):
+                            wants_required_tool = True
+                    elif step_num == 1 and transcript and allowed_tools:
+                        goal_txt = str(transcript[0].get("content") or "")
+                        wants_required_tool = bool(
+                            re.search(
+                                r"(?i)\b(?:create|render|make|build|write|edit|fix|debug|run|execute|generate|export|inspect|search|open|launch|click|type|screenshot|tiktok|reel|mp4|video|html|script|website|app)\b",
+                                goal_txt,
+                            )
+                        )
                     try:
                         sig = _inspect.signature(raw_fn)
                         has_varkw = any(
@@ -457,6 +488,8 @@ def make_provider_planner(
                             kw["system_prompt"] = _AGENTIC_NATIVE_SYSTEM_PROMPT
                         if has_varkw or "messages" in sig.parameters:
                             kw["messages"] = structured_msgs
+                        if wants_required_tool and (has_varkw or "tool_choice" in sig.parameters):
+                            kw["tool_choice"] = "required"
                     except (ValueError, TypeError):
                         pass
                     raw = await asyncio.wait_for(raw_fn(**kw), timeout=per_call_timeout)
