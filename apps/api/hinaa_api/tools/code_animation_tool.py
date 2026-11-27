@@ -575,6 +575,8 @@ def _save_vision_storyboard(frames_dir: Path, total_frames: int) -> str | None:
             if fp.is_file():
                 with Image.open(fp) as im:
                     rgb = im.convert("RGB")
+                    if not tiles and rgb.height > rgb.width:
+                        tw, th = 270, 480
                     rgb.thumbnail((tw, th))
                     tile = Image.new("RGB", (tw, th), (8, 10, 18))
                     tile.paste(rgb, ((tw - rgb.width) // 2, (th - rgb.height) // 2))

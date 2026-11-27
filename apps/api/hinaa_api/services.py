@@ -7405,7 +7405,8 @@ class ConversationService:
             r"(?:create|write|build|make|design|scaffold|generate|implement|develop|edit|fix|debug|refactor|upgrade|patch|render|export|rebuild)\b[\s\S]{0,180}?\b"
             r"(?:sora|html|webpage|web\s*page|website|web\s*app|webapp|platform|storefront|landing\s+page|portfolio|dashboard|visualizer|simulation|game|"
             r"python|script|program|cli|api|server|backend|frontend|module|component|project|site|file|app|agent|"
-            r"mp4|video|reel|animation|motion\s+graphics|kinetic\s+intro|typography)|"
+            r"mp4|video|reel|reels|tiktok|youtube\s+short|animation|motion\s+graphics|kinetic\s+intro|typography)|"
+            r"(?:viral\s+(?:edit|video|reel|tiktok|short)|tiktok\s+edit|insta(?:gram)?\s+reel|typography\s+edit|make\s+(?:one|it|that)\s+for\s+me)|"
             r"(?:product|stack|pages|visual\s+direction|files\s+created)\s*:|"
             r"(?:inspect|debug|trace|fix|check|audit|find|read|analyze|explain)\b[^.?!]{0,90}\b"
             r"(?:in\s+(?:our|the|this)\s+(?:code|repo|codebase|project|file|api|app|ui|server|backend|frontend)|"
@@ -7423,9 +7424,9 @@ class ConversationService:
             r"\b(?:spotify|youtube)\s+play\b|\bremind\s+me\b)"
         )
         _RETRY_FOLLOWUP_RE = re.compile(
-            r"(?i)^(?:ok(?:ay)?[\s,]+|please[\s,]+|now[\s,]+|bro[\s,]+)*"
-            r"(?:continue(?:\s+(?:bro|now|please|building))?|try\s+again|retry(?:\s+(?:it|that|now))?|do\s+(?:it|that)(?:\s+(?:again|now|properly))?|execute(?:\s+(?:it|that))?(?:\s+now)?|run\s+(?:it|that)(?:\s+now)?|render\s+(?:it|that|one)(?:\s+now)?|make\s+(?:it|that|one)(?:\s+(?:now|better|high\s+level))?|create\s+(?:it|that|one)(?:\s+now)?|build\s+(?:it|that|one|sora)(?:\s+(?:now|properly))?|upgrade(?:\s+(?:it|that))?(?:\s+now)?|go\s+ahead(?:\s+and\s+(?:execute|render|create|build|do)\s+it)?)"
-            r"(?:[\s,]+(?:bro|please|now))?\s*[!.]*$"
+            r"(?i)^(?:ok(?:ay)?[\s,]+|please[\s,]+|now[\s,]+|bro[\s,]+|hey[\s,]+|hina[\s,]+)*(?:can\s+you\s+)?"
+            r"(?:continue(?:\s+(?:bro|now|please|building))?|try\s+again|retry(?:\s+(?:it|that|now))?|do\s+(?:it|that)(?:\s+(?:again|now|properly))?|execute(?:\s+(?:it|that))?(?:\s+now)?|run\s+(?:it|that)(?:\s+now)?|render\s+(?:it|that|one)(?:\s+(?:for\s+me|now))?|make\s+(?:it|that|one)(?:\s+(?:for\s+me|now|better|high\s+level))?|create\s+(?:it|that|one)(?:\s+(?:for\s+me|now))?|build\s+(?:it|that|one|sora)(?:\s+(?:for\s+me|now|properly))?|upgrade(?:\s+(?:it|that))?(?:\s+now)?|go\s+ahead(?:\s+and\s+(?:execute|render|create|build|do)\s+it)?)"
+            r"(?:[\s,?]+|$)"
         )
         resolved_media = await self._resolve_turn_media(request)
         initial_images: list[tuple[str, bytes]] = []

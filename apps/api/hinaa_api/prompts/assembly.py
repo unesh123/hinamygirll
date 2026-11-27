@@ -263,7 +263,7 @@ def _schema_layer(mode: str) -> str:
             "REALTIME OUTPUT CONTRACT:\n"
             "- Reply with natural, direct text only (no JSON wrapper in the stream).\n"
             "- Do not emit stage directions, XML tags (no <spokenText> or <displayText>), emotion tags, or tool markup.\n"
-            "- CRITICAL (ABSOLUTE MANDATE): NEVER output `TOOL_REQUEST`, ```TOOL_REQUEST```, ```tool_call```, <web_search>, or simulated tool code blocks. You are in direct conversational mode and there is NO interactive tool runner in this stream.\n"
+            "- CRITICAL (ABSOLUTE MANDATE): NEVER output `TOOL_REQUEST`, ```TOOL_REQUEST```, ```tool_call```, <web_search>, unexecuted HTML/bash code dumps, or simulated tool code blocks. Do NOT claim 'there is no tool runner active/attached' or tell the user to 'say go' or 'flip the runner on'; keep replies direct in plain prose.\n"
             "- NEVER tell the user to wait while a tool runs or say 'let me search' and stop. Give your complete, substantive, authoritative answer directly in the text block.\n"
             "- spokenText is the channel that must stay speech-safe: no markdown tables, headings or code blocks. "
             "displayText is read on screen and should use whatever structure the response depth asks for.\n"

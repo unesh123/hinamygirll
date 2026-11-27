@@ -759,27 +759,47 @@ class AgenticLoopRunner:
                 not decision.get("tool") and not decision.get("calls") and "summary" in decision
             ):
                 summary = str(decision.get("summary") or "Completed.").strip()
-                looks_like_planning_or_truncated_code = (
-                    len(steps) == 0
-                    and any(
-                        t in permitted
-                        for t in ("render_code_animation", "workspace_write_file", "workspace_edit_file", "workspace_read_file", "workspace_run_command")
+                executed_tool_steps = [
+                    s for s in steps if s.action == "call_tool" and s.status == "completed"
+                ]
+                has_exec_tools = any(
+                    t in permitted
+                    for t in (
+                        "render_code_animation",
+                        "workspace_write_file",
+                        "workspace_edit_file",
+                        "workspace_read_file",
+                        "workspace_run_command",
                     )
+                )
+                is_action_goal = bool(
+                    re.search(
+                        r"(?i)\b(?:create|render|make|build|write|edit|fix|debug|run|execute|generate|export|tiktok|reel|mp4|video|animation|html|script)\b",
+                        goal,
+                    )
+                )
+                deferral_match = bool(
+                    re.search(
+                        r"(?i)(?:^|\b)(?:the\s+user\s+wants|let\s+me\s+(?:first|stop\s+talking|pull|check|plan|write|build|create|render|inspect)|let'?s\s+(?:first|check|plan|write|build|create)|(?:checking|pulling)\s+the\s+(?:workspace|exact\s+composition|files?)|i\s+(?:will|need\s+to|should)\s+(?:first|write|create|check|render)|reasoning\s+ran\s+out|no\s+tool\s+runner\s+(?:is\s+)?(?:active|attached)|flip\s+the\s+runner\s+on)",
+                        summary,
+                    )
+                )
+                looks_like_planning_or_truncated_code = (
+                    not executed_tool_steps
+                    and has_exec_tools
                     and (
                         not summary
                         or summary.count("```") % 2 == 1
-                        or re.match(
-                            r"(?i)^\s*(?:the\s+user\s+wants|let\s+me\s+(?:first|check|plan|write|build|create)|let'?s\s+(?:first|check|plan|write|build|create)|i\s+(?:will|need\s+to|should)\s+(?:first|write|create|check|render)|reasoning\s+ran\s+out)",
-                            summary,
-                        )
+                        or deferral_match
                         or ("<script>" in summary and "window.setAnimationTime" in summary)
                         or "```html" in summary.lower()
                         or "```javascript" in summary.lower()
+                        or (is_action_goal and step_num <= min(3, max(1, self.max_steps - 1)))
                     )
                 )
                 if looks_like_planning_or_truncated_code and step_num < self.max_steps:
                     err_txt = (
-                        "Do not answer with planning prose or unexecuted HTML/JS snippets at step 1. "
+                        "Do not answer with planning prose, excuses, or unexecuted code before calling tools. "
                         "Call the real tool immediately (e.g. render_code_animation or workspace_write_file / workspace_read_file)."
                     )
                     retry_obs = {"status": "error", "code": "TOOL_REQUIRED", "error": err_txt}
@@ -788,6 +808,19 @@ class AgenticLoopRunner:
                     ))
                     transcript.append({"role": "tool_observation", "trusted": False, "observation": retry_obs, "result": retry_obs})
                     continue
+                if not executed_tool_steps and has_exec_tools and (deferral_match or is_action_goal):
+                    err_txt = "Planner produced prose instead of executing any tool."
+                    return AgenticRunResult(
+                        run_id=rid,
+                        status="failed",
+                        summary=summary or err_txt,
+                        steps_executed=0,
+                        steps=steps,
+                        artifacts=artifacts,
+                        files_changed=files_changed,
+                        elapsed_ms=round((time.perf_counter() - t0) * 1000, 2),
+                        blocker="NO_TOOL_EXECUTED",
+                    )
                 self._verify_artifacts_on_disk(artifacts)
                 await _emit("agentic.completed", {"steps": len(steps), "artifacts": len(artifacts)})
                 return AgenticRunResult(

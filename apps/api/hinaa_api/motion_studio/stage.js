@@ -178,8 +178,24 @@ function paintLayer(ctx, l, local, duration, global, ghost = false) {
 }
 function drawScene(index, global, ctx) {
   const s=C.scenes[index], local=Math.max(0,Math.min(s.duration-.00001,global-starts[index])), p=local/s.duration;
-  ctx.clearRect(0,0,W,H);ctx.fillStyle=s.background;ctx.fillRect(0,0,W,H);ctx.save();
+  ctx.clearRect(0,0,W,H);ctx.fillStyle=s.background;ctx.fillRect(0,0,W,H);
   const a=s.camera_amount, e=ease(p), hit=accentAt(global);
+  if(s.atmosphere!=='none'){
+    ctx.save();
+    const rg=ctx.createRadialGradient(W*0.5,H*0.42,8,W*0.5,H*0.44,Math.max(W,H)*0.72);
+    rg.addColorStop(0,s.accent);
+    rg.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.globalAlpha=0.14+hit*0.14;
+    ctx.fillStyle=rg;
+    ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle=s.accent;ctx.globalAlpha=0.055+hit*0.04;ctx.lineWidth=1;
+    const horizon=H*0.7;
+    for(let gi=-7;gi<=7;gi++){
+      ctx.beginPath();ctx.moveTo(W*0.5+gi*W*0.032,horizon);ctx.lineTo(W*0.5+gi*W*0.24,H+40);ctx.stroke();
+    }
+    ctx.restore();
+  }
+  ctx.save();
   let z=1,dx=0,dy=0,r=0;
   if(s.camera==='dolly') z=1+a*e;
   if(s.camera==='pan_left' || s.camera==='pan_right'){z=1+a;dx=(s.camera==='pan_left'?-1:1)*(p-.5)*a*W;}
@@ -193,12 +209,25 @@ function drawScene(index, global, ctx) {
   ctx.restore();
   if(s.atmosphere!=='none'){
     ctx.save();ctx.fillStyle=s.accent;
-    for(let i=0;i<32;i++){
+    for(let i=0;i<44;i++){
       const x=(hash(i)*W+Math.sin(global*.45+i)*W*.018)%W;
       const y=((hash(i+31)*H-global*(12+i%9*5))%H+H)%H;
-      ctx.globalAlpha=(.1+hash(i+90)*.35)*(s.atmosphere==='dust'?.45:1);
-      ctx.beginPath();ctx.arc(x,y,1+hash(i+13)*W*.002,0,Math.PI*2);ctx.fill();
+      const rad=i%9===0?(7+hash(i+13)*14):(1+hash(i+13)*W*.0022);
+      ctx.globalAlpha=(i%9===0?0.055:(0.12+hash(i+90)*0.36))*(s.atmosphere==='dust'?0.55:1);
+      ctx.beginPath();ctx.arc(x,y,rad,0,Math.PI*2);ctx.fill();
     }ctx.restore();
+    const vig=ctx.createRadialGradient(W*0.5,H*0.46,Math.min(W,H)*0.22,W*0.5,H*0.5,Math.max(W,H)*0.75);
+    vig.addColorStop(0,'rgba(0,0,0,0)');vig.addColorStop(1,'rgba(0,0,0,0.52)');
+    ctx.fillStyle=vig;ctx.fillRect(0,0,W,H);
+    const cutPulse=local<0.09?Math.max(0,1-local/0.09):0;
+    const edgePulse=Math.max(cutPulse,hit>0.4?hit*0.65:0);
+    if(edgePulse>0.05){
+      ctx.save();ctx.globalCompositeOperation='screen';ctx.globalAlpha=edgePulse*0.32;
+      const cg=ctx.createLinearGradient(0,0,W,0);
+      cg.addColorStop(0,'rgba(255,30,100,0.85)');cg.addColorStop(0.18,'rgba(0,0,0,0)');
+      cg.addColorStop(0.82,'rgba(0,0,0,0)');cg.addColorStop(1,'rgba(56,210,255,0.85)');
+      ctx.fillStyle=cg;ctx.fillRect(0,0,W,H);ctx.restore();
+    }
   }
 }
 window.setAnimationTime = async function(time) {

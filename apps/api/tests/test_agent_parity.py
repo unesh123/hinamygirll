@@ -260,3 +260,107 @@ async def test_agentic_runner_blocks_identical_failing_payloads(tmp_path) -> Non
     assert res.status == "blocked"
     assert res.steps_executed == 3
     assert any("IDENTICAL_RETRY_BLOCKED" in str(s.observation) for s in res.steps)
+
+
+@pytest.mark.asyncio
+async def test_agentic_runner_rejects_midtext_planning_and_zero_tool_completion(
+    tmp_path,
+) -> None:
+    from hinaa_api.agent.agentic_runner import AgenticLoopRunner
+
+    async def talk_only_planner(_transcript, _step):
+        return (
+            "Honest answer first: Yes I can do this. "
+            "Let me pull the exact composition schema now."
+        )
+
+    runner = AgenticLoopRunner(max_steps=3, workspace_root=str(tmp_path))
+    res = await runner.run(
+        goal="Create a viral TikTok typography MP4 right now",
+        planner=talk_only_planner,
+        allowed_tools={"render_code_animation", "workspace_read_file"},
+    )
+    assert res.status == "failed"
+    assert res.blocker == "NO_TOOL_EXECUTED"
+    assert res.steps_executed == 0
+
+    calls = 0
+
+    async def recover_after_nudge(_transcript, step_num: int):
+        nonlocal calls
+        calls += 1
+        if step_num == 1:
+            return (
+                "You're right to be annoyed — let me stop talking and render it. "
+                "Checking the workspace now."
+            )
+        if step_num == 2:
+            return {
+                "action": "call_tool",
+                "tool": "workspace_write_file",
+                "arguments": {
+                    "file_path": "ok.txt",
+                    "content": "rendered",
+                },
+            }
+        return {"action": "final", "summary": "Wrote ok.txt."}
+
+    runner2 = AgenticLoopRunner(max_steps=4, workspace_root=str(tmp_path))
+    res2 = await runner2.run(
+        goal="Create a viral TikTok typography MP4",
+        planner=recover_after_nudge,
+        allowed_tools={"workspace_write_file"},
+    )
+    assert res2.status == "completed"
+    assert calls == 3
+    assert (tmp_path / "ok.txt").read_text(encoding="utf-8") == "rendered"
+
+
+@pytest.mark.asyncio
+async def test_viral_tiktok_followup_triggers_agentic_route(settings) -> None:
+    from hinaa_api.models import TurnRequest
+    from hinaa_api.prompts.assembly import assemble_prompt
+    from hinaa_api.prompts.models import MoodSnapshot, PersonalitySettings, PromptInput
+    from hinaa_api.services import ConversationService
+
+    prompt_pkg = assemble_prompt(
+        PromptInput(
+            user_text="What are your current capacities?",
+            companion_id="hinaa",
+            interaction_mode="realtime",
+            personality=PersonalitySettings(),
+            mood=MoodSnapshot(label="calm", intensity=0.4),
+        )
+    )
+    assert "no interactive tool runner" not in prompt_pkg.system_instruction.lower()
+
+    svc = ConversationService(settings)
+    tiktok_events = [
+        ev.decode("utf-8", "replace") if isinstance(ev, bytes) else str(ev)
+        async for ev in svc.stream_turn(
+            TurnRequest(
+                sessionId="tiktok-parity-route",
+                text=(
+                    "Okay, bro, can you make one for me? "
+                    "It should get 100% viral on TikTok, okay?"
+                ),
+                providerMode="mock",
+            ),
+            "cid-tiktok",
+        )
+    ]
+    assert any("agentic.started" in ev for ev in tiktok_events)
+
+    cap_events = [
+        ev.decode("utf-8", "replace") if isinstance(ev, bytes) else str(ev)
+        async for ev in svc.stream_turn(
+            TurnRequest(
+                sessionId="cap-parity-route",
+                text="What are your current capacities?",
+                providerMode="mock",
+            ),
+            "cid-cap",
+        )
+    ]
+    assert not any("agentic.started" in ev for ev in cap_events)
+
