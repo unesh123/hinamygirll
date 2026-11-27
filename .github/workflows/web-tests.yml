@@ -52,7 +52,16 @@ jobs:
           python -m playwright install --with-deps chromium
 
       - name: Install Playwright browsers (web e2e)
-        run: pnpm exec playwright install chromium
+        run: |
+          set -euo pipefail
+          which -a playwright || true
+          if [ ! -x ./node_modules/.bin/playwright ]; then
+            echo "Playwright bin missing in apps/web/node_modules/.bin; re-linking workspace deps"
+            ls -la node_modules/.bin || true
+            pnpm --dir ../.. install --frozen-lockfile --force
+          fi
+          ./node_modules/.bin/playwright --version
+          ./node_modules/.bin/playwright install chromium
         working-directory: apps/web
 
       - name: Web typecheck and production build

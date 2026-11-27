@@ -9,6 +9,7 @@ import hashlib
 import os
 import shutil
 import subprocess
+import sys
 import wave
 from pathlib import Path
 
@@ -78,14 +79,20 @@ def page():
 
     with sync_playwright() as pw:
         exe = Path(pw.chromium.executable_path)
-        system = (
-            os.environ.get("HINAA_CHROMIUM_EXECUTABLE")
-            or shutil.which("chromium")
-            or shutil.which("google-chrome")
+        configured = (os.environ.get("HINAA_CHROMIUM_EXECUTABLE") or "").strip()
+        system = configured or (
+            None
+            if exe.exists()
+            else (shutil.which("chromium") or shutil.which("google-chrome"))
         )
         if not exe.exists() and not system:
             pytest.skip("Chromium required")
-        browser = pw.chromium.launch(**({"executable_path": system} if system else {}))
+        launch_kwargs: dict[str, object] = {}
+        if system:
+            launch_kwargs["executable_path"] = system
+        if sys.platform.startswith("linux"):
+            launch_kwargs["args"] = ["--no-sandbox", "--disable-dev-shm-usage"]
+        browser = pw.chromium.launch(**launch_kwargs)
         pg = browser.new_page(viewport={"width": 360, "height": 640})
         yield pg
         browser.close()
@@ -257,7 +264,7 @@ def test_reference_analysis_reports_real_cut_candidates(tmp_path):
 
 def test_actual_hina_tool_exports_audio_and_editable_source(tmp_path, monkeypatch):
     # Import the real handler, registry and asset manager; never substitute a fake renderer.
-    os.environ["HINAA_DATA_DIR"] = str(tmp_path / "data")
+    monkeypatch.setenv("HINAA_DATA_DIR", str(tmp_path / "data"))
     import hinaa_api.tools.code_animation_tool as tool
     from hinaa_api.creative.assets.manager import CreativeAssetManager
     from hinaa_api.tools.code_animation_tool import (

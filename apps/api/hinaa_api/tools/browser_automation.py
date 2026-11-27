@@ -168,9 +168,12 @@ async def _get_page() -> Page:
 
             if _browser is None or not _browser.is_connected():
 
-                executable = os.environ.get("HINAA_BROWSER_EXECUTABLE") or shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("google-chrome")
+                pw_exe = getattr(_playwright.chromium, "executable_path", "") or ""
+                executable = os.environ.get("HINAA_BROWSER_EXECUTABLE")
+                if not executable and not (pw_exe and os.path.isfile(pw_exe)):
+                    executable = shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("google-chrome")
 
-                if not executable:
+                if not executable and not (pw_exe and os.path.isfile(pw_exe)):
 
                     chrome_win = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
 
@@ -203,6 +206,10 @@ async def _get_page() -> Page:
 
 
                 launch_options: dict[str, Any] = {"headless": is_headless}
+
+                if sys.platform.startswith("linux"):
+
+                    launch_options["args"] = ["--no-sandbox", "--disable-dev-shm-usage"]
 
                 if executable:
 
