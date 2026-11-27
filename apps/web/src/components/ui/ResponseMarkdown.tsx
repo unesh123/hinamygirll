@@ -16,6 +16,15 @@ export function responseUrlTransform(url: string): string {
   return /^(?:https?:|mailto:|#|\/)/i.test(safe) || !/^[a-z][a-z\d+.-]*:/i.test(safe) ? safe : "";
 }
 
+function extractPlainText(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(extractPlainText).join("");
+  if (React.isValidElement(node)) {
+    return extractPlainText((node.props as { children?: ReactNode })?.children);
+  }
+  return "";
+}
+
 function CodeBlock({ children }: { children?: ReactNode }) {
   const block = useRef<HTMLPreElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -27,6 +36,9 @@ function CodeBlock({ children }: { children?: ReactNode }) {
     const match = /language-(\w+)/.exec(childClass);
     if (match) detectedLang = match[1].toUpperCase();
   }
+
+  const rawText = extractPlainText(children).replace(/\n$/, "");
+  const lineCount = Math.max(1, rawText ? rawText.split("\n").length : 1);
 
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   const copy = async () => {
@@ -44,11 +56,18 @@ function CodeBlock({ children }: { children?: ReactNode }) {
       <div className="response-code-toolbar">
         <span className="font-mono text-[11px] font-semibold tracking-wider text-pink-400">{detectedLang}</span>
         <button type="button" onClick={() => void copy()} aria-label="Copy code">
-          {copyState === "copied" ? "Copied ✓" : copyState === "failed" ? "Copy failed — retry" : "Copy code"}
+          {copyState === "copied" ? "Copied!" : copyState === "failed" ? "Copy failed — retry" : "Copy code"}
         </button>
         <span className="response-sr-only" role="status">{copyState === "copied" ? "Code copied" : copyState === "failed" ? "Unable to copy code" : ""}</span>
       </div>
-      <pre ref={block} tabIndex={0} aria-label="Code block">{children}</pre>
+      <div className="response-code-body">
+        <div className="response-code-gutter" aria-hidden="true">
+          {Array.from({ length: lineCount }, (_, idx) => (
+            <span key={idx}>{idx + 1}</span>
+          ))}
+        </div>
+        <pre ref={block} tabIndex={0} aria-label="Code block">{children}</pre>
+      </div>
     </div>
   );
 }
@@ -82,7 +101,40 @@ const components: Components = {
     return <code className={className} {...props}>{children}</code>;
   },
   table: ({ children }) => <div className="response-table-scroll" role="region" aria-label="Response table" tabIndex={0}><table>{children}</table></div>,
-  a: ({ href, children }) => href ? <a href={href} target={href.startsWith("#") ? undefined : "_blank"} rel="noopener noreferrer">{children}</a> : <span>{children}</span>,
+  a: ({ href, children }) => {
+    if (!href) return <span>{children}</span>;
+    const labelText = Array.isArray(children)
+      ? children.map((c) => (typeof c === "string" ? c : "")).join("")
+      : typeof children === "string"
+        ? children
+        : "";
+    const isVideoAsset =
+      /^\/(?:api\/)?v1\/creative\/assets\/[^/\s]+\/download/.test(href) &&
+      (/mp4|video|animation|play/i.test(labelText) || /\bmp4\b/i.test(href));
+    if (isVideoAsset) {
+      return (
+        <span className="my-2 block overflow-hidden rounded-xl border border-black/10 bg-black/90 p-2 dark:border-white/15">
+          <video
+            src={href}
+            controls
+            playsInline
+            preload="metadata"
+            className="block max-h-96 w-full rounded-lg bg-black"
+          />
+          <span className="mt-1.5 flex items-center justify-between px-1 text-xs">
+            <a href={href} target="_blank" rel="noopener noreferrer">
+              {children}
+            </a>
+          </span>
+        </span>
+      );
+    }
+    return (
+      <a href={href} target={href.startsWith("#") ? undefined : "_blank"} rel="noopener noreferrer">
+        {children}
+      </a>
+    );
+  },
   // Model-authored image URLs remain explicit links; artifacts use the protected artifact UI.
   img: ({ src, alt }) => typeof src === "string" && src ? <a href={src} target="_blank" rel="noopener noreferrer">{alt || "View image"}</a> : <span>{alt}</span>,
 };
@@ -142,7 +194,29 @@ const REHYPE_PLUGINS: NonNullable<React.ComponentProps<typeof Markdown>["rehypeP
 export const ResponseMarkdown = memo(function ResponseMarkdown({ text, streaming }: { text: string; streaming?: boolean }) {
   // Defer markdown re-parsing during rapid streaming so scroll/input stay responsive
   const deferredText = useDeferredValue(text);
+  const prevStreaming = useRef(Boolean(streaming));
+  const [justFinished, setJustFinished] = useState(false);
+
+  useEffect(() => {
+    if (prevStreaming.current && !streaming) {
+      setJustFinished(true);
+      const t = setTimeout(() => setJustFinished(false), 420);
+      prevStreaming.current = false;
+      return () => clearTimeout(t);
+    }
+    prevStreaming.current = Boolean(streaming);
+    return undefined;
+  }, [streaming]);
+
   // Currency is protected first so converted \( … \) math is never mistaken for a price.
   const display = normalizeMathDelimiters(protectCurrencyDollars(streaming ? closeStreamingFences(deferredText) : deferredText));
-  return <div className="response-markdown" data-streaming={streaming ? "true" : undefined}><Markdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} skipHtml urlTransform={responseUrlTransform} components={components}>{display}</Markdown></div>;
+  return (
+    <div
+      className="response-markdown"
+      data-streaming={streaming ? "true" : undefined}
+      data-just-finished={!streaming && justFinished ? "true" : undefined}
+    >
+      <Markdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} skipHtml urlTransform={responseUrlTransform} components={components}>{display}</Markdown>
+    </div>
+  );
 });

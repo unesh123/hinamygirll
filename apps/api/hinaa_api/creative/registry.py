@@ -378,11 +378,17 @@ class CreativeRegistry:
             hardware_target="GPU",
             cost_credits_estimate=0,
             description_en=(
-                "Generative AI video via fal.ai (Kling v3 Pro). Requires FAL_KEY and prepaid fal.ai credits."
+                "Video is made BY CODE first: write HTML animation or timeline JSON and "
+                "Playwright/ffmpeg renders a real MP4 locally — no key, no credits. Generative fal.ai (Kling v3 Pro) "
+                "is only for footage code cannot make (new cinematic scenes, characters, motion)."
                 if fal_ready
-                else "Generative AI video via Hugging Face Inference Providers (free token, small monthly credit pool)."
+                else "Video is made BY CODE first: write HTML animation or timeline JSON and "
+                "Playwright/ffmpeg renders a real MP4 locally — no key, no credits. Generative Hugging Face (free token) "
+                "is only for footage code cannot make."
                 if hf_ready
-                else "Generative AI video requires installed local video diffusion model (SVD/CogVideo) or active external video provider."
+                else "Video is made BY CODE: write HTML animation or timeline JSON and "
+                "Playwright/ffmpeg renders a real MP4 locally — no key, no credits, no generative model needed. "
+                "Generative video (fal.ai / Hugging Face) is only for footage code cannot make."
             ),
             description_ne="एआई जेनेरेटिभ भिडियोका लागि स्थानीय भिडियो डिफ्युजन मोडेल आवश्यक पर्दछ (हाल अनउपलब्ध)।",
             limitations=(
@@ -413,7 +419,10 @@ class CreativeRegistry:
             model=ffmpeg_ver or "FFmpeg-7.1",
             hardware_target="CPU",
             cost_credits_estimate=0,
-            description_en="Deterministic timeline video export (MP4/WebM) with keyframes, transitions, and audio via FFmpeg.",
+            description_en=(
+                "Video by code (the default): render HTML/CSS/Canvas animations via Playwright + FFmpeg "
+                "or write a timeline JSON and FFmpeg exports a verified MP4 locally. No key, no credits."
+            ),
             description_ne="FFmpeg मार्फत कीफ्रेम र ट्रान्जिसनसहित वास्तविक MP4/WebM भिडियो निर्यात।",
             limitations=["Maximum 60 seconds duration", "Frame rates: 12-60 fps"],
         )

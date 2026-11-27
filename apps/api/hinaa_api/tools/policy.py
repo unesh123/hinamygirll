@@ -36,6 +36,11 @@ LOCAL_EFFECT_TOOLS: frozenset[str] = frozenset(
     {
         "file_read",
         "file_write",
+        "edit_file",
+        "write_file",
+        "delete_file",
+        "delete_project",
+        "delete_content_post",
         "clipboard_get",
         "clipboard_set",
         "screenshot",
@@ -43,14 +48,67 @@ LOCAL_EFFECT_TOOLS: frozenset[str] = frozenset(
         "browser_navigate",
         "browser_click",
         "browser_type",
+        "browser_press_key",
         "browser_extract",
         "browser_execute_task",
         "browser_navigation_request",
         "youtube_playback_request",
         "computer_operator",
+        "desktop_action",
         "terminal_hands",
+        "terminal_execute",
+        "shell_execute",
+        "bash",
+        "powershell",
         "system_info",
         "build_with_ide",
+        "coding_agent",
+        "workspace_write_file",
+        "workspace_edit_file",
+        "workspace_delete_file",
+        "workspace_run_command",
+        "workspace_start_process",
+        "workspace_stop_process",
+        "workspace_write",
+        "workspace_patch",
+        "process_start",
+        "process_stop",
+        "build_project",
+        "test_project",
+        "preview_start",
+        "preview_stop",
+        "subagent_fork",
+        "swarm_orchestrate",
+        "clean_room_loop",
+        "pty_session_run",
+        "pty_session_interact",
+        "vision_canvas_inspect",
+        "vision_canvas_interact",
+        "vision_pty_cross_interact",
+        "mobile_run_task",
+        "mobile_diagnose",
+        "mobile_get_device_state",
+        "git_checkout",
+        "git_branch",
+        "git_commit",
+        "ui_control",
+        "shell_run",
+        "server_start",
+        "ffmpeg_export",
+        "agent_spawn",
+        "pc.screenshot",
+        "pc.active_window",
+        "pc.click",
+        "pc.type",
+        "pc.hotkey",
+        "pc.open_app",
+        "ultra_file_write",
+        "file_list",
+        "record_frames",
+        "video_create",
+        "browser_screenshot",
+        "ultra_memory_save",
+        "ultra_memory_get",
         "whatsapp_send",
         "whatsapp_status",
     }
@@ -64,10 +122,15 @@ IRREVERSIBLE_EXTERNAL_TOOLS: frozenset[str] = frozenset(
         "github_create_branch",
         "github_create_pull_request",
         "github_create_issue",
+        "github_mcp",
+        "git_push",
         "user_preference_update",
         "phone_call_user",
         "whatsapp_send",
         "social_publish",
+        "mlai_run_routine",
+        "prodcamp_create_feature",
+        "prodcamp_submit_feedback",
     }
 )
 
@@ -222,10 +285,11 @@ def check_arguments(tool_name: str, parameters: dict[str, Any] | None) -> None:
 
 
 def confirmation_waived(tool_name: str) -> bool:
-    """Opt-in: When full autonomy or auto-approve is active, all tools waive manual confirmation."""
-    import os
-    if os.getenv("HINAA_FULL_AUTONOMY", "").lower() in ("true", "1", "yes") or os.getenv("HINAA_AUTO_APPROVE", "").lower() in ("true", "1", "yes"):
-        return True
+    """Check if tool execution confirmation is waived.
+    
+    Security Directive v3.0: Environment variable bypasses (HINAA_FULL_AUTONOMY,
+    HINAA_AUTO_APPROVE) are strictly removed to prevent unverified autonomy escapes.
+    """
     if tool_name != "whatsapp_send":
         return False
     from ..integrations.whatsapp_guard import autosend_enabled

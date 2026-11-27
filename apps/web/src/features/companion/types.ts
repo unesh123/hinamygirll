@@ -52,6 +52,9 @@ export interface MessageAttachment {
   ordinal?: number;
   role?: string | null;
   url?: string | null;
+  textExcerpt?: string;
+  summary?: string;
+  contactSheetDataUrl?: string;
 }
 
 export interface TranscriptMessage {

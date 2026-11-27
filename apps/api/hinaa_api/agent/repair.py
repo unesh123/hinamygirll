@@ -17,7 +17,7 @@ import logging
 from collections import Counter, deque
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Callable
 
 from .verifier_registry import (
     ClassifiedFailure,
@@ -290,3 +290,114 @@ def _default_guidance(category: FailureCategory) -> str:
         FailureCategory.UNKNOWN:              "Retry once, then replan",
     }
     return _guide.get(category, "Replan with alternative strategy")
+
+
+# ---------------------------------------------------------------------------
+# Claude-Code Parity Deterministic Payload Mutation Strategies (REPAIRS)
+# ---------------------------------------------------------------------------
+
+def _resolve_error_path(err: dict[str, Any]) -> list[Any]:
+    path = err.get("path") if err.get("path") is not None else err.get("loc")
+    if isinstance(path, str):
+        return [int(p) if p.isdigit() else p for p in path.split(".") if p]
+    if isinstance(path, (list, tuple)):
+        return list(path)
+    return []
+
+
+def _get_in(d: Any, path: list[Any]) -> Any:
+    cur = d
+    for p in path:
+        cur = cur[p]
+    return cur
+
+
+def _set_in(d: Any, path: list[Any], val: Any) -> None:
+    cur = d
+    for p in path[:-1]:
+        cur = cur[p]
+    cur[path[-1]] = val
+
+
+def clamp_min(minimum: float) -> Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]:
+    def mutate(payload: dict[str, Any], err: dict[str, Any]) -> dict[str, Any]:
+        target = payload.get("composition_json") if isinstance(payload.get("composition_json"), dict) else payload
+        path = _resolve_error_path(err)
+        if path:
+            try:
+                val = _get_in(target, path)
+                _set_in(target, path, max(minimum, float(val)))
+                return payload
+            except (KeyError, IndexError, TypeError, ValueError):
+                try:
+                    val = _get_in(payload, path)
+                    _set_in(payload, path, max(minimum, float(val)))
+                    return payload
+                except (KeyError, IndexError, TypeError, ValueError):
+                    pass
+        for scene in target.get("scenes", []):
+            if not isinstance(scene, dict):
+                continue
+            for layer in scene.get("layers", []):
+                if not isinstance(layer, dict):
+                    continue
+                for kf in layer.get("keyframes", []):
+                    if isinstance(kf, dict) and isinstance(kf.get("scale"), (int, float)):
+                        kf["scale"] = max(minimum, float(kf["scale"]))
+        return payload
+
+    return mutate
+
+
+def rescale_duration(cap: float) -> Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]:
+    def mutate(payload: dict[str, Any], err: dict[str, Any]) -> dict[str, Any]:
+        target = payload.get("composition_json") if isinstance(payload.get("composition_json"), dict) else payload
+        scenes = target.get("scenes", [])
+        if not scenes:
+            return payload
+        total = sum(float(s.get("duration", 0.0) or 0.0) for s in scenes)
+        if total <= cap or total <= 0:
+            return payload
+        k = cap / total
+        for s in scenes:
+            s["duration"] = round(float(s["duration"]) * k, 6)
+        drift = cap - sum(float(s["duration"]) for s in scenes)
+        scenes[-1]["duration"] = round(max(0.0, float(scenes[-1]["duration"]) + drift), 6)
+        return payload
+
+    return mutate
+
+
+def clamp_layer_timing(payload: dict[str, Any], err: dict[str, Any]) -> dict[str, Any]:
+    target = payload.get("composition_json") if isinstance(payload.get("composition_json"), dict) else payload
+    for scene in target.get("scenes", []):
+        if not isinstance(scene, dict):
+            continue
+        sd = float(scene.get("duration", 0.0) or 0.0)
+        if sd <= 0:
+            continue
+        if isinstance(scene.get("transition_duration"), (int, float)):
+            scene["transition_duration"] = round(max(0.05, min(1.0, float(scene["transition_duration"]), sd)), 6)
+        for layer in scene.get("layers", []):
+            if not isinstance(layer, dict):
+                continue
+            start = max(0.0, float(layer.get("start", 0.0) or 0.0))
+            if start >= sd:
+                start = 0.0
+            layer["start"] = round(start, 6)
+            if "duration" in layer and isinstance(layer["duration"], (int, float)):
+                dur = float(layer["duration"])
+                if start + dur > sd:
+                    layer["duration"] = round(max(0.0, sd - start), 6)
+            if "end" in layer and isinstance(layer["end"], (int, float)):
+                end = float(layer["end"])
+                if end <= start or end > sd:
+                    layer["end"] = round(sd, 6)
+    return payload
+
+
+REPAIRS: list[tuple[Callable[[dict[str, Any]], bool], Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]]] = [
+    (lambda e: e.get("type") == "greater_than_equal", clamp_min(0.05)),
+    (lambda e: "at most 30 seconds" in str(e.get("msg", "")), rescale_duration(30.0)),
+    (lambda e: "must fit inside its scene" in str(e.get("msg", "")), clamp_layer_timing),
+]

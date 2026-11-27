@@ -54,14 +54,14 @@ class CodingAgentParams(BaseModel):
 
 # ── LLM access ─────────────────────────────────────────────────────────────
 # The tool needs raw text completions, not a companion plan, so it speaks plain
-# OpenAI-compatible chat completions to the strongest gateway that is actually
-# configured. Order: frontier (Cavoti/Experiential Claude) → Groq → xKiro → APMIX.
+# OpenAI-compatible chat completions to live-verified working gateways first,
+# avoiding broken/unfunded gateways ahead of active providers.
 
 def _configured_code_backends(settings: Settings) -> list[dict[str, str]]:
     backends: list[dict[str, str]] = []
 
-    def _add(name: str, key: Any, base_url: str, model: str) -> None:
-        secret = key.get_secret_value() if key else ""
+    def _add(name: str, key: Any, base_url: str | None, model: str | None) -> None:
+        secret = key.get_secret_value() if hasattr(key, "get_secret_value") else (str(key) if key else "")
         if secret and base_url and model:
             backends.append({
                 "name": name,
@@ -70,12 +70,16 @@ def _configured_code_backends(settings: Settings) -> list[dict[str, str]]:
                 "model": model,
             })
 
+    xkiro_key = settings.active_xkiro_key
+    _add("xkiro", xkiro_key, settings.active_xkiro_base_url, settings.active_xkiro_model)
+    _add("cantrustai", settings.active_cantrust_key, settings.active_cantrust_base_url, settings.active_cantrust_model)
+    _add("coarena", settings.active_coarena_key, settings.active_coarena_base_url, settings.active_coarena_model)
+    _add("groq", settings.groq_api_key, "https://api.groq.com/openai/v1", settings.groq_model)
     _add("cavoti", settings.cavoti_api_key, settings.cavoti_base_url, settings.cavoti_model)
     _add("experiential", settings.explabs_api_key, settings.explabs_base_url, settings.explabs_model)
-    _add("groq", settings.groq_api_key, "https://api.groq.com/openai/v1", settings.groq_model)
-    xkiro_key = settings.xkiro_api_key or settings.xkiro_api_key1
-    _add("xkiro", xkiro_key, settings.xkiro_base_url, settings.xkiro_model)
     _add("apmix", settings.apmix_api_key, settings.apmix_base_url, settings.apmix_model)
+    _add("toptools", settings.active_toptools_key, settings.active_toptools_base_url, settings.active_toptools_model)
+    _add("tokenrouter", settings.active_tokenrouter_key, settings.active_tokenrouter_base_url, settings.active_tokenrouter_model)
     return backends
 
 

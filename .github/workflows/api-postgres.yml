@@ -69,4 +69,9 @@ jobs:
           alembic current
 
       - name: Full API suite on Postgres
-        run: pytest -p no:cacheprovider
+        run: |
+          set -o pipefail
+          if ! pytest -p no:cacheprovider --junitxml=/tmp/pg-junit.xml --tb=short 2>&1 | tee /tmp/pg-pytest.log; then
+            python -c 'import xml.etree.ElementTree as ET; root = ET.parse("/tmp/pg-junit.xml").getroot(); [print("::error::PG_FAIL %s.%s: %s" % (tc.attrib.get("classname", ""), tc.attrib.get("name", ""), (el.attrib.get("message") or el.text or "failed").splitlines()[0][:240])) for tc in root.iter("testcase") for tag in ("failure", "error") for el in [tc.find(tag)] if el is not None]' || tail -n 20 /tmp/pg-pytest.log | while IFS= read -r line; do [ -n "$line" ] && echo "::error::PG: $line"; done
+            exit 1
+          fi

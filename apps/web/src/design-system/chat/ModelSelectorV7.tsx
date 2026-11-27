@@ -129,8 +129,10 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
   const getProviderName = (providerId: string) => {
     const p = providers.find((pr) => pr.id === providerId);
     if (p) return p.name;
-    if (providerId === "claude") return "Anthropic Claude";
+    if (providerId === "claude") return "Anthropic Claude (MWAPI)";
+    if (providerId === "cantrustai") return "CanTrustAI (DeepSeek)";
     if (providerId === "gemini") return "Google Gemini";
+    if (providerId === "local") return "Zero-Credit Local Brain";
     if (providerId === "deepseek") return "DeepSeek AI";
     if (providerId === "openai") return "OpenAI / Codex";
     if (providerId === "codecraft") return "CodeCraft AI";
@@ -143,6 +145,9 @@ export const ModelSelectorV7: React.FC<ModelSelectorV7Props> = ({
     if (providerId === "apmix") return "APMIX.AI";
     if (providerId === "oxion") return "Oxion AI";
     if (providerId === "respan") return "Respan AI";
+    if (providerId === "coarena") return "Coarena AI";
+    if (providerId === "toptools") return "Top-Tools AI";
+    if (providerId === "tokenrouter") return "TokenRouter";
     if (providerId === "experiential") return "Experiential Labs";
     if (providerId === "cx-gateway") return "CX Gateway";
     return providerId.toUpperCase();

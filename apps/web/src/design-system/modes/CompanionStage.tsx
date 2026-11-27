@@ -9,6 +9,16 @@ import type { VisemeEvent } from "../../features/audio/textToViseme";
 import "./companionStage.css";
 
 export interface CompanionStageProps {
+  backgroundBuild?: {
+    runId: string;
+    goal: string;
+    status: string;
+    phase?: string;
+    headline?: string;
+    filesChanged?: string[];
+    previewUrls?: string[];
+  } | null;
+  onCancelBackgroundBuild?: () => void;
   avatarModel?: string;
   avatarPresentation?: AvatarPresentation;
   companionName?: string;
@@ -54,6 +64,7 @@ function tail(text: string, max = 280): string {
 
 /** Calm, avatar-first companion view: cinematic backdrop, subtitles, floating composer. */
 export function CompanionStage({
+  backgroundBuild, onCancelBackgroundBuild,
   avatarModel, avatarPresentation, companionName = "Hina", companionState, plan, messages,
   streamingText, partialTranscript, jawEnergy, speakingRef, visemeEvents, audioStartTimeRef,
   isVoiceActive, microphoneLevel = 0, visionEnabled,
@@ -134,7 +145,72 @@ export function CompanionStage({
             <span className="cs-identity__state" role="status">{stateLabel}</span>
           </div>
         </div>
-        <Badge tone="accent" dot data-testid="companion-mood">Mood · {mood}</Badge>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {backgroundBuild && (
+            <div
+              data-testid="companion-build-pill"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "5px 10px",
+                borderRadius: 999,
+                background: "rgba(15, 23, 42, 0.78)",
+                border: "1px solid rgba(56, 189, 248, 0.4)",
+                color: "#e2e8f0",
+                fontSize: 11.5,
+                fontWeight: 600,
+              }}
+            >
+              <span>
+                {backgroundBuild.status === "running"
+                  ? `Building${backgroundBuild.phase ? ` (${backgroundBuild.phase})` : ""}`
+                  : backgroundBuild.status === "awaiting_approval"
+                    ? "Build Approval Needed"
+                    : `Build ${backgroundBuild.status}`}
+                {backgroundBuild.filesChanged && backgroundBuild.filesChanged.length > 0
+                  ? ` · ${backgroundBuild.filesChanged.length} files`
+                  : ""}
+              </span>
+              <button
+                type="button"
+                onClick={onOpenWorkspace}
+                style={{
+                  background: "rgba(56, 189, 248, 0.2)",
+                  border: "none",
+                  borderRadius: 6,
+                  padding: "2px 7px",
+                  color: "#7dd3fc",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                Workspace
+              </button>
+              {onCancelBackgroundBuild &&
+                (backgroundBuild.status === "running" || backgroundBuild.status === "awaiting_approval") && (
+                  <button
+                    type="button"
+                    onClick={onCancelBackgroundBuild}
+                    style={{
+                      background: "rgba(239, 68, 68, 0.22)",
+                      border: "none",
+                      borderRadius: 6,
+                      padding: "2px 7px",
+                      color: "#fca5a5",
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Stop
+                  </button>
+                )}
+            </div>
+          )}
+          <Badge tone="accent" dot data-testid="companion-mood">Mood · {mood}</Badge>
+        </div>
       </header>
 
       <section className="companion-stage__bottom">

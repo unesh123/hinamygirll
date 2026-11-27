@@ -45,3 +45,45 @@ async def test_gpt_image_contract_uses_supported_output_format_and_aspect(image_
     assert seen[0]["output_format"] == "png"
     assert "response_format" not in seen[0]
     assert "seed" not in seen[0]
+
+
+@pytest.mark.asyncio
+async def test_xkiro_async_202_polling_and_25_per_day_quota(image_env, tmp_path):
+    quota_file = tmp_path / "xkiro_quota.json"
+    image_env.setenv("HINAA_XKIRO_IMAGE_QUOTA_FILE", str(quota_file))
+    image_env.setenv("OPENAI_IMAGE_API_KEY", "xk-test-key-12345")
+    image_env.setenv("OPENAI_IMAGE_BASE_URL", "https://api.xkiro.com/v1")
+    image_env.setenv("OPENAI_IMAGE_MODEL", "openai/gpt-image-2.5")
+
+    polls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal polls
+        if request.method == "POST" and request.url.path == "/v1/images/generations":
+            return httpx.Response(202, json={"id": "img_job_202", "status": "processing"})
+        if request.method == "GET" and request.url.path == "/v1/images/generations/img_job_202":
+            polls += 1
+            return httpx.Response(
+                200,
+                json={"id": "img_job_202", "status": "succeeded", "data": [{"url": "https://cdn.xkiro.com/out.png"}]},
+            )
+        if request.method == "GET" and request.url.host == "cdn.xkiro.com":
+            return httpx.Response(200, content=b"PNGDATA" * 20)
+        return httpx.Response(404)
+
+    original = httpx.AsyncClient
+    image_env.setattr(httpx, "AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs))
+
+    from hinaa_api.providers.openai_image import get_xkiro_image_quota_status
+    provider = OpenAIImageProvider(SimpleNamespace(openai_api_key=None, xkiro_daily_image_limit=2))
+    res1 = await provider.generate_image("neon cyber shrine")
+    assert res1.model == "openai/gpt-image-2.5"
+    assert len(res1.image_bytes) == 140
+    assert polls == 1
+    assert get_xkiro_image_quota_status(limit=2)["used"] == 1
+
+    await provider.generate_image("second image")
+    assert get_xkiro_image_quota_status(limit=2)["remaining"] == 0
+
+    with pytest.raises(RuntimeError, match="daily image limit reached"):
+        await provider.generate_image("third image exceeds cap")

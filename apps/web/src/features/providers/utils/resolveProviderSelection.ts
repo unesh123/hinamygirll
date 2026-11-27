@@ -78,6 +78,7 @@ export function resolveVoiceRoute(
  * what live calls proved, so a brain its gateway rejects is skipped outright.
  */
 const AUTO_PRIORITY: ConcreteProviderMode[] = [
+  "cantrustai",
   "cx-gateway",
   "claude",
   "coarena",
@@ -99,6 +100,8 @@ const AUTO_PRIORITY: ConcreteProviderMode[] = [
   "openai",
   "groq",
   "ollama",
+  "toptools",
+  "tokenrouter",
   "local",
   "mock",
 ];

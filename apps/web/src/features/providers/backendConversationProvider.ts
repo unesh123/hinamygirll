@@ -20,7 +20,20 @@ interface StreamEvent {
   latencyMs?: number;
   event?: unknown;
   runId?: string;
+  correlationId?: string;
   stepId?: string | null;
+  step?: number;
+  maxSteps?: number;
+  durationMs?: number;
+  error?: string;
+  goal?: string;
+  argumentsHash?: string;
+  arguments_hash?: string;
+  approval_id?: string;
+  tool?: string;
+  scope?: string;
+  reason?: string;
+  artifact?: Record<string, unknown>;
   query?: string;
   sourcesCount?: number;
   toolName?: string;
@@ -29,15 +42,28 @@ interface StreamEvent {
   parameters?: unknown;
   route?: string;
   confidence?: number;
-  goal?: string;
   candidate_capabilities?: string[];
   canonical_name?: string;
   grounded_tool_query?: string;
   data?: Record<string, unknown>;
 }
 
+const TOP_LEVEL_AGENTIC_EVENTS = new Set([
+  "agentic.started",
+  "agentic.completed",
+  "agent.step.started",
+  "agent.steered",
+  "thought.delta",
+  "thought.done",
+  "tool.started",
+  "tool.completed",
+  "tool.failed",
+  "artifact.ready",
+  "confirmation.required",
+]);
+
 function normalizeAgentEvent(event: StreamEvent): AgentRuntimeEvent | null {
-  if (!event.type.startsWith("agent.") && event.type !== "confirmation.required") return null;
+  if (!event.type.startsWith("agent.") && !TOP_LEVEL_AGENTIC_EVENTS.has(event.type)) return null;
   const raw = event.event;
   if (raw && typeof raw === "object") {
     const candidate = raw as Record<string, unknown>;
@@ -57,24 +83,93 @@ function normalizeAgentEvent(event: StreamEvent): AgentRuntimeEvent | null {
       };
     }
   }
-  if (typeof event.runId !== "string") return null;
+  const runId = event.runId ?? event.correlationId;
+  if (typeof runId !== "string") return null;
+  const payload = { ...(event as unknown as Record<string, unknown>) };
+  const stepId =
+    event.stepId ??
+    event.approval_id ??
+    (typeof event.step === "number" ? `step-${event.step}` : null);
   return {
-    sequence: 0,
+    sequence: typeof event.step === "number" ? event.step : 0,
     event_type: event.type,
-    run_id: event.runId,
-    step_id: event.stepId ?? null,
-    payload: {},
+    run_id: runId,
+    step_id: stepId,
+    payload,
   };
+}
+
+const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 185_000;
+
+async function awaitStreamStep<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  signal: AbortSignal | undefined,
+  onTimeout: () => void,
+): Promise<T> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return await promise;
+  }
+  let timerId: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  let watchdogError: unknown;
+  try {
+    const result = await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timerId = setTimeout(() => {
+          const err = new TurnFailure(
+            "HINAA stream stalled before completing. Your prompt is preserved.",
+            { code: "PROVIDER_UNAVAILABLE", retryable: true },
+          );
+          watchdogError = err;
+          reject(err);
+          try {
+            onTimeout();
+          } catch {
+            // Best-effort cleanup of stalled stream/controller
+          }
+        }, timeoutMs);
+        if (signal) {
+          onAbort = () => {
+            const abortErr =
+              signal.reason instanceof DOMException && signal.reason.name === "AbortError"
+                ? signal.reason
+                : new DOMException("Aborted", "AbortError");
+            watchdogError = abortErr;
+            reject(abortErr);
+            try {
+              onTimeout();
+            } catch {
+              // Best-effort cleanup on caller abort
+            }
+          };
+          if (signal.aborted) {
+            onAbort();
+          } else {
+            signal.addEventListener("abort", onAbort, { once: true });
+          }
+        }
+      }),
+    ]);
+    if (watchdogError) throw watchdogError;
+    return result;
+  } finally {
+    if (timerId !== undefined) clearTimeout(timerId);
+    if (signal && onAbort) signal.removeEventListener("abort", onAbort);
+  }
 }
 
 export class BackendConversationProvider implements ConversationProvider {
   private readonly fallbackSessionId = globalThis.crypto.randomUUID();
   readonly id: string;
   readonly mode: ProviderMode;
+  private readonly streamIdleTimeoutMs: number;
 
-  constructor(mode: ProviderMode) {
+  constructor(mode: ProviderMode, options?: { streamIdleTimeoutMs?: number }) {
     this.mode = mode;
     this.id = `hinaa-api-${mode}`;
+    this.streamIdleTimeoutMs = options?.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS;
   }
 
   async *streamTurn(
@@ -94,6 +189,12 @@ export class BackendConversationProvider implements ConversationProvider {
     }
     if (request.persona_mode) {
       payload.persona_mode = request.persona_mode;
+    }
+    if (typeof request.agenticMode === "boolean") {
+      payload.agenticMode = request.agenticMode;
+    }
+    if (request.activeAgentRunId) {
+      payload.activeAgentRunId = request.activeAgentRunId;
     }
     if (request.history) {
       payload.history = request.history;
@@ -127,47 +228,72 @@ export class BackendConversationProvider implements ConversationProvider {
       : "";
     const streamUrl = `${apiBase}/api/v1/conversations/turns:stream`;
 
-    let response: Response;
-    try {
-      response = await fetch(streamUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "bypass-tunnel-reminder": "true",
-          ...hinaaIdentityHeaders(),
-        },
-        body: JSON.stringify(payload),
-        signal: request.signal,
-      });
-    } catch (netErr: any) {
-      if (request.signal?.aborted) throw netErr;
-      throw new TurnFailure(
-        describeThrownFailure(netErr, "HINAA's API never answered"),
-      );
+    const streamAbort = new AbortController();
+    const forwardAbort = () => streamAbort.abort(request.signal?.reason);
+    if (request.signal) {
+      if (request.signal.aborted) {
+        streamAbort.abort(request.signal.reason);
+      } else {
+        request.signal.addEventListener("abort", forwardAbort, { once: true });
+      }
     }
 
-    const contentType = response.headers.get("content-type");
-    // A 200 whose body is HTML is an edge error page: the tunnel or a proxy
-    // answered, not HINAA, and only the content type proves it.
-    if (!response.ok || !response.body || (contentType ?? "").toLowerCase().includes("text/html")) {
-      const errText = response.body ? await response.text().catch(() => "") : "";
-      throw new TurnFailure(
-        describeResponseFailure({
-          status: response.status,
-          body: errText,
-          contentType,
-        }),
-        { status: response.status },
-      );
-    }
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let lastSeenSequence = -1;
     try {
-      while (true) {
-        const { done, value } = await reader.read();
-        buffer += decoder.decode(value, { stream: !done });
+      let response: Response;
+      try {
+        response = await awaitStreamStep(
+          fetch(streamUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "bypass-tunnel-reminder": "true",
+              ...hinaaIdentityHeaders(),
+            },
+            body: JSON.stringify(payload),
+            signal: streamAbort.signal,
+          }),
+          this.streamIdleTimeoutMs,
+          request.signal,
+          () => streamAbort.abort(),
+        );
+      } catch (netErr: any) {
+        if (request.signal?.aborted) throw netErr;
+        if (netErr instanceof TurnFailure) throw netErr;
+        throw new TurnFailure(
+          describeThrownFailure(netErr, "HINAA's API never answered"),
+        );
+      }
+
+      const contentType = response.headers.get("content-type");
+      // A 200 whose body is HTML is an edge error page: the tunnel or a proxy
+      // answered, not HINAA, and only the content type proves it.
+      if (!response.ok || !response.body || (contentType ?? "").toLowerCase().includes("text/html")) {
+        const errText = response.body ? await response.text().catch(() => "") : "";
+        throw new TurnFailure(
+          describeResponseFailure({
+            status: response.status,
+            body: errText,
+            contentType,
+          }),
+          { status: response.status },
+        );
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let lastSeenSequence = -1;
+      try {
+        while (true) {
+          const { done, value } = await awaitStreamStep(
+            reader.read(),
+            this.streamIdleTimeoutMs,
+            request.signal,
+            () => {
+              void reader.cancel().catch(() => undefined);
+              streamAbort.abort();
+            },
+          );
+          buffer += decoder.decode(value, { stream: !done });
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
         for (const line of lines) {
@@ -189,6 +315,19 @@ export class BackendConversationProvider implements ConversationProvider {
           }
           const agentEvent = normalizeAgentEvent(event);
           if (agentEvent) yield { type: "agent.event", event: agentEvent };
+          if (event.type === "agentic.background") {
+            const rawEv = event as unknown as Record<string, unknown>;
+            const bgRunId = String(event.runId ?? event.correlationId ?? "");
+            if (bgRunId) {
+              yield {
+                type: "agentic.background",
+                runId: bgRunId,
+                goal: String(event.goal ?? ""),
+                streamUrl: String(rawEv.streamUrl ?? `/api/v1/agent/agentic-runs/${bgRunId}/stream`),
+                steerUrl: String(rawEv.steerUrl ?? `/api/v1/agent/agentic-runs/${bgRunId}/steer`),
+              };
+            }
+          }
           if (event.type === "thinking") yield { type: "thinking" };
           if (event.type === "search.started")
             yield { type: "search.started", query: event.query || "" };
@@ -273,9 +412,12 @@ export class BackendConversationProvider implements ConversationProvider {
           }
         }
         if (done) break;
+        }
+      } finally {
+        reader.releaseLock();
       }
     } finally {
-      reader.releaseLock();
+      request.signal?.removeEventListener("abort", forwardAbort);
     }
   }
 }

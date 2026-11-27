@@ -40,6 +40,7 @@ def test_resolve_gemini_model_resilience():
     settings = Settings(
         GEMINI_API_KEY="test-key",
         GEMINI_MODEL="gemini-3.5-flash",
+        _env_file=None,
     )
     # Standard models from UI
     assert settings.resolve_gemini_model("gemini-2.5-flash-lite") == "gemini-2.5-flash-lite"

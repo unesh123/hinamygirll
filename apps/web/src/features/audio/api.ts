@@ -1,6 +1,7 @@
 import { hinaaIdentityHeaders } from "../../lib/hinaaIdentity";
 
 export type ProviderMode =
+  | "cantrustai"
   | "gmi"
   | "mock"
   | "local"
@@ -24,6 +25,8 @@ export type ProviderMode =
   | "oxion"
   | "respan"
   | "coarena"
+  | "toptools"
+  | "tokenrouter"
   | "experiential";
 
 
@@ -84,6 +87,8 @@ export async function transcribeAudio(
   return (await response.json()) as TranscriptResult;
 }
 
+const LOCAL_VOICE_SERVER_URL = "http://localhost:8768/voice/synthesize";
+
 export async function synthesizeSpeech(
   text: string,
   companionId: "hinaa" | "hiro",
@@ -93,6 +98,39 @@ export async function synthesizeSpeech(
   realtime = false,
   voiceEngine?: string,
 ): Promise<{ blob: Blob; provider: string; latencyMs: number }> {
+  const isTestEnv = typeof import.meta !== "undefined" && import.meta.env?.MODE === "test";
+  if (!isTestEnv && mode !== "mock" && mode !== "local") {
+    try {
+      const voiceRes = await fetch(LOCAL_VOICE_SERVER_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "audio/wav, audio/mpeg, */*",
+        },
+        body: JSON.stringify({
+          text,
+          voice: voiceEngine || undefined,
+          speed: 1.0,
+          companion_id: companionId,
+          language,
+        }),
+        signal,
+      });
+      if (voiceRes.ok) {
+        const blob = await voiceRes.blob();
+        if (blob.size > 44) {
+          return {
+            blob,
+            provider: voiceRes.headers.get("X-Engine-Used") ?? voiceRes.headers.get("X-HINAA-Provider") ?? "voice-server-8768",
+            latencyMs: Number(voiceRes.headers.get("X-Latency-Ms") ?? voiceRes.headers.get("X-HINAA-Latency-Ms") ?? 0),
+          };
+        }
+      }
+    } catch (err) {
+      if ((err as Error)?.name === "AbortError") throw err;
+    }
+  }
+
   const response = await fetch("/api/v1/speech/synthesis", {
     method: "POST",
     headers: {

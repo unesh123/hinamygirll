@@ -50,9 +50,17 @@ GATED_TOOLS = {
     "clean_room_loop",
     "terminal_hands",
     "html_anime_generate",
+    "render_code_animation",
     "create_motion_video",
     "mobile_run_task",
     "customgpt_query",
+    "ultra_file_write",
+    "file_list",
+    "video_create",
+    "server_start",
+    "shell_run",
+    "agent_spawn",
+    "browser_screenshot",
 }
 
 # Gated calls whose every required parameter this module reads out of the owner's
@@ -64,7 +72,14 @@ SELF_SPECIFIED = {
     "reminder.create": ("title", "at"),
     "design_website": ("brief",),
     "html_anime_generate": ("logline",),
+    "render_code_animation": ("title",),
     "mobile_run_task": ("task",),
+    "ultra_file_write": ("filename", "content"),
+    "file_list": ("path",),
+    "video_create": ("prompt",),
+    "server_start": ("port", "dir_path"),
+    "agent_spawn": ("name", "task"),
+    "browser_screenshot": ("url",),
     "youtube_playback_request": ("query",),
     "browser_execute_task": ("goal",),
     "browser_navigate": ("url",),
@@ -197,6 +212,39 @@ _MOTION_VIDEO = re.compile(
     r"""(?ix) \b (?: build | create | design | make | develop | generate | render ) \b [^.?!]* \b
         (?: motion\s+video | motion\s+graphics | animated\s+explainer | explainer\s+video ) \b"""
 )
+_VIDEO_CREATE_ASK = re.compile(
+    r"""(?ix) \b (?: build | create | design | make | generate | render | export ) \b [^.?!]*
+        \b (?: mp4 | bridal\s+reel | video\s+reel | animation\s+mp4 |
+               (?: gold | sparkle | bridal | neon | confetti ) \s+ (?: \w+\s+ ){0,3} (?: animation | video | reel | mp4 ) ) \b"""
+)
+_CODE_ANIMATION_ASK = re.compile(
+    r"""(?ix) \b (?: build | create | design | make | generate | render | export ) \b [^.?!]*
+        (?: \b via\s+playwright\b | \b playwright\b[^.?!]*\bffmpeg\b |
+            \bkinetic[\s-]+typography\b[^.?!]*(?:\b(?:mp4|video|animation|preview|reel|song)\b|$) |
+            \b (?: in\s+code | by\s+code | html\s+animation | canvas\s+animation ) \b[^.?!]*\b(?:mp4|video|render)\b |
+            \b render\s+(?: a\s+|an\s+ )?(?:\d+\s*(?:s|sec|second|seconds)\s+)?mp4\b )"""
+)
+_ULTRA_FILE_WRITE_ASK = re.compile(
+    r"""(?ix) \b (?: write | create | save ) \b [^.?!]*?
+        (?: \b file\s+(?: called\s+|named\s+)? | \b in\s+(?: the\s+|my\s+)? (?: workspace | exports ) \b | \s )
+        ( [\w\-/]+ \.(?: txt | md | json | csv | log | html | css | js ) ) \b"""
+)
+_FILE_LIST_ASK = re.compile(
+    r"""(?ix) \b (?: show | list | view | display | check | what\s+are ) \b [^.?!]*?
+        \b files \s+ in \s+ (?: my\s+|the\s+|ultra\s+ )? (?: workspace | exports | hinaa-ultra | directory ) \b"""
+)
+_SERVER_START_ASK = re.compile(
+    r"""(?ix) (?: \b (?: start | launch | run | host | serve ) \b [^.?!]*? (?: port\s+(\d{2,5}) | :(\d{2,5}) )
+              | \b serve \s+ ( [\w\-/]+ ) \s+ on \s+ (?: port\s+ )? (\d{2,5}) \b )"""
+)
+_AGENT_SPAWN_ASK = re.compile(
+    r"""(?ix) \b (?: ask | tell | have | spawn(?:\s+agent)? | assign | delegate(?:\s+to)? ) \s+
+        ( kira | nova | sage ) \b (?: \s+ to )? \s+ (.+?) \s*$"""
+)
+_SCREENSHOT_URL_ASK = re.compile(
+    r"""(?ix) \b (?: take | capture | grab ) \s+ (?: a\s+ )? screenshot \s+ (?: of\s+ )?
+        ( (?: https?:// | localhost:\d+ | 127\.0\.0\.1:\d+ ) [^\s]* )"""
+)
 _MOBILE_TASK = re.compile(
     r"""(?ix) \b (?: mobile | android | phone | emulator ) \b [^.?!]* \b (?: open | tap | click | check | install | test | control | run | type ) \b
         | \b (?: open | tap | click | check | install | test | control | run ) \b [^.?!]* \b (?: on\s+(?:my\s+)?(?:mobile|phone|android|emulator) ) \b"""
@@ -241,6 +289,7 @@ _BROWSER_TASK_ASK = re.compile(
     r"""(?ix)
     \b(?:
         browse | browser | open\s+(?:the\s+)?(?:browser|website|webpage|page|url|link) |
+        open\s+(?:https?://|www\.) |
         navigate\s+to | go\s+to\s+(?:https?://|www\.) |
         automate\s+(?:the\s+)?browser | browser\s+agent | browser\s+automation |
         browser-use | web\s+task | scrape\s+(?:the\s+)?(?:web|page|site) |
@@ -261,7 +310,7 @@ _TERMINAL_CMD_ASK = re.compile(
     \s+(?:in|on|through|using|via|from)\s+(?:the\s+|my\s+)?
     (?:terminal|shell|console|command\s*(?:line|prompt)|powershell|cmd|git\s+bash|wsl)\b
     |
-    \b(?:run|execute|exec)\s+(?:the\s+)?(?:command|script|python\s+script|powershell\s+script|code)\s+[:`]?\s*(.+?)\s*$
+    \b(?:run|execute|exec)\s+(?:the\s+)?(?:command|script|python\s+script|powershell\s+script|code)\s*[:`]?\s*(.+?)\s*$
     |
     \b(?:run|execute|exec)\s+(?:python|py|powershell|pwsh|bash|sh|node|deno|npm|pnpm|git|adb|curl)\s+(.+?)\s*$
     """
@@ -694,6 +743,73 @@ def sanction_tools(
     return combined
 
 
+def _extract_ultra_file_write(raw: str, match: re.Match[str]) -> dict[str, str]:
+    """Extract target filename and body from explicit file-creation prompts."""
+    filename = (match.group(1) or "").strip()
+    after = raw[match.end():].strip()
+    content = ""
+    for pat in (
+        r"(?is)^(?:with\s+(?:the\s+)?(?:content|contents|text|body)|containing|saying|that\s+says)\s*[:\-]?\s*(.+)$",
+        r"(?is)\b(?:with\s+(?:the\s+)?(?:content|contents|text|body)|containing|saying|content)\s*[:=]?\s*(.+)$",
+    ):
+        cm = re.search(pat, after or raw)
+        if cm:
+            content = cm.group(1).strip()
+            break
+    if not content:
+        q = re.search(r"""(?s)["']([^"']{2,})["']""", after or raw)
+        if q:
+            content = q.group(1)
+    content = re.sub(r"(?i)\s+in\s+(?:the\s+|my\s+)?(?:workspace|exports)\s*$", "", content).strip()
+    if len(content) >= 2 and content[0] == content[-1] and content[0] in {"'", '"', "`"}:
+        content = content[1:-1]
+    if not content:
+        content = f"Created by HINAA Ultra: {filename}\n"
+    return {"filename": filename, "content": content}
+
+
+def _extract_video_create_params(raw: str) -> dict[str, Any]:
+    """Parse duration, FPS, resolution, and prompt for local code-driven MP4 creation."""
+    lowered = raw.lower()
+    dur = 5
+    dm = re.search(r"(?i)\b(\d{1,2})\s*(?:s|sec|secs|second|seconds)\b", raw)
+    if dm:
+        dur = max(1, min(30, int(dm.group(1))))
+    fps = 24
+    fm = re.search(r"(?i)\b(24|30|60)\s*fps\b", raw)
+    if fm:
+        fps = int(fm.group(1))
+    width, height = (1080, 1920) if ("1080" in lowered or dur >= 20) else (540, 960)
+    res_m = re.search(r"(\d{3,4})\s*[xX×]\s*(\d{3,4})", raw)
+    if res_m:
+        width, height = int(res_m.group(1)), int(res_m.group(2))
+    overlay_mode = "green" if re.search(r"(?i)\bgreen\s*screen|chroma\s*key\b", raw) else ("black" if re.search(r"(?i)\bblack\s*screen|black\s*overlay\b", raw) else "full")
+    return {
+        "prompt": raw,
+        "duration_seconds": dur,
+        "fps": fps,
+        "width": width,
+        "height": height,
+        "overlay_mode": overlay_mode,
+    }
+
+
+def _extract_code_animation_params(raw: str) -> dict[str, Any]:
+    """Parse duration, FPS, resolution, preview flag, and title for Playwright+FFmpeg code renders."""
+    base = _extract_video_create_params(raw)
+    lowered = raw.lower()
+    preview = bool(re.search(r"(?i)\b(?:preview|draft|480p)\b", lowered))
+    return {
+        "title": raw[:120].strip(),
+        "subtitle": "Playwright + FFmpeg Code Studio",
+        "duration_seconds": float(base["duration_seconds"]),
+        "fps": int(base["fps"]),
+        "width": int(base["width"]),
+        "height": int(base["height"]),
+        "preview": preview,
+    }
+
+
 def _sanction_single(
     text: str,
     *,
@@ -846,9 +962,77 @@ def _sanction_single(
         sanction.parameters["html_anime_generate"] = {"logline": raw}
         return sanction
 
+    if (
+        _CODE_ANIMATION_ASK.search(lowered)
+        and not re.search(r"(?i)\b(?:bridal|gold\s+sparkle)\b", lowered)
+        and not META_FRAMING.search(lowered)
+        and not _CAPABILITY_INQUIRY.search(lowered)
+        and not re.search(r"(?i)\b(?:veo|sora|runway|kling|pika|luma)\b", lowered)
+    ):
+        sanction.allowed.add("render_code_animation")
+        sanction.parameters["render_code_animation"] = _extract_code_animation_params(raw)
+        return sanction
+
+    if (
+        _VIDEO_CREATE_ASK.search(lowered)
+        and not META_FRAMING.search(lowered)
+        and not _CAPABILITY_INQUIRY.search(lowered)
+        and not re.search(r"(?i)\b(?:veo|sora|runway|kling|pika|luma)\b", lowered)
+    ):
+        sanction.allowed.add("video_create")
+        sanction.parameters["video_create"] = _extract_video_create_params(raw)
+        return sanction
+
     if _MOTION_VIDEO.search(lowered) and not META_FRAMING.search(lowered):
         sanction.allowed.add("create_motion_video")
-        sanction.parameters["create_motion_video"] = {"title": raw}
+        first_line = raw.strip().splitlines()[0].strip() if raw.strip() else "Motion video"
+        sanction.parameters["create_motion_video"] = {"title": first_line[:110].strip() or "Motion video"}
+        return sanction
+
+    if _FILE_LIST_ASK.search(lowered) and not META_FRAMING.search(lowered):
+        sub = "exports" if "exports" in lowered else "."
+        sanction.allowed.add("file_list")
+        sanction.parameters["file_list"] = {"path": sub}
+        return sanction
+
+    srv_m = _SERVER_START_ASK.search(raw)
+    if srv_m and not META_FRAMING.search(lowered) and not _CAPABILITY_INQUIRY.search(lowered):
+        port_s = next((g for g in (srv_m.group(1), srv_m.group(2), srv_m.group(4)) if g), "4500")
+        dir_path = (srv_m.group(3) or "").strip()
+        if not dir_path:
+            dm = re.search(r"(?i)\b(?:serving|serve|host)\s+(?:folder\s+|dir\s+|directory\s+)?([a-zA-Z0-9_\-/]+)\b", raw)
+            dir_path = dm.group(1) if dm else "exports"
+        sanction.allowed.add("server_start")
+        sanction.parameters["server_start"] = {"port": int(port_s), "dir_path": dir_path}
+        return sanction
+
+    agent_m = _AGENT_SPAWN_ASK.search(raw)
+    if agent_m and not META_FRAMING.search(lowered):
+        sanction.allowed.add("agent_spawn")
+        sanction.parameters["agent_spawn"] = {
+            "name": agent_m.group(1).lower(),
+            "task": agent_m.group(2).strip(),
+        }
+        return sanction
+
+    shot_m = _SCREENSHOT_URL_ASK.search(raw)
+    if shot_m and not META_FRAMING.search(lowered):
+        shot_url = shot_m.group(1).rstrip(".,!?;)")
+        if not shot_url.startswith("http"):
+            shot_url = f"http://{shot_url}"
+        sanction.allowed.add("browser_screenshot")
+        sanction.parameters["browser_screenshot"] = {"url": shot_url}
+        return sanction
+
+    file_m = _ULTRA_FILE_WRITE_ASK.search(raw)
+    if (
+        file_m
+        and not META_FRAMING.search(lowered)
+        and not ABORT.search(lowered)
+        and not re.search(r"(?i)\b(?:fix|patch|refactor|debug|repair)\b", lowered)
+    ):
+        sanction.allowed.add("ultra_file_write")
+        sanction.parameters["ultra_file_write"] = _extract_ultra_file_write(raw, file_m)
         return sanction
 
     if _MOBILE_TASK.search(lowered) and not META_FRAMING.search(lowered):
@@ -1070,7 +1254,9 @@ def _sanction_single(
         # first word of the command as the program name. The command itself is
         # the parameter, quoted or bare, so the gate can file the call outright.
         command = next((g for g in terminal_match.groups() if g), "").strip()
-        command = command.strip("\"'`").rstrip(".!?,;").strip()
+        command = command.rstrip(".!?,;").strip()
+        if len(command) >= 2 and command[0] == command[-1] and command[0] in {"'", '"', "`"}:
+            command = command[1:-1].strip()
         command = re.sub(r"(?i)\s+(?:please|for\s+me|now)$", "", command).strip()
         if command:
             sanction.allowed.add("terminal_hands")

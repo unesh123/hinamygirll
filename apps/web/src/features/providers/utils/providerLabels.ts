@@ -13,6 +13,7 @@ export function providerModeFromId(id: string): ProviderMode | null {
 }
 
 const PROVIDER_LABELS: Record<ProviderMode, { label: string; description: string }> = {
+  cantrustai: { label: "CanTrustAI (DeepSeek)", description: "api.cantrustai.xyz — high-speed DeepSeek V4.1 Flash." },
   gmi: { label: "GMI Cloud", description: "GMI streaming inference; provider and model availability require live checks." },
   mock:   { label: "Demo",           description: "Deterministic responses. No API calls." },
   local:  { label: "Local",          description: "Zero-credit on-device model. Text only." },
@@ -30,12 +31,14 @@ const PROVIDER_LABELS: Record<ProviderMode, { label: string; description: string
   pgsgrove:       { label: "PGSGrove AI",   description: "api.pgsgrove.com — high-speed GLM-5.3 & DeepSeek V4.1 Flash." },
   seekai:         { label: "SeekAI",        description: "seekai.cc — DeepSeek & Claude multi-model gateway." },
   tokentable:     { label: "TokenTable",    description: "tokentable.asia — Claude Fable 5, GPT-6, Opus 5." },
-  xkiro:          { label: "XKiro AI",      description: "api.xkiro.com — fast free Qwen 3.8 Max, Qwen 3.7 Flash." },
+  xkiro:          { label: "XKiro AI",      description: "api.xkiro.com — GPT-6.2/6.1/5.6, Grok 4.7, Mistral Large 4, Nemotron, Command-A & Image Gen." },
   cavoti:         { label: "Cavoti AI",     description: "cavoti.com — frontier Claude Fable 5, Opus 5, Haiku 4.5." },
   apmix:          { label: "APMIX.AI",      description: "api.apmix.ai — fast free DeepSeek V4 Flash & frontier models." },
   oxion:          { label: "Oxion AI",      description: "oxionai.com — 33+ frontier models (Claude Fable 5.1, Grok 4.6, Opus 5.5)." },
   respan:         { label: "Respan AI",     description: "api.respan.ai — unified gateway & multi-model router." },
   coarena:        { label: "Coarena AI",    description: "coarena.ai — free frontier Claude Sonnet 5.5, Gemini 4 Argon, deep reasoning." },
+  toptools:       { label: "Top-Tools AI",  description: "top-tools-ai.com — Top-Tools-Ai-Pro (1M context, vision, tool calls)." },
+  tokenrouter:    { label: "TokenRouter",   description: "api.tokenrouter.com — DeepSeek & multi-provider unified LLM router." },
   experiential:   { label: "Experiential Labs", description: "api.experientiallabs.ai — Claude Opus 5.5 frontier gateway." },
 };
 

@@ -451,6 +451,7 @@ class GatewayModelsOutcome:
     """``ok``, ``refused``, ``timeout``, ``http_<code>``, ``malformed``, ``no_url``."""
 
     detail: str
+    model_ids: tuple[str, ...] = ()
 
 
 _models_cache: dict[str, tuple[float, GatewayModelsOutcome]] = {}
@@ -524,18 +525,37 @@ async def probe_gateway_models(
                     False, 0, "malformed", f"{url} returned 200 without a model list."
                 )
             else:
+                discovered: list[str] = []
+                for item in entries:
+                    if isinstance(item, dict) and item.get("id"):
+                        discovered.append(str(item["id"]).strip())
+                    elif isinstance(item, str) and item.strip():
+                        discovered.append(item.strip())
+                deduped_ids = tuple(dict.fromkeys(m for m in discovered if m))
                 outcome = GatewayModelsOutcome(
                     True,
                     len(entries),
                     "ok",
                     f"{url} is serving {len(entries)} models.",
+                    model_ids=deduped_ids,
                 )
         else:
+            err_suffix = ""
+            try:
+                err_payload = resp.json()
+                if isinstance(err_payload, dict):
+                    err_obj = err_payload.get("error") if isinstance(err_payload.get("error"), dict) else err_payload
+                    code = str(err_obj.get("code") or "").strip()
+                    msg = str(err_obj.get("message") or "").strip()
+                    if code or msg:
+                        err_suffix = f" ({': '.join(part for part in (code, msg) if part)})"
+            except Exception:
+                err_suffix = ""
             outcome = GatewayModelsOutcome(
                 False,
                 0,
                 f"http_{resp.status_code}",
-                f"{url} returned HTTP {resp.status_code}.",
+                f"{url} returned HTTP {resp.status_code}{err_suffix}.",
             )
 
     ttl = _CACHE_TTL_SECONDS if outcome.serving else _FAILURE_CACHE_TTL_SECONDS

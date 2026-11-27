@@ -46,4 +46,16 @@ describe("ModelsMode", () => {
     render(<ModelsMode onSelectModel={select} onSelectAuto={auto}/>);
     expect(screen.getByRole("button",{name:"Use xkiro model via xkiro"})).toBeDisabled();
   });
+  it("explains why decision-only providers like Articul8 Bivia (Ben) have no swappable chat models", () => {
+    capabilities.mockReturnValue({
+      ...capabilities(),
+      providers: [
+        ...capabilities().providers,
+        { id: "articul8", name: "Articul8 Bivia decisions", configured: true, role: "decision", health: "untested", allowedModels: [] },
+      ],
+    });
+    render(<ModelsMode onSelectModel={select} onSelectAuto={auto} />);
+    fireEvent.change(screen.getByLabelText("Filter models by provider"), { target: { value: "articul8" } });
+    expect(screen.getByRole("status")).toHaveTextContent(/bounded decision API tool \(bivia_decide\)/i);
+  });
 });

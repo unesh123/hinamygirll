@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hinaa.local/schemas/foundry-site/1.0.json",
+  "type": "object",
+  "required": ["site_id", "brand", "tagline", "palette_name", "archetype", "revision", "size_kb", "files", "quality", "updated_at"],
+  "properties": {
+    "site_id": { "type": "string", "minLength": 1 },
+    "brand": { "type": "string", "minLength": 1 },
+    "tagline": { "type": "string" },
+    "address": { "type": ["string", "null"] },
+    "palette_name": { "type": "string" },
+    "archetype": { "type": "string" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "size_kb": { "type": "number", "minimum": 0 },
+    "files": {
+      "type": "object",
+      "required": ["index.html", "styles.css", "app.js"],
+      "additionalProperties": { "type": "string" }
+    },
+    "quality": {
+      "type": "object",
+      "required": ["passed", "errors", "contrast_body", "contrast_cta"],
+      "properties": {
+        "passed": { "type": "boolean" },
+        "errors": { "type": "array", "items": { "type": "string" } },
+        "contrast_body": { "type": "number" },
+        "contrast_cta": { "type": "number" }
+      }
+    },
+    "updated_at": { "type": "string", "format": "date-time" }
+  }
+}

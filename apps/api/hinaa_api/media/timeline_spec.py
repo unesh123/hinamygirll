@@ -310,26 +310,39 @@ class DeterministicVideoRenderer:
             _, stderr = await proc.communicate()
 
             if proc.returncode != 0:
-                # Fail honestly: previously this wrote a 24-byte fake MP4
-                # header and marked the job "succeeded". A failed render
-                # must be a failed job, never a fake file.
-                raise RuntimeError(
+                raise HinaaError(
+                    "RENDER_FAILED",
                     f"FFmpeg render failed (exit {proc.returncode}): "
-                    f"{stderr.decode(errors='replace')[-300:]}"
+                    f"{stderr.decode(errors='replace')[-300:]}",
+                    502,
+                    True,
                 )
 
-            # Create preview copy & poster image
+            # Create preview copy & extract real poster frame (no fake 1x1 PNG).
             shutil.copyfile(master_mp4, preview_mp4)
-            poster_png.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4")
+            poster_proc = await asyncio.create_subprocess_exec(
+                self.ffmpeg, "-y", "-ss", "0.5", "-i", str(master_mp4),
+                "-frames:v", "1", str(poster_png),
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+            await poster_proc.communicate()
+            if poster_proc.returncode != 0 or not poster_png.exists():
+                logger.warning("Poster extraction failed; continuing without a poster.")
+                if poster_png.exists():
+                    poster_png.unlink()
 
-            # 2. Automated QC Gate: verify media file integrity
+            # 2. Automated QC Gate: verify the output is a real video stream.
             qc = self.verify_media_qc(master_mp4, spec.canvas)
+            if not qc.get("passed"):
+                raise HinaaError("RENDER_QC_FAILED", qc.get("reason", "QC failed"), 502, True)
             render_job.qcMetrics = qc
-            render_job.outputArtifacts = {
+            artifacts = {
                 "master": str(master_mp4),
                 "preview": str(preview_mp4),
-                "poster": str(poster_png),
             }
+            if poster_png.exists():
+                artifacts["poster"] = str(poster_png)
+            render_job.outputArtifacts = artifacts
             render_job.status = "succeeded"
             render_job.progress = 1.0
             render_job.completedAt = time.time()
@@ -341,15 +354,38 @@ class DeterministicVideoRenderer:
         return render_job
 
     def verify_media_qc(self, video_path: Path, canvas: CanvasSpec) -> dict[str, Any]:
-        """Automated QC Gate: validates codec, file existence, and stream health."""
-        if not video_path.exists() or video_path.stat().st_size == 0:
-            return {"passed": False, "reason": "Output file missing or empty"}
+        """Automated QC Gate: probes the file via ffprobe to verify real stream integrity."""
+        if not video_path.exists() or video_path.stat().st_size < 1024:
+            return {"passed": False, "reason": "Output file missing or suspiciously small"}
+        ffprobe = shutil.which("ffprobe")
+        if ffprobe:
+            proc = subprocess.run(
+                [ffprobe, "-v", "error", "-select_streams", "v:0",
+                 "-show_entries", "stream=codec_name,width,height",
+                 "-show_entries", "format=duration", "-of", "json", str(video_path)],
+                capture_output=True, text=True, timeout=30,
+            )
+            if proc.returncode != 0:
+                return {"passed": False, "reason": f"ffprobe failed: {proc.stderr[-200:]}"}
+            data = json.loads(out_stdout := proc.stdout or "{}")
+            streams = data.get("streams") or []
+            if not streams:
+                return {"passed": False, "reason": "No video stream in output"}
+            return {
+                "passed": True,
+                "codec": streams[0].get("codec_name"),
+                "width": streams[0].get("width"),
+                "height": streams[0].get("height"),
+                "duration": float(data.get("format", {}).get("duration") or 0),
+                "audioLufsTarget": -14.0,
+                "sizeBytes": video_path.stat().st_size,
+            }
         return {
             "passed": True,
             "width": canvas.width,
             "height": canvas.height,
             "fps": canvas.fps,
             "audioLufsTarget": -14.0,
-            "zeroDroppedFrames": True,
             "sizeBytes": video_path.stat().st_size,
+            "note": "ffprobe missing; size check only",
         }

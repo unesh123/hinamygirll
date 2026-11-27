@@ -1,0 +1,130 @@
+"""Tests for the typed loop tool registry (schemas + approval flags)."""
+
+import pytest
+from pydantic import ValidationError
+
+from hinaa_api.harness.loop_tools import (
+    TOOL_REGISTRY,
+    describe_tools,
+    validate_action,
+)
+
+
+def test_registry_has_expected_tools_with_approval_flags():
+    assert set(TOOL_REGISTRY) == {
+        "write_file",
+        "delete_file",
+        "run_command",
+        "read_file",
+        "list_files",
+        "search_files",
+        "fetch_url",
+        "browser_check",
+        "run_dev_server",
+        "screenshot_page",
+        "build_website",
+        "list_media",
+        "describe_media",
+        "digest_document",
+        "review_diff",
+    }
+    side_effects = {name: spec.side_effect for name, spec in TOOL_REGISTRY.items()}
+    assert side_effects == {
+        "write_file": True,
+        "delete_file": True,
+        "run_command": True,
+        "read_file": False,
+        "list_files": False,
+        "search_files": False,
+        "fetch_url": False,
+        "browser_check": False,
+        "run_dev_server": True,
+        "screenshot_page": False,
+        "build_website": True,
+        "list_media": False,
+        "describe_media": False,
+        "digest_document": False,
+        "review_diff": False,
+    }
+
+
+def test_describe_tools_lists_every_tool():
+    text = describe_tools()
+    for name in TOOL_REGISTRY:
+        assert name in text
+
+
+def test_read_only_tools_auto_approved():
+    spec, args, error = validate_action({"type": "read_file", "path": "src/app.py"})
+    assert error is None
+    assert spec.approval({"type": "read_file"}) == "auto"
+    assert args.path == "src/app.py"
+
+    spec, args, error = validate_action({"type": "list_files"})
+    assert error is None
+    assert args.pattern == "**/*"
+
+    spec, args, error = validate_action({"type": "search_files", "query": "def run_loop"})
+    assert error is None
+    assert args.query == "def run_loop"
+    assert spec.approval({"type": "search_files"}) == "auto"
+
+    spec, args, error = validate_action({"type": "fetch_url", "url": "https://example.com/docs"})
+    assert error is None
+    assert spec.approval({"type": "fetch_url"}) == "auto"
+
+    spec, args, error = validate_action(
+        {"type": "browser_check", "url": "http://127.0.0.1:3000", "viewport_width": 390}
+    )
+    assert error is None
+    assert args.viewport_width == 390
+    assert spec.approval({"type": "browser_check"}) == "auto"
+
+
+def test_fetch_url_accepts_https_url_in_schema():
+    # Scheme confinement (file:// etc.) is enforced at execution time, not in the schema.
+    _, _, err = validate_action({"type": "fetch_url", "url": "file:///etc/passwd"})
+    assert err is None
+
+
+def test_side_effecting_tool_without_confirm_is_refused():
+    spec, args, error = validate_action({"type": "write_file", "path": "a.txt", "content": "hi"})
+    assert spec is TOOL_REGISTRY["write_file"]
+    assert args is None
+    assert error is not None and error.startswith("blocked:")
+
+
+def test_side_effecting_tool_with_confirm_true_is_approved():
+    spec, args, error = validate_action(
+        {"type": "write_file", "path": "a.txt", "content": "hi", "confirm": True}
+    )
+    assert error is None
+    assert args.content == "hi"
+
+
+def test_delete_and_run_command_require_confirm_too():
+    _, _, err1 = validate_action({"type": "delete_file", "path": "a.txt"})
+    _, _, err2 = validate_action({"type": "run_command", "command": "ls"})
+    assert err1 is not None and err2 is not None
+    assert all(e.startswith("blocked:") for e in (err1, err2))
+
+
+def test_confirm_false_still_refused():
+    _, _, error = validate_action({"type": "delete_file", "path": "a.txt", "confirm": False})
+    assert error is not None and error.startswith("blocked:")
+
+
+def test_unknown_and_non_object_actions_error():
+    _, _, err1 = validate_action({"type": "explode", "confirm": True})
+    _, _, err2 = validate_action("write the file please")
+    assert "unknown action type" in err1
+    assert err2 == "action is not an object"
+
+
+def test_pydantic_validation_rejects_bad_args():
+    with pytest.raises(ValidationError):
+        TOOL_REGISTRY["read_file"].args_model.model_validate({"path": ""})
+    with pytest.raises(ValidationError):
+        TOOL_REGISTRY["run_command"].args_model.model_validate({"command": "   "})
+    _, _, error = validate_action({"type": "read_file"})
+    assert error is not None and error.startswith("invalid arguments")

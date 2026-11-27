@@ -361,7 +361,7 @@ export function WebsiteFoundryPreview({ data }: WebsiteFoundryPreviewProps) {
           }}
         >
           <ShieldCheck size={12} color="#10b981" />
-          <span>https://hinaa.local/{filename}</span>
+          <span>{`sandbox://preview/${filename}`}</span>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

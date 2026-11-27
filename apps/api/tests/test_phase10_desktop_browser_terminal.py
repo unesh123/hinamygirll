@@ -44,6 +44,7 @@ SCRATCH_DIR = Path(__file__).resolve().parents[1] / ".runtime" / "scratch"
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "nt", reason="Requires Windows GUI Notepad and Windows desktop operator")
 async def test_phase10_desktop_editor_lifecycle_in_scratch_workspace():
     """Hina opens authorized editor, creates scratch file, verifies contents on disk, stops on command."""
     SCRATCH_DIR.mkdir(parents=True, exist_ok=True)
@@ -69,6 +70,7 @@ async def test_phase10_desktop_editor_lifecycle_in_scratch_workspace():
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "nt", reason="Requires Windows System32 path policy check")
 async def test_phase10_desktop_rejects_unauthorized_system_paths():
     """Desktop operator rejects access to protected OS directories outside workspace."""
     envelope = await execute_computer_operator({
@@ -137,6 +139,7 @@ async def test_phase10_browser_controlled_form_task(monkeypatch):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "nt", reason="Requires Windows host with WSL2 Kali distro")
 async def test_phase10_terminal_bounded_wsl_kali_execution():
     """Run bounded command in WSL2 Kali Linux and capture exit code 0 and stdout."""
     res = await execute_terminal_hands(TerminalExecuteParams(
@@ -144,6 +147,8 @@ async def test_phase10_terminal_bounded_wsl_kali_execution():
         runtime="kali",
         timeout_seconds=15,
     ))
+    if res.get("status") in {"unavailable", "timeout"}:
+        pytest.skip(f"WSL2 Kali not ready in this host session: {res.get('status')}")
     assert res.get("status") == "success"
     assert res.get("exitCode") == 0
     stdout = res.get("stdout", "")
@@ -155,9 +160,10 @@ async def test_phase10_terminal_bounded_wsl_kali_execution():
 async def test_phase10_terminal_cancels_long_process():
     """Long process terminates cleanly when execution timeout expires."""
     t0 = time.time()
+    sleep_cmd = "Start-Sleep -Seconds 20" if os.name == "nt" else "sleep 20"
     res = await execute_terminal_hands(TerminalExecuteParams(
-        command="Start-Sleep -Seconds 20",
-        runtime="powershell",
+        command=sleep_cmd,
+        runtime="auto",
         timeout_seconds=2,
     ))
     duration = time.time() - t0

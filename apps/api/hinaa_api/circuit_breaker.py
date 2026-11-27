@@ -125,7 +125,7 @@ class ProviderCircuitBreaker:
         self.last_failure_timestamp = now
 
         # Handle specific error scenarios
-        if error_code in {"PROVIDER_KEY_INVALID", "AUTH_ERROR", "PROVIDER_UNAVAILABLE", "UNAUTHORIZED", "PAYMENT_REQUIRED", "FORBIDDEN"}:
+        if error_code in {"PROVIDER_KEY_INVALID", "AUTH_ERROR", "UNAUTHORIZED", "PAYMENT_REQUIRED", "FORBIDDEN"}:
             self.state = CircuitBreakerState.AUTH_ERROR
             self.cooloff_until = now + 180.0
             logger.warning("Circuit breaker [%s]: AUTH_ERROR/UNAVAILABLE recorded (%s)", self.provider_id, error_code)
@@ -146,7 +146,12 @@ class ProviderCircuitBreaker:
             )
             return
 
-        if error_code in {"PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE", "MODEL_UNAVAILABLE", "PROVIDER_TEMPORARY_MAINTENANCE"}:
+        if error_code in {
+            "PROVIDER_ACCOUNT_CAPACITY_UNAVAILABLE",
+            "MODEL_UNAVAILABLE",
+            "PROVIDER_TEMPORARY_MAINTENANCE",
+            "PROVIDER_UNAVAILABLE",
+        }:
             self.state = CircuitBreakerState.MODEL_UNAVAILABLE
             self.cooloff_until = now + 15.0
             logger.warning("Circuit breaker [%s]: %s recorded (cooldown: 15.0s)", self.provider_id, error_code)
@@ -272,6 +277,11 @@ def _restore() -> None:
     now_mono = monotonic()
     for provider_id, entry in payload.items():
         if not isinstance(entry, dict):
+            continue
+        last_code = str(entry.get("lastFailureCode") or "")
+        # Heal legacy persisted entries where a transient 5xx PROVIDER_UNAVAILABLE
+        # had been misclassified as a permanent auth_error bench.
+        if str(entry.get("state")) == CircuitBreakerState.AUTH_ERROR.value and last_code == "PROVIDER_UNAVAILABLE":
             continue
         remaining = float(entry.get("cooloffUntilWall") or 0.0) - now_wall
         breaker = get_circuit_breaker(provider_id)

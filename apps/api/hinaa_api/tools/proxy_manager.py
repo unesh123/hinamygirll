@@ -1,37 +1,34 @@
 """
-Proxy Manager — rotate through multiple proxies/VPNs to bypass IP blocks.
-Supports HTTP, SOCKS5, and Tor.
+Proxy Manager — CONTAINED & DISABLED under Security Directive v3.0.
+Unauthorized network proxying and Tor rotation are disabled.
 """
-import asyncio
+from __future__ import annotations
+
 import logging
-import random
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 
 logger = logging.getLogger("hinaa.tools.proxy")
 
+
 class ProxyManager:
-    PROXIES: List[str] = [
-        "socks5://127.0.0.1:9050",  # Tor
-        "http://127.0.0.1:8080",   # Local HTTP proxy
-        "socks5://127.0.0.1:1080",  # SOCKS5
-    ]
+    """Fail-closed contained stub for proxy manager."""
+
+    PROXIES: List[str] = []
 
     def __init__(self):
-        self.current = random.choice(self.PROXIES)
+        self.current = ""
 
     def rotate(self) -> str:
-        self.current = random.choice([p for p in self.PROXIES if p != self.current])
-        logger.info("[proxy] rotated to %s", self.current)
-        return self.current
+        logger.warning("[CONTAINMENT] proxy rotation refused: tool disabled by Directive v3.0.")
+        return ""
 
     def get_header(self) -> str:
-        return f"--proxy {self.current}"
+        return ""
 
-    def execute(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        target = params.get("target", "")
-        action = params.get("action", "fetch")
-        if action == "rotate":
-            return {"proxy": self.rotate()}
-        if action == "fetch":
-            return {"proxy": self.current, "command": f"curl -s -X GET {target} {self.get_header()}"}
-        return {"proxy": self.current, "action": action}
+    def execute(self, params: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        logger.warning("[CONTAINMENT] proxy_manager execution refused: tool disabled by Directive v3.0.")
+        return {
+            "success": False,
+            "status": "TOOL_CONTAINED",
+            "error": "Proxy manager is permanently disabled under Security Directive v3.0 containment.",
+        }

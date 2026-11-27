@@ -651,10 +651,20 @@ class MemoryRepository:
         with self._lock, self._get_connection() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO knowledge_nodes (
+                INSERT INTO knowledge_nodes (
                     id, tenant_id, scope, entity_type, canonical_name,
                     aliases, attributes, created_at, valid_from, valid_to
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    tenant_id = excluded.tenant_id,
+                    scope = excluded.scope,
+                    entity_type = excluded.entity_type,
+                    canonical_name = excluded.canonical_name,
+                    aliases = excluded.aliases,
+                    attributes = excluded.attributes,
+                    created_at = excluded.created_at,
+                    valid_from = excluded.valid_from,
+                    valid_to = excluded.valid_to
                 """,
                 (
                     node.id,
@@ -743,11 +753,23 @@ class MemoryRepository:
         with self._lock, self._get_connection() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO knowledge_edges (
+                INSERT INTO knowledge_edges (
                     id, tenant_id, source_id, target_id, relation_type,
                     evidence_id, confidence, valid_from, valid_to,
                     is_contradiction, superseded_by, metadata
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    tenant_id = excluded.tenant_id,
+                    source_id = excluded.source_id,
+                    target_id = excluded.target_id,
+                    relation_type = excluded.relation_type,
+                    evidence_id = excluded.evidence_id,
+                    confidence = excluded.confidence,
+                    valid_from = excluded.valid_from,
+                    valid_to = excluded.valid_to,
+                    is_contradiction = excluded.is_contradiction,
+                    superseded_by = excluded.superseded_by,
+                    metadata = excluded.metadata
                 """,
                 (
                     edge.id,
@@ -811,11 +833,22 @@ class MemoryRepository:
         with self._lock, self._get_connection() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO ingestion_candidates (
+                INSERT INTO ingestion_candidates (
                     id, tenant_id, candidate_fact, source_url, source_tool,
                     raw_evidence, extracted_entities, trust_tier, status,
                     review_notes, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    tenant_id = excluded.tenant_id,
+                    candidate_fact = excluded.candidate_fact,
+                    source_url = excluded.source_url,
+                    source_tool = excluded.source_tool,
+                    raw_evidence = excluded.raw_evidence,
+                    extracted_entities = excluded.extracted_entities,
+                    trust_tier = excluded.trust_tier,
+                    status = excluded.status,
+                    review_notes = excluded.review_notes,
+                    created_at = excluded.created_at
                 """,
                 (
                     candidate.id,

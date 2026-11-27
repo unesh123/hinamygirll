@@ -23,6 +23,23 @@ export function ModelsMode({isDark=false, selectedModelId, selectedProviderId, o
   }),[models,providers,providerFilter,query]);
   const configured = providers.filter(provider => provider.configured).length;
   const verified = providers.filter(provider => provider.health==="healthy").length;
+  const selectedFilterProvider = useMemo(
+    () => (providerFilter === "all" ? null : providers.find(item => item.id === providerFilter) ?? null),
+    [providers, providerFilter],
+  );
+  const emptyExplanation = useMemo(() => {
+    if (!runtime.backendConnected) return "Connect to the workspace to load your models.";
+    if (selectedFilterProvider?.role === "decision") {
+      return `${selectedFilterProvider.name} (Ben) is a bounded decision API tool (bivia_decide), not a chat model — choose a generative chat provider to switch conversation brains.`;
+    }
+    if (selectedFilterProvider && !selectedFilterProvider.configured) {
+      return `${selectedFilterProvider.name} is not configured on the local backend yet.`;
+    }
+    if (selectedFilterProvider && (selectedFilterProvider.allowedModels?.length ?? 0) > 0 && !query.trim()) {
+      return `${selectedFilterProvider.name} is configured on the backend, but filtered out of active chat models by HINAA_VISIBLE_PROVIDERS.`;
+    }
+    return "No models match your search.";
+  }, [runtime.backendConnected, selectedFilterProvider, query]);
   return <section className={`models-mode${isDark ? " models-mode--dark" : ""}`} aria-label="Models and providers">
     <header className="models-mode__header">
       <div><p className="models-mode__eyebrow"><Cpu size={13}/> INTELLIGENCE LIBRARY</p><h1>Models &amp; providers</h1><p>Choose a brain for your next conversation. Live health comes from actual provider calls.</p></div>
@@ -32,7 +49,7 @@ export function ModelsMode({isDark=false, selectedModelId, selectedProviderId, o
     <button type="button" className="models-mode__auto" aria-pressed={!selectedModelId} onClick={onSelectAuto}><Sparkles size={18}/><span><strong>Let Hina choose</strong><small>Automatic routing through your available providers</small></span>{!selectedModelId && <Check size={16}/>}</button>
     <div className="models-mode__filters"><label><Search size={15}/><input aria-label="Search models" placeholder="Search models or providers…" value={query} onChange={event=>setQuery(event.target.value)}/></label><select aria-label="Filter models by provider" value={providerFilter} onChange={event=>setProviderFilter(event.target.value)}><option value="all">All providers</option>{providers.map(provider=><option key={provider.id} value={provider.id}>{provider.name}</option>)}</select></div>
     {error && <p role="alert" className="models-mode__error">{error} <button type="button" onClick={()=>void refetch()}>Retry</button></p>}
-    {loading && models.length===0 ? <p role="status">Loading your model library…</p> : visible.length===0 ? <p className="models-mode__empty">{runtime.backendConnected ? "No models match your search." : "Connect to the workspace to load your models."}</p> : <div className="models-mode__grid">
+    {loading && models.length===0 ? <p role="status">Loading your model library…</p> : visible.length===0 ? <p className="models-mode__empty" role="status">{emptyExplanation}</p> : <div className="models-mode__grid">
       {visible.map(model=>{
         const provider = providers.find(item=>item.id===model.provider);
         const health = provider?.health ?? "untested";

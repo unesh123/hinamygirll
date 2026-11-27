@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hinaa.local/schemas/response-document/1.0.json",
+  "type": "object",
+  "required": ["version", "response_id", "blocks"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "response_id": { "type": "string", "minLength": 1 },
+    "blocks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": {
+            "type": "string",
+            "enum": ["markdown", "metric_grid", "chart", "diagram", "image_gallery", "preview_card"]
+          }
+        }
+      }
+    }
+  }
+}

@@ -92,3 +92,94 @@ async def trigger_voice_interrupt(request: Request, body: Dict[str, Any] = Body(
             "cancelledTurn": cancelled_turn.to_dict() if cancelled_turn else None,
         }
     return {"interrupted": True, "newGeneration": (target_gen or 0) + 1}
+
+
+@router.get("/api/voice/presets")
+@router.get("/v1/voice/presets")
+async def list_fast_voice_presets() -> Dict[str, Any]:
+    """List verified low-latency TTS engine + cute feminine voice options."""
+    from ..config import get_settings
+
+    settings = get_settings()
+    heygen_ready = bool(settings.heygen_api_key and settings.heygen_api_key.get_secret_value())
+    return {
+        "voiceProvider": settings.voice_provider,
+        "heygenConfigured": heygen_ready,
+        "presets": [
+            {
+                "id": "deepgram:aura-2-thalia-en",
+                "engine": "deepgram",
+                "voice": "aura-2-thalia-en",
+                "label": "Aura-2 Thalia (Fast Cute Girl · English)",
+                "configured": bool(settings.deepgram_configured),
+            },
+            {
+                "id": "deepgram:aura-2-luna-en",
+                "engine": "deepgram",
+                "voice": settings.deepgram_tts_model_hinaa or "aura-2-luna-en",
+                "label": "Aura-2 Luna (Warm Expressive · English)",
+                "configured": bool(settings.deepgram_configured),
+            },
+            {
+                "id": "edge:en-US-AnaNeural",
+                "engine": "edge",
+                "voice": settings.edge_tts_voice_hinaa or "en-US-AnaNeural",
+                "label": "Edge Neural Ana (Cute Young Girl · Unlimited Free)",
+                "configured": True,
+            },
+            {
+                "id": "edge:en-US-AvaMultilingualNeural",
+                "engine": "edge",
+                "voice": "en-US-AvaMultilingualNeural",
+                "label": "Edge Neural Ava (Natural Multilingual · Unlimited Free)",
+                "configured": True,
+            },
+            {
+                "id": "heygen",
+                "engine": "heygen",
+                "voice": "catalog",
+                "label": "HeyGen Voice Catalog (2,602 Avatar Voices)",
+                "configured": bool(settings.heygen_api_key and settings.heygen_api_key.get_secret_value()),
+            },
+        ]
+    }
+
+
+@router.get("/api/voice/heygen/voices")
+@router.get("/v1/voice/heygen/voices")
+async def list_heygen_voices() -> Dict[str, Any]:
+    """Fetch available HeyGen voices securely using backend HEYGEN_API_KEY."""
+    import httpx
+    from ..config import get_settings
+
+    settings = get_settings()
+    key = settings.heygen_api_key.get_secret_value().strip() if settings.heygen_api_key else ""
+    if not key:
+        return {"configured": False, "voices": [], "error": "HEYGEN_API_KEY not configured"}
+    base = (settings.heygen_base_url or "https://api.heygen.com").rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            resp = await client.get(f"{base}/v2/voices", headers={"X-Api-Key": key})
+            if resp.status_code != 200:
+                return {"configured": True, "voices": [], "status": resp.status_code, "error": f"HeyGen HTTP {resp.status_code}"}
+            voices = ((resp.json().get("data") or {}).get("voices") or [])
+            female_top = [
+                {
+                    "voice_id": v.get("voice_id"),
+                    "name": v.get("name"),
+                    "language": v.get("language"),
+                    "gender": v.get("gender"),
+                    "preview_audio": v.get("preview_audio"),
+                }
+                for v in voices
+                if str(v.get("gender") or "").lower() in ("female", "woman", "girl")
+            ][:40]
+            return {
+                "configured": True,
+                "count": len(voices),
+                "total_count": len(voices),
+                "voices": female_top,
+                "female_preview": female_top,
+            }
+    except Exception as exc:
+        return {"configured": True, "voices": [], "error": f"{type(exc).__name__}"}

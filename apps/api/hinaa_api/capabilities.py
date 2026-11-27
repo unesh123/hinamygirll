@@ -42,19 +42,38 @@ class CapabilitiesRegistry(BaseModel):
 def video_provider_status(settings: Settings) -> str:
     """The one-line truth about video generation for the prompt layer.
 
-    A real MP4 exists only when a provider is configured; otherwise the
-    honest answer is "unavailable", never a claimed capability.
+    Video is made BY CODE by default: the model writes a timeline or
+    HTML animation and ffmpeg (+ Playwright when needed) renders a real
+    MP4 locally — no key, no credits. Generative providers (fal.ai /
+    Hugging Face) are only for footage code cannot make, and are named
+    only when configured.
     """
+    import shutil
+
+    code = (
+        "code rendering via ffmpeg (timeline + Playwright HTML animation, no key or credits needed)"
+        if shutil.which("ffmpeg")
+        else None
+    )
     if settings.fal_configured:
-        return f"configured (fal.ai, endpoint {settings.fal_video_endpoint})"
+        return (
+            f"configured (fal.ai, endpoint {settings.fal_video_endpoint}); "
+            f"code-first: {code}"
+            if code
+            else "configured (fal.ai)"
+        )
     if settings.hf_configured:
         return (
             f"configured (Hugging Face Inference Providers, free token, "
-            f"model {settings.hf_video_model})"
+            f"model {settings.hf_video_model}); code-first: {code}"
+            if code
+            else "configured (Hugging Face Inference Providers, free token)"
         )
+    if code:
+        return f"configured ({code})"
     return (
         "not configured — video generation is unavailable "
-        "(set HF_TOKEN for the free Hugging Face route, or FAL_KEY for paid fal.ai)"
+        "(install ffmpeg for code rendering, or set HF_TOKEN / FAL_KEY for generative video)"
     )
 
 
@@ -67,8 +86,70 @@ def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
     has_agent_router = settings.agent_router_configured
     has_codecraft = settings.codecraft_configured
     has_explabs = settings.explabs_configured
+    has_toptools = settings.toptools_configured
+    has_tokenrouter = settings.tokenrouter_configured
 
     models: list[ModelCapabilityRecord] = [
+        ModelCapabilityRecord(
+            id="Top-Tools-Ai-Pro",
+            display_name="Top-Tools AI Pro (1M)",
+            provider="toptools",
+            kind="brain",
+            input_modalities=["text", "image", "document"],
+            output_modalities=["text"],
+            vision=True,
+            document=True,
+            availability="healthy" if has_toptools else "unavailable",
+            description="Top-Tools AI unified Pro brain (1M context window, vision, and tool calling).",
+        ),
+        ModelCapabilityRecord(
+            id="Top-Tools-Ai-Basic",
+            display_name="Top-Tools AI Basic (512K)",
+            provider="toptools",
+            kind="brain",
+            input_modalities=["text", "image", "document"],
+            output_modalities=["text"],
+            vision=True,
+            document=True,
+            availability="healthy" if has_toptools else "unavailable",
+            description="Top-Tools AI Basic tier (512K context window).",
+        ),
+        ModelCapabilityRecord(
+            id="Top-Tools-Ai-Max",
+            display_name="Top-Tools AI Max (1M)",
+            provider="toptools",
+            kind="brain",
+            input_modalities=["text", "image", "document"],
+            output_modalities=["text"],
+            vision=True,
+            document=True,
+            availability="healthy" if has_toptools else "unavailable",
+            description="Top-Tools AI Max tier (requires Max plan entitlement).",
+        ),
+        ModelCapabilityRecord(
+            id="deepseek/deepseek-chat",
+            display_name="TokenRouter · DeepSeek Chat",
+            provider="tokenrouter",
+            kind="brain",
+            input_modalities=["text", "document"],
+            output_modalities=["text"],
+            vision=False,
+            document=True,
+            availability="healthy" if has_tokenrouter else "unavailable",
+            description="TokenRouter DeepSeek Chat unified endpoint (text and document workflows).",
+        ),
+        ModelCapabilityRecord(
+            id="deepseek/deepseek-reasoner",
+            display_name="TokenRouter · DeepSeek Reasoner",
+            provider="tokenrouter",
+            kind="brain",
+            input_modalities=["text", "document"],
+            output_modalities=["text"],
+            vision=False,
+            document=True,
+            availability="healthy" if has_tokenrouter else "unavailable",
+            description="TokenRouter DeepSeek Reasoner (R1) unified endpoint.",
+        ),
         # Brain Models
         ModelCapabilityRecord(
             id="gemini-3.5-flash",
@@ -280,6 +361,22 @@ def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
             availability="healthy" if bool(settings.magnific_api_key and settings.magnific_api_key.get_secret_value()) else "unavailable",
             description="Magnific upscaling and relighting endpoint.",
         ),
+        ModelCapabilityRecord(
+            id=getattr(settings, "openai_image_model", None) or "openai/gpt-image-2.5",
+            display_name="XKiro GPT Image 2.5 (25/day)",
+            provider="xkiro",
+            kind="image",
+            input_modalities=["text"],
+            output_modalities=["image"],
+            image_generation=True,
+            availability="healthy"
+            if (
+                getattr(settings, "xkiro_configured", False)
+                or bool(getattr(settings, "openai_image_api_key", None) and settings.openai_image_api_key.get_secret_value())
+            )
+            else "unavailable",
+            description="XKiro unified /images/generations endpoint (openai/gpt-image-2.5, 25 images/day limit).",
+        ),
 
         # Voice & Speech Engines
         ModelCapabilityRecord(
@@ -360,13 +457,77 @@ def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
         add_brain(model_id, "cx-gateway", has_cx, vision=True)
     add_brain(settings.groq_model, "groq", settings.groq_configured)
     has_xkiro = bool(settings.active_xkiro_key and settings.active_xkiro_key.get_secret_value())
+    _xkiro_maintenance_or_quota = frozenset({
+        "deepseek/deepseek-v4.1-flash",
+        "deepseek/deepseek-v4-flash-0731",
+        "moonshotai/kimi-k3-agent",
+        "moonshotai/kimi-k2.8-preview-agent",
+        "stealth/big-pickle",
+    })
     for model_id in getattr(settings, "xkiro_allowed_models", []):
         if model_id != "*":
-            add_brain(model_id, "xkiro", has_xkiro)
+            if model_id in _xkiro_maintenance_or_quota and model_id not in known_ids:
+                models.append(
+                    ModelCapabilityRecord(
+                        id=model_id,
+                        display_name=f"Xkiro · {model_id}",
+                        provider="xkiro",
+                        kind="brain",
+                        input_modalities=["text", "document"],
+                        output_modalities=["text"],
+                        document=True,
+                        availability="degraded",
+                        description="Upstream XKiro maintenance/free-quota exhausted (HTTP 503); pick GPT-6.2 Sol, Grok 4.7, GLM 5.4, or CanTrustAI DeepSeek.",
+                    )
+                )
+                known_ids.add(model_id)
+            else:
+                add_brain(model_id, "xkiro", has_xkiro)
+    has_cantrust = bool(getattr(settings, "cantrust_configured", False))
+    for model_id in getattr(settings, "cantrust_allowed_models", []):
+        if model_id != "*":
+            add_brain(model_id, "cantrustai", has_cantrust, vision=False)
+    has_coarena = bool(getattr(settings, "coarena_configured", False))
+    _coarena_free = frozenset({"deepseek-v4-1-flash-1017", "gemini-3-8-flash", "gpt-6-luna"})
+    for model_id in getattr(settings, "coarena_allowed_models", []):
+        if model_id != "*":
+            if has_coarena and model_id not in _coarena_free and model_id not in known_ids:
+                models.append(
+                    ModelCapabilityRecord(
+                        id=model_id,
+                        display_name=f"Coarena · {model_id}",
+                        provider="coarena",
+                        kind="brain",
+                        input_modalities=["text", "image", "document"],
+                        output_modalities=["text"],
+                        vision=True,
+                        document=True,
+                        availability="degraded",
+                        description="Paid Coarena tier required; free tier supports deepseek-v4-1-flash-1017, gemini-3-8-flash, and gpt-6-luna.",
+                    )
+                )
+                known_ids.add(model_id)
+            else:
+                add_brain(model_id, "coarena", has_coarena, vision=("gemini" in model_id or "gpt-6" in model_id or "claude" in model_id))
     has_apmix = bool(settings.active_apmix_key and settings.active_apmix_key.get_secret_value())
     for model_id in getattr(settings, "apmix_allowed_models", []):
         if model_id != "*":
-            add_brain(model_id, "apmix", has_apmix, vision=True)
+            if model_id not in known_ids:
+                models.append(
+                    ModelCapabilityRecord(
+                        id=model_id,
+                        display_name=f"Apmix · {model_id}",
+                        provider="apmix",
+                        kind="brain",
+                        input_modalities=["text", "image", "document"],
+                        output_modalities=["text"],
+                        vision=True,
+                        document=True,
+                        availability="degraded" if has_apmix else "unavailable",
+                        description="Upstream APMIX catalog is currently empty (/v1/models returned 0 models).",
+                    )
+                )
+                known_ids.add(model_id)
     has_oxion = bool(settings.active_oxion_key and settings.active_oxion_key.get_secret_value())
     for model_id in getattr(settings, "oxion_allowed_models", []):
         if model_id != "*":
@@ -391,9 +552,15 @@ def build_capability_registry(settings: Settings) -> CapabilitiesRegistry:
     elif effective_mode == "claude":
         default_brain = settings.active_claude_model
     elif effective_mode == "xkiro":
-        default_brain = settings.xkiro_model
+        default_brain = settings.active_xkiro_model
+    elif effective_mode == "cantrustai":
+        default_brain = settings.active_cantrust_model
     elif effective_mode == "coarena":
         default_brain = settings.active_coarena_model
+    elif effective_mode == "toptools":
+        default_brain = settings.active_toptools_model
+    elif effective_mode == "tokenrouter":
+        default_brain = settings.active_tokenrouter_model
     elif effective_mode == "apmix":
         default_brain = settings.active_apmix_model
     elif effective_mode == "oxion":
@@ -446,6 +613,7 @@ _IMAGE_CAPABLE_ADAPTERS = frozenset(
         "cavoti",
         "apmix",
         "oxion",
+        "toptools",
         "ollama",
     }
 )
@@ -460,6 +628,9 @@ _VISION_MODEL_MARKERS = (
     "vision",
     "-vl",
     "qvq",
+    "top-tools-ai-pro",
+    "top-tools-ai-basic",
+    "top-tools-ai-max",
 )
 
 

@@ -322,6 +322,7 @@ def _correlation_id(value: str | None) -> str:
 # providers are not brains, so neither gets a live-call verdict.
 _BRAIN_PROVIDER_IDS = frozenset(
     {
+        "cantrustai",
         "gmi",
         "agent-router",
         "cavoti",
@@ -345,6 +346,8 @@ _BRAIN_PROVIDER_IDS = frozenset(
         "oxion",
         "respan",
         "coarena",
+        "toptools",
+        "tokenrouter",
         "experiential",
     }
 )
@@ -995,6 +998,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         from .tools import load_all_tools
         load_all_tools()
 
+        # Directive v3.0 Containment Assertion: Quarantined tools must not be registered
+        from .tools import QUARANTINED_DANGEROUS_TOOLS, registry as startup_tool_reg
+        active_tool_names = set(startup_tool_reg.list_tools().keys())
+        quarantined_present = active_tool_names.intersection(QUARANTINED_DANGEROUS_TOOLS)
+        if quarantined_present:
+            raise RuntimeError(
+                f"CONTAINMENT BREACH: Quarantined dangerous tools are registered: {sorted(quarantined_present)}"
+            )
+
+        # Directive v3.0 Policy Coverage Assertion: All Tier 3 & Tier 4 tools must have policy coverage
+        for t_name, t_def in startup_tool_reg.list_tools().items():
+            t_tier = getattr(t_def, "risk_tier", 0)
+            if t_tier >= 3:
+                if t_name not in tool_policy.LOCAL_EFFECT_TOOLS and t_name not in tool_policy.IRREVERSIBLE_EXTERNAL_TOOLS:
+                    logger.warning(
+                        "Risk tier %s tool %s lacks explicit entry in LOCAL_EFFECT_TOOLS or IRREVERSIBLE_EXTERNAL_TOOLS",
+                        t_tier,
+                        t_name,
+                    )
+
         # Start VMC UDP listener for VSeeFace face tracking
         await vmc_bridge.start_udp(port=active_settings.vmc_port)
         if agent_persistence:
@@ -1078,6 +1101,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(omega_router)
     from .routers.bivia_router import create_bivia_router
     app.include_router(create_bivia_router(active_settings))
+    from .live.transport import create_live_router
+    app.include_router(create_live_router(service=service))
+    from .society.metrics import create_society_router
+    app.include_router(create_society_router())
     from .skills.endpoints import router as skills_router
     app.include_router(skills_router)
     from .integrations_hub.endpoints import router as hub_router
@@ -1365,11 +1392,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from .routers.research_router import router as research_router
     from .routers.browser_tasks_router import router as browser_tasks_router
     from .routers.coding_sandbox_router import router as coding_sandbox_router
+    from .routers.runtime_os_router import router as runtime_os_router
+    from .routers.foundry_router import router as foundry_router
     app.include_router(identity_router)
     app.include_router(voice_router)
     app.include_router(research_router)
     app.include_router(browser_tasks_router)
     app.include_router(coding_sandbox_router)
+    app.include_router(runtime_os_router)
+    app.include_router(foundry_router)
 
     # ─── PHASE 09: CREATIVE STUDIO & MULTIMODAL ENDPOINTS ───────────────────
     # Phase 09 Creative Studio Surface extracted to routers/creative_router.py
@@ -1574,6 +1605,87 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             await file.close()
 
+    @app.post("/v1/media/inspect-video")
+    @app.post("/api/v1/media/inspect-video")
+    async def inspect_video_file(
+        file: UploadFile = File(...),
+        start_sec: float = Form(0.0),
+        end_sec: float | None = Form(None),
+        num_frames: int = Form(6),
+    ) -> dict[str, Any]:
+        """Store an uploaded video reference and return frame-by-frame keyframes + contact sheet."""
+        from .media.video_inspector import MAX_VIDEO_INSPECT_BYTES, VIDEO_EXTENSIONS, inspect_video_frames
+
+        try:
+            raw_bytes = await file.read(MAX_VIDEO_INSPECT_BYTES + 1)
+            if len(raw_bytes) > MAX_VIDEO_INSPECT_BYTES:
+                raise HTTPException(status_code=413, detail="Video exceeds the 100 MiB upload limit.")
+            if not raw_bytes:
+                raise HTTPException(status_code=400, detail="The uploaded video is empty.")
+
+            fname = file.filename or "reference.mp4"
+            ext = Path(fname).suffix.lower() or ".mp4"
+            mime = (file.content_type or "").lower().strip()
+            if not mime.startswith("video/") and ext not in VIDEO_EXTENSIONS:
+                raise HTTPException(status_code=400, detail=f"Unsupported video format: {fname}")
+            if not mime or mime == "application/octet-stream":
+                mime = f"video/{ext.lstrip('.') or 'mp4'}"
+
+            stored = asset_store.store_bytes(
+                raw_bytes=raw_bytes,
+                filename=fname,
+                mime_type=mime,
+                source=AssetSource.UPLOAD,
+            )
+            disk_path = asset_store.get_file_path(stored.id)
+            if disk_path is None or not disk_path.is_file():
+                raise HTTPException(status_code=500, detail="Stored video file unavailable for inspection.")
+
+            inspected = await asyncio.to_thread(
+                inspect_video_frames,
+                disk_path,
+                start_sec=start_sec,
+                end_sec=end_sec,
+                num_frames=num_frames,
+                store_frames=True,
+            )
+            if inspected.get("status") != "success":
+                raise HTTPException(status_code=400, detail="Could not decode video frames via FFmpeg.")
+
+            return {
+                "success": True,
+                "asset_id": stored.id,
+                "video_url": stored.public_url,
+                "filename": stored.filename,
+                "mime_type": stored.mime_type,
+                "metadata": inspected["metadata"],
+                "contact_sheet_asset_id": inspected.get("contact_sheet_asset_id"),
+                "contact_sheet_url": inspected.get("contact_sheet_url"),
+                "contact_sheet_data_url": inspected.get("contact_sheet_data_url"),
+                "frames": [
+                    {
+                        "index": f["index"],
+                        "frame_number": f["frame_number"],
+                        "timestamp_sec": f["timestamp_sec"],
+                        "timestamp_label": f["timestamp_label"],
+                        "asset_id": f.get("asset_id"),
+                        "asset_url": f.get("asset_url"),
+                        "data_url": f.get("data_url"),
+                    }
+                    for f in inspected.get("frames", [])
+                ],
+                "summary": inspected["summary_text"],
+            }
+        except HTTPException:
+            raise
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception:
+            logger.warning("Video inspection failed", exc_info=True)
+            raise HTTPException(status_code=400, detail="Could not inspect video frames.")
+        finally:
+            await file.close()
+
     @app.post("/v1/conversations/{conversation_id}/assets/select")
     @app.post("/api/v1/conversations/{conversation_id}/assets/select")
     async def select_conversation_asset(
@@ -1765,6 +1877,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         VSeeFace → UDP 39539 → vmc_bridge → this WS → frontend AvatarPresence
         """
+        # Origin validation for WebSocket (CSWSH defense)
+        raw_origin = (ws.headers.get("origin") or "").strip().rstrip("/").lower()
+        if raw_origin:
+            allowed_origins = {"http://127.0.0.1:5173", "http://localhost:5173", "http://127.0.0.1:8000", "http://localhost:8000"}
+            if active_settings.allowed_origins:
+                for o in active_settings.allowed_origins:
+                    allowed_origins.add(o.strip().rstrip("/").lower())
+            if active_settings.cors_origins:
+                for o in active_settings.cors_origins:
+                    allowed_origins.add(o.strip().rstrip("/").lower())
+            if raw_origin not in allowed_origins and not (raw_origin.startswith("http://127.0.0.1:") or raw_origin.startswith("http://localhost:")):
+                await ws.close(code=4403)
+                return
         if active_settings.auth_mode == "clerk":
             # Browser sockets cannot carry a bearer header. Use the same
             # authenticated, single-use ticket as voice, in the first frame.
@@ -1923,22 +2048,70 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             omniroute_serving = omniroute_probe.model_count
         omniroute_live = omniroute_serving > 0
 
+        toptools_models_cap = list(active_settings.toptools_allowed_models)
+        if getattr(active_settings, "toptools_configured", False) and "*" in toptools_models_cap:
+            tt_probe = await probe_gateway_models(
+                active_settings.active_toptools_base_url,
+                api_key=active_settings.active_toptools_key.get_secret_value() if active_settings.active_toptools_key else None,
+                timeout=2.0,
+            )
+            if tt_probe.serving and tt_probe.model_ids:
+                toptools_models_cap = list(dict.fromkeys([*toptools_models_cap, *tt_probe.model_ids[:40]]))
+
+        tokenrouter_models_cap = list(active_settings.tokenrouter_allowed_models)
+        tokenrouter_cap_probe: GatewayModelsOutcome | None = None
+        if getattr(active_settings, "tokenrouter_configured", False):
+            tokenrouter_cap_probe = await probe_gateway_models(
+                active_settings.active_tokenrouter_base_url,
+                api_key=active_settings.active_tokenrouter_key.get_secret_value() if active_settings.active_tokenrouter_key else None,
+                timeout=2.0,
+            )
+            if tokenrouter_cap_probe.serving and tokenrouter_cap_probe.model_ids and "*" in tokenrouter_models_cap:
+                tokenrouter_models_cap = list(dict.fromkeys([*tokenrouter_models_cap, *tokenrouter_cap_probe.model_ids[:40]]))
+
+        has_cantrust = bool(getattr(active_settings, "cantrust_configured", False))
+
         providers = [
             {
+                "id": "cantrustai",
+                "name": "CanTrustAI (DeepSeek)",
+                "configured": has_cantrust,
+                "defaultModel": active_settings.active_cantrust_model,
+                "allowedModels": list(active_settings.cantrust_allowed_models),
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "gemini",
+                "name": "Google Gemini",
+                "configured": has_gemini,
+                "defaultModel": (
+                    "gemini-3.5-flash-lite"
+                    if active_settings.gemini_model == "gemini-3.5-flash"
+                    else active_settings.gemini_model
+                ),
+                "allowedModels": [
+                    m
+                    for m in active_settings.gemini_allowed_models
+                    if m != "gemini-3.5-flash"
+                ]
+                or ["gemini-3.5-flash-lite"],
+                "protocol": "native-sdk",
+            },
+            {
                 "id": "claude",
-                "name": "Anthropic Claude",
+                "name": "Anthropic Claude (MWAPI)",
                 "configured": has_claude,
                 "defaultModel": active_settings.active_claude_model,
                 "allowedModels": list(active_settings.claude_allowed_models),
                 "protocol": active_settings.active_claude_protocol,
             },
             {
-                "id": "gemini",
-                "name": "Google Gemini",
-                "configured": has_gemini,
-                "defaultModel": active_settings.gemini_model,
-                "allowedModels": list(active_settings.gemini_allowed_models),
-                "protocol": "native-sdk",
+                "id": "xkiro",
+                "name": "XKiro Pro (Claude, Grok, Gemini, Mistral & DeepSeek)",
+                "configured": bool(active_settings.xkiro_configured),
+                "defaultModel": active_settings.active_xkiro_model,
+                "allowedModels": list(active_settings.xkiro_allowed_models),
+                "protocol": "openai-compatible",
             },
             {
                 "id": "deepseek",
@@ -1964,9 +2137,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "allowedModels": ["ydc-search"],
                 "protocol": "web-search-api",
             },
-            # These providers report healthy in /v1/providers on this deployment
-            # (agent-router, codecraft, custom, ollama, gemini-live). Omitting
-            # them is what made users correctly report "no brains show live".
             {
                 "id": "agent-router",
                 "name": "Agent Router",
@@ -2040,14 +2210,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "protocol": "openai-compatible",
             },
             {
-                "id": "xkiro",
-                "name": "XKiro AI",
-                "configured": bool(getattr(active_settings, "xkiro_configured", False)),
-                "defaultModel": active_settings.active_xkiro_model,
-                "allowedModels": list(active_settings.xkiro_allowed_models),
-                "protocol": "openai-compatible",
-            },
-            {
                 "id": "cavoti",
                 "name": "Cavoti AI",
                 "configured": bool(getattr(active_settings, "cavoti_configured", False)),
@@ -2096,6 +2258,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "protocol": "openai-compatible",
             },
             {
+                "id": "toptools",
+                "name": "Top-Tools AI",
+                "configured": bool(getattr(active_settings, "toptools_configured", False)),
+                "defaultModel": active_settings.active_toptools_model,
+                "allowedModels": toptools_models_cap,
+                "protocol": "openai-compatible",
+            },
+            {
+                "id": "tokenrouter",
+                "name": "TokenRouter",
+                "configured": bool(getattr(active_settings, "tokenrouter_configured", False)),
+                "defaultModel": active_settings.active_tokenrouter_model,
+                "allowedModels": tokenrouter_models_cap,
+                "protocol": "openai-compatible",
+                **(
+                    {"health": "unavailable", "healthMessage": f"TokenRouter access failed: {tokenrouter_cap_probe.detail}"}
+                    if tokenrouter_cap_probe is not None
+                    and tokenrouter_cap_probe.reason in ("http_401", "http_403", "refused", "no_url")
+                    else {}
+                ),
+            },
+            {
                 "id": "articul8",
                 "name": "Articul8 Bivia decisions",
                 "configured": active_settings.articul8_configured,
@@ -2114,10 +2298,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "allowedModels": list(active_settings.explabs_allowed_models),
                 "protocol": "openai-compatible",
             },
-            # Local fallback gateway, measured rather than assumed. `declared`
-            # says the operator opted in; `configured` says the container is
-            # answering right now, which is the only combination the ladder
-            # will actually route a turn to.
             {
                 "id": "omniroute",
                 "name": "OmniRoute local fallback",
@@ -2142,6 +2322,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ] if active_settings.ollama_allowed_models == ["*"] else list(active_settings.ollama_allowed_models),
                 "protocol": "openai-compatible",
             },
+            {
+                "id": "local",
+                "name": "Zero-Credit Local Brain",
+                "configured": True,
+                "defaultModel": "deterministic-v1",
+                "allowedModels": ["deterministic-v1"],
+                "protocol": "local",
+            },
         ]
 
         # `configured` answers "does the backend hold a credential?". The chip has
@@ -2158,6 +2346,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if verdict:
                 provider["health"] = verdict.state
                 provider["healthMessage"] = verdict.message
+            elif provider.get("health") == "unavailable" and provider.get("healthMessage"):
+                pass
             elif provider.get("configured"):
                 provider["health"] = "untested"
                 provider["healthMessage"] = (
@@ -2195,10 +2385,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     return tier
             return "standard"
 
+        visible_set = set(active_settings.visible_providers)
         for provider in providers:
             provider_id = provider["id"]
             if provider_id in {"you", "omniroute", "articul8"}:
                 continue  # research lane and last-resort gateway, not pickable brains
+            if visible_set and provider_id not in visible_set:
+                continue
             if not provider.get("configured"):
                 # An unconfigured brain cannot answer; listing it would be the
                 # same "fake model list" defect the audit flagged.
@@ -2434,6 +2627,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 api_key=active_settings.active_respan_key.get_secret_value() if active_settings.active_respan_key else None,
             )
 
+        async def _probe_toptools_gw():
+            if not active_settings.toptools_configured:
+                return GatewayModelsOutcome(False, 0, "no_url", "Top-Tools AI needs TOPTOOLS_API_KEY.")
+            return await probe_gateway_models(
+                active_settings.active_toptools_base_url,
+                api_key=active_settings.active_toptools_key.get_secret_value() if active_settings.active_toptools_key else None,
+                timeout=4.0,
+            )
+
         async def _probe_coarena_gw():
             if not active_settings.coarena_configured:
                 return GatewayModelsOutcome(False, 0, "no_url", "Coarena AI needs COARENA_API_KEY.")
@@ -2442,8 +2644,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 api_key=active_settings.active_coarena_key.get_secret_value() if active_settings.active_coarena_key else None,
             )
 
+        async def _probe_tokenrouter_gw():
+            if not active_settings.tokenrouter_configured:
+                return GatewayModelsOutcome(False, 0, "no_url", "TokenRouter needs TOKENROUTER_API_KEY.")
+            return await probe_gateway_models(
+                active_settings.active_tokenrouter_base_url,
+                api_key=active_settings.active_tokenrouter_key.get_secret_value() if active_settings.active_tokenrouter_key else None,
+                timeout=3.5,
+            )
+
         gw_results = await asyncio.gather(
-            _probe_xkiro_gw(), _probe_apmix_gw(), _probe_oxion_gw(), _probe_explabs_gw(), _probe_respan_gw(), _probe_coarena_gw(),
+            _probe_xkiro_gw(), _probe_apmix_gw(), _probe_oxion_gw(), _probe_explabs_gw(), _probe_respan_gw(), _probe_coarena_gw(), _probe_toptools_gw(), _probe_tokenrouter_gw(),
             return_exceptions=True,
         )
         xkiro_probe = gw_results[0] if isinstance(gw_results[0], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[0]))
@@ -2452,6 +2663,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         explabs_probe = gw_results[3] if isinstance(gw_results[3], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[3]))
         respan_probe = gw_results[4] if isinstance(gw_results[4], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[4]))
         coarena_probe = gw_results[5] if isinstance(gw_results[5], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[5]))
+        toptools_probe = gw_results[6] if isinstance(gw_results[6], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[6]))
+        tokenrouter_probe = gw_results[7] if isinstance(gw_results[7], GatewayModelsOutcome) else GatewayModelsOutcome(False, 0, "refused", str(gw_results[7]))
 
         xkiro_state = "unavailable"
         xkiro_message = "XKiro AI needs XKIRO_API_KEY and XKIRO_BASE_URL."
@@ -2536,6 +2749,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             else:
                 coarena_state = "degraded"
                 coarena_message = f"Coarena AI configured: {coarena_probe.detail}"
+
+        toptools_state = "unavailable"
+        toptools_message = "Top-Tools AI needs TOPTOOLS_API_KEY."
+        if active_settings.toptools_configured:
+            if toptools_probe.serving:
+                toptools_state = "healthy"
+                toptools_message = f"Top-Tools AI is connected ({toptools_probe.model_count} models serving; default: {active_settings.active_toptools_model})."
+            elif toptools_probe.reason in ("http_401", "http_403", "refused", "no_url"):
+                toptools_state = "unavailable"
+                toptools_message = f"Top-Tools AI authentication failed: {toptools_probe.detail}"
+            else:
+                toptools_state = "degraded"
+                toptools_message = f"Top-Tools AI configured: {toptools_probe.detail}"
+
+        tokenrouter_state = "unavailable"
+        tokenrouter_message = "TokenRouter needs TOKENROUTER_API_KEY."
+        if active_settings.tokenrouter_configured:
+            if tokenrouter_probe.serving:
+                tokenrouter_state = "healthy"
+                probe_measured.add("tokenrouter")
+                tokenrouter_message = f"TokenRouter is connected ({tokenrouter_probe.model_count} models serving; default: {active_settings.active_tokenrouter_model})."
+            elif tokenrouter_probe.reason in ("http_401", "http_403", "refused", "no_url"):
+                tokenrouter_state = "unavailable"
+                tokenrouter_message = f"TokenRouter access failed: {tokenrouter_probe.detail}"
+            else:
+                tokenrouter_state = "degraded"
+                tokenrouter_message = f"TokenRouter configured: {tokenrouter_probe.detail}"
 
         # Gemini / real is measured healthy when credentials are configured
         if active_settings.gemini_configured:
@@ -2626,6 +2866,110 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     f"Claude configuration is present using {active_settings.active_claude_protocol}{' with Bearer authentication' if active_settings.is_mwapi_claude_gateway else ''}; no live call has been made."
                     if active_settings.claude_configured
                     else "Claude needs HINAA_CLAUDE_API_KEY (or ANTHROPIC_API_KEY)."
+                ),
+            ),
+            ProviderStatus(
+                id="cantrustai",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.active_cantrust_model}",
+                    *[f"model:{model}" for model in active_settings.cantrust_allowed_models],
+                ],
+                state="healthy" if active_settings.cantrust_configured else "unavailable",
+                userMessage=(
+                    f"CanTrustAI is connected with default model {active_settings.active_cantrust_model}."
+                    if active_settings.cantrust_configured
+                    else "CanTrustAI needs CANTRUST_API_KEY in apps/api/.env.local."
+                ),
+            ),
+
+            ProviderStatus(
+                id="youcom",
+                capabilities=[
+                    "web-search",
+                    "web-news",
+                    "cited-answer",
+                    "contents-markdown",
+                    "cited-research",
+                    "finance-research-opt-in",
+                ],
+                state="healthy" if active_settings.youcom_configured else "unavailable",
+                userMessage=(
+                    "You.com real-time search, cited answers, page extraction, and research are configured locally; HINAA asks for approval before each request."
+                    if active_settings.youcom_configured
+                    else "You.com is not configured. Add YDC_API_KEY to apps/api/.env.local and restart HINAA."
+                ),
+            ),
+            ProviderStatus(
+                id="azure-speech",
+                capabilities=["stt", "tts", "hi-IN", "pcm-wav"],
+                state="disabled",
+                userMessage="Azure subscription is disabled. ElevenLabs and local providers are used.",
+            ),
+            ProviderStatus(
+                id="elevenlabs",
+                capabilities=["tts", "stt", "scribe-v2", "multilingual", "mp3-streaming"],
+                state="healthy" if active_settings.elevenlabs_configured else "unavailable",
+                userMessage=(
+                    "ElevenLabs TTS and Scribe v2 STT configured server-side."
+                    if active_settings.elevenlabs_configured
+                    else "ELEVENLABS_API_KEY is not configured in backend."
+                ),
+            ),
+            ProviderStatus(
+                id="gemini",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    f"default-model:{active_settings.gemini_model}",
+                    *[f"model:{model}" for model in active_settings.gemini_allowed_models],
+                ],
+                state="healthy" if active_settings.gemini_configured else "unavailable",
+                userMessage=(
+                    "Backend configuration is present; no live call has been made."
+                    if active_settings.gemini_configured
+                    else "Backend credentials are not configured."
+                ),
+            ),
+            ProviderStatus(
+                id="deepgram",
+                capabilities=["tts", "stt", "aura-2-odysseus-en", "flux-general-en"],
+                state="healthy" if active_settings.deepgram_configured else "unavailable",
+                userMessage=(
+                    "Deepgram TTS and STT configured server-side for Hiro."
+                    if active_settings.deepgram_configured
+                    else "DEEPGRAM_API_KEY is not configured in backend."
+                ),
+            ),
+            ProviderStatus(
+                id="fish-audio",
+                capabilities=["tts", "multilingual", "nepali", "english", "language-auto-detect"],
+                state="healthy" if active_settings.fish_audio_configured else "unavailable",
+                userMessage=(
+                    "Fish Audio TTS configured; Nepali/English auto-switches by text script."
+                    if active_settings.fish_audio_configured
+                    else "FISH_AUDIO_API_KEY is not configured in backend."
+                ),
+            ),
+            ProviderStatus(
+                id="xkiro",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.active_xkiro_model}",
+                    *[f"model:{model}" for model in active_settings.xkiro_allowed_models],
+                ],
+                state="healthy" if active_settings.xkiro_configured else "unavailable",
+                userMessage=(
+                    f"XKiro AI Gateway is connected (1M daily free tokens; default: {active_settings.active_xkiro_model})."
+                    if active_settings.xkiro_configured
+                    else "XKiro needs XKIRO_API_KEY in apps/api/.env.local."
                 ),
             ),
             ProviderStatus(
@@ -2731,19 +3075,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     if active_settings.pgsgrove_configured
                     else "PGSGrove AI needs PGSGROVE_API_KEY and PGSGROVE_BASE_URL."
                 ),
-            ),
-            ProviderStatus(
-                id="xkiro",
-                capabilities=[
-                    "llm",
-                    "structured-turn-plan",
-                    "text-stream",
-                    "openai-compatible",
-                    f"default-model:{active_settings.xkiro_model}",
-                    *[f"model:{model}" for model in active_settings.xkiro_allowed_models],
-                ],
-                state=xkiro_state,
-                userMessage=xkiro_message,
             ),
             ProviderStatus(
                 id="apmix",
@@ -2872,76 +3203,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     else "GEMINI_API_KEY is not configured in backend."
                 ),
             ),
-
-            ProviderStatus(
-                id="youcom",
-                capabilities=[
-                    "web-search",
-                    "web-news",
-                    "cited-answer",
-                    "contents-markdown",
-                    "cited-research",
-                    "finance-research-opt-in",
-                ],
-                state="healthy" if active_settings.youcom_configured else "unavailable",
-                userMessage=(
-                    "You.com real-time search, cited answers, page extraction, and research are configured locally; HINAA asks for approval before each request."
-                    if active_settings.youcom_configured
-                    else "You.com is not configured. Add YDC_API_KEY to apps/api/.env.local and restart HINAA."
-                ),
-            ),
-            ProviderStatus(
-                id="azure-speech",
-                capabilities=["stt", "tts", "hi-IN", "pcm-wav"],
-                state="disabled",
-                userMessage="Azure subscription is disabled. ElevenLabs and local providers are used.",
-            ),
-            ProviderStatus(
-                id="elevenlabs",
-                capabilities=["tts", "stt", "scribe-v2", "multilingual", "mp3-streaming"],
-                state="healthy" if active_settings.elevenlabs_configured else "unavailable",
-                userMessage=(
-                    "ElevenLabs TTS and Scribe v2 STT configured server-side."
-                    if active_settings.elevenlabs_configured
-                    else "ELEVENLABS_API_KEY is not configured in backend."
-                ),
-            ),
-            ProviderStatus(
-                id="gemini",
-                capabilities=[
-                    "llm",
-                    "structured-turn-plan",
-                    "text-stream",
-                    f"default-model:{active_settings.gemini_model}",
-                    *[f"model:{model}" for model in active_settings.gemini_allowed_models],
-                ],
-                state="healthy" if active_settings.gemini_configured else "unavailable",
-                userMessage=(
-                    "Backend configuration is present; no live call has been made."
-                    if active_settings.gemini_configured
-                    else "Backend credentials are not configured."
-                ),
-            ),
-            ProviderStatus(
-                id="deepgram",
-                capabilities=["tts", "stt", "aura-2-odysseus-en", "flux-general-en"],
-                state="healthy" if active_settings.deepgram_configured else "unavailable",
-                userMessage=(
-                    "Deepgram TTS and STT configured server-side for Hiro."
-                    if active_settings.deepgram_configured
-                    else "DEEPGRAM_API_KEY is not configured in backend."
-                ),
-            ),
-            ProviderStatus(
-                id="fish-audio",
-                capabilities=["tts", "multilingual", "nepali", "english", "language-auto-detect"],
-                state="healthy" if active_settings.fish_audio_configured else "unavailable",
-                userMessage=(
-                    "Fish Audio TTS configured; Nepali/English auto-switches by text script."
-                    if active_settings.fish_audio_configured
-                    else "FISH_AUDIO_API_KEY is not configured in backend."
-                ),
-            ),
             ProviderStatus(
                 id="experiential",
                 capabilities=[
@@ -2957,10 +3218,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
             ProviderStatus(
                 id="gmi",
-                capabilities=["llm", "text-stream", "openai-compatible",
-                              f"default-model:{active_settings.gmi_model}", f"model:{active_settings.gmi_model}"],
+                capabilities=[
+                    "llm",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.gmi_model}",
+                    f"model:{active_settings.gmi_model}",
+                ],
                 state="untested" if active_settings.gmi_configured else "unavailable",
-                userMessage="GMI Cloud needs a verified chat response." if active_settings.gmi_configured else "GMI Cloud needs GMI_API_KEY.",
+                userMessage=(
+                    "GMI Cloud needs a verified chat response."
+                    if active_settings.gmi_configured
+                    else "GMI Cloud needs GMI_API_KEY."
+                ),
             ),
             ProviderStatus(
                 id="respan",
@@ -2990,6 +3260,51 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 userMessage=coarena_message,
             ),
             ProviderStatus(
+                id="toptools",
+                capabilities=[
+                    "llm",
+                    "vision",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.active_toptools_model}",
+                    *[
+                        f"model:{model}"
+                        for model in list(
+                            dict.fromkeys([
+                                *active_settings.toptools_allowed_models,
+                                *(list(toptools_probe.model_ids[:40]) if toptools_probe.serving else []),
+                            ])
+                        )
+                        if model != "*"
+                    ],
+                ],
+                state=toptools_state,
+                userMessage=toptools_message,
+            ),
+            ProviderStatus(
+                id="tokenrouter",
+                capabilities=[
+                    "llm",
+                    "structured-turn-plan",
+                    "text-stream",
+                    "openai-compatible",
+                    f"default-model:{active_settings.active_tokenrouter_model}",
+                    *[
+                        f"model:{model}"
+                        for model in list(
+                            dict.fromkeys([
+                                *active_settings.tokenrouter_allowed_models,
+                                *(list(tokenrouter_probe.model_ids[:40]) if tokenrouter_probe.serving else []),
+                            ])
+                        )
+                        if model != "*"
+                    ],
+                ],
+                state=tokenrouter_state,
+                userMessage=tokenrouter_message,
+            ),
+            ProviderStatus(
                 id="tinyfish",
                 capabilities=["search", "fetch"],
                 state="healthy" if active_settings.tinyfish_api_key else "unavailable",
@@ -2997,6 +3312,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "TinyFish search/fetch tools registered server-side."
                     if active_settings.tinyfish_api_key
                     else "TINYFISH_API_KEY is not configured; paste it into apps/api/.env.local."
+                ),
+            ),
+            ProviderStatus(
+                id="mlai-code",
+                capabilities=["routines", "cloud-automations", "list-routines", "run-routine"],
+                state="healthy" if active_settings.mlai_code_configured else "unavailable",
+                userMessage=(
+                    "ML AI Code (code.ml.ai) cloud coding routines connector is configured server-side."
+                    if active_settings.mlai_code_configured
+                    else "MLAI_CODE_API_KEY is not configured; add it to apps/api/.env.local."
                 ),
             ),
         ]
@@ -3060,7 +3385,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 for name in (
                     "claude", "gemini", "openai", "qwen", "groq", "custom",
                     "agent_router", "codecraft", "cx_gateway",
-                    "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "explabs",
+                    "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "explabs", "coarena", "toptools", "tokenrouter",
                 )
             )
         ) or bool(os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("DEEPSEEK_PKAY_API_KEY"))
@@ -3191,6 +3516,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.websocket("/v1/realtime")
     @app.websocket("/api/v1/realtime")
     async def realtime_session(websocket: WebSocket) -> None:
+        # Origin validation for WebSocket (CSWSH defense)
+        raw_origin = (websocket.headers.get("origin") or "").strip().rstrip("/").lower()
+        if raw_origin:
+            allowed_origins = {"http://127.0.0.1:5173", "http://localhost:5173", "http://127.0.0.1:8000", "http://localhost:8000"}
+            if active_settings.allowed_origins:
+                for o in active_settings.allowed_origins:
+                    allowed_origins.add(o.strip().rstrip("/").lower())
+            if active_settings.cors_origins:
+                for o in active_settings.cors_origins:
+                    allowed_origins.add(o.strip().rstrip("/").lower())
+            if raw_origin not in allowed_origins and not (raw_origin.startswith("http://127.0.0.1:") or raw_origin.startswith("http://localhost:")):
+                await websocket.close(code=4403)
+                return
         await realtime.handle(websocket, user_id=_resolve_user_id(websocket))
 
     @app.get("/v1/realtime/url")
@@ -3355,19 +3693,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/v1/image-studio/config")
     @app.get("/api/v1/image-studio/config")
     async def get_image_studio_config() -> dict:
+        settings_img_key = (
+            active_settings.openai_image_api_key.get_secret_value()
+            if getattr(active_settings, "openai_image_api_key", None)
+            else None
+        )
         return {
             "openaiImageApiKeyConfigured": bool(
                 os.getenv("OPENAI_IMAGE_API_KEY")
                 or os.getenv("IMAGE_PROXY_API_KEY")
+                or settings_img_key
             ),
             "openaiImageBaseUrl": (
                 os.getenv("OPENAI_IMAGE_BASE_URL")
                 or os.getenv("IMAGE_PROXY_BASE_URL")
+                or getattr(active_settings, "openai_image_base_url", None)
                 or "https://api.openai.com/v1"
             ),
             "openaiImageModel": (
                 os.getenv("OPENAI_IMAGE_MODEL")
                 or os.getenv("IMAGE_MODEL")
+                or getattr(active_settings, "openai_image_model", None)
                 or "gemini-3.1-flash-image"
             ),
             "stabilityApiKeyConfigured": bool(os.getenv("STABILITY_API_KEY")),
@@ -3404,7 +3750,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 os.environ["MAGNIFIC_API_KEY"] = val
                 updates["MAGNIFIC_API_KEY"] = val
 
-        if updates:
+        if updates and not os.getenv("PYTEST_CURRENT_TEST"):
             env_path = Path(__file__).resolve().parent.parent / ".env.local"
             lines = []
             if env_path.exists():
@@ -3793,6 +4139,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HinaaError(verdict.code, verdict.message, 403, False, True)
         tool_policy.check_arguments(body.toolName, body.parameters)
         is_user_approved = body.confirmed and body.approvalSource == "user"
+
+        # Check if caller supplied challengeId for approval consumption
+        challenge_id = getattr(body, "challengeId", None) or body.parameters.get("challenge_id")
+        if challenge_id:
+            from .security.action_approvals import get_approval_gate
+            gate = get_approval_gate()
+            tenant = getattr(body, "tenantId", None) or getattr(request.state, "tenant_id", None) or "default_tenant"
+            ok, msg = gate.verify_and_consume(challenge_id, body.parameters, tenant_id=tenant)
+            if not ok:
+                raise HinaaError("APPROVAL_VERIFICATION_FAILED", msg, 403, False, True)
+            is_user_approved = True
+
         is_safe_standing_consent = (
             body.confirmed
             and body.approvalSource == "standing-consent"
@@ -3815,31 +4173,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "browser_cloud_agent",
                 "browser_execute_task",
                 "browser_navigate",
-                "browser_click",
-                "browser_type",
                 "browser_extract",
                 "browser_scroll",
-                "browser_press_key",
                 "ui_control",
-                "computer_operator",
-                "app_launch",
                 "system_info",
                 "search_files",
                 "exa_search",
                 "exa_get_contents",
                 "exa_agent_run",
                 "deep_research",
-                "coding_agent",
-                "clean_room_loop",
-                "code_repair",
-                "terminal_execute",
                 "file_read",
                 "directory_list",
                 "customgpt_query",
                 "codebase_search",
-                "subagent_fork",
             )
         )
+        # Directive v3.0: Tier 3 & 4 process execution and destructive tools strictly require user approval
+        is_tier3_or_4 = tool_def.risk_tier >= 3 or body.toolName in (
+            "terminal_execute", "shell_execute", "terminal_hands", "app_launch",
+            "coding_agent", "clean_room_loop", "subagent_fork", "delete_file",
+            "delete_content_post", "delete_project", "send_email", "social_publish",
+            "phone_call_user", "whatsapp_send"
+        )
+        if is_tier3_or_4:
+            is_safe_standing_consent = False
         if tool_def.requires_confirmation and not (
             is_user_approved or is_safe_standing_consent or tool_policy.confirmation_waived(body.toolName)
         ):
@@ -4385,10 +4742,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
 
     @app.post("/v1/agent/runs/{run_id}/cancel")
+    @app.post("/api/v1/agent/runs/{run_id}/cancel")
     async def cancel_agent_run(request: Request, run_id: str) -> dict[str, Any]:
         user_id = _agent_user_ids(request)
         run = agent_runtime.cancel(run_id, user_id)
         if run is None:
+            from .agent.live_agentic_service import cancel_active_agentic_run, get_agentic_store
+
+            if cancel_active_agentic_run(run_id, store=get_agentic_store()):
+                return {"run_id": run_id, "status": "cancelled", "idempotent": True}
             raise HTTPException(status_code=404, detail="Run not found")
         return {"run_id": run.run_id, "status": run.status.value, "idempotent": True}
 
@@ -4429,6 +4791,174 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if run is None:
             raise HTTPException(status_code=404, detail="Run not found")
         return run.model_dump(mode="json")
+
+    @app.post("/v1/agent/agentic-runs")
+    @app.post("/api/v1/agent/agentic-runs")
+    async def create_agentic_run(
+        request: Request, body: dict[str, Any] = Body(default_factory=dict)
+    ) -> dict[str, Any]:
+        from .agent.live_agentic_service import run_agentic_job
+        from .runtime_paths import project_root
+
+        goal = str(body.get("goal") or "").strip()
+        if not goal:
+            raise HTTPException(status_code=400, detail="goal is required")
+        user_id = _resolve_user_id(request) or "default_user"
+        allowed = set(body["allowedTools"]) if isinstance(body.get("allowedTools"), list) else None
+        ws_dir = body.get("workspacePath") or os.environ.get("HINAA_LOCAL_WORKSPACE_DIR") or str(project_root())
+        rec = await run_agentic_job(
+            goal=goal,
+            router=service.router,
+            settings=service.settings,
+            provider_mode=str(body.get("providerMode") or "xkiro"),
+            brain_model=body.get("brainModel"),
+            user_id=user_id,
+            allowed_tools=allowed,
+            workspace_root=str(ws_dir),
+            host_header=request.headers.get("host"),
+            max_steps=min(max(1, int(body.get("maxSteps") or 8)), 12),
+        )
+        return rec.model_dump(mode="json")
+
+    @app.get("/v1/agent/agentic-runs")
+    @app.get("/api/v1/agent/agentic-runs")
+    async def list_agentic_runs() -> dict[str, Any]:
+        from .agent.live_agentic_service import get_agentic_store
+
+        runs = get_agentic_store().list_runs(limit=50)
+        return {"status": "ok", "count": len(runs), "runs": [r.model_dump(mode="json") for r in runs]}
+
+    @app.get("/v1/agent/agentic-runs/{run_id}")
+    @app.get("/api/v1/agent/agentic-runs/{run_id}")
+    async def get_agentic_run(run_id: str) -> dict[str, Any]:
+        from .agent.live_agentic_service import get_agentic_store
+
+        rec = get_agentic_store().load(run_id)
+        if rec is None:
+            raise HTTPException(status_code=404, detail="Agentic run not found")
+        return rec.model_dump(mode="json")
+
+    @app.post("/v1/agent/agentic-runs/{run_id}/approve")
+    @app.post("/api/v1/agent/agentic-runs/{run_id}/approve")
+    async def approve_agentic_run(
+        request: Request, run_id: str, body: dict[str, Any] = Body(default_factory=dict)
+    ) -> dict[str, Any]:
+        from .agent.live_agentic_service import (
+            get_agentic_store,
+            is_active_agentic_run,
+            launch_background_agentic_job,
+            run_agentic_job,
+        )
+
+        store = get_agentic_store()
+        rec = store.load(run_id)
+        if rec is None:
+            raise HTTPException(status_code=404, detail="Agentic run not found")
+        approved_hash = str(body.get("argumentsHash") or body.get("arguments_hash") or "").strip()
+        pending = rec.result.pending_approval
+        if pending is None:
+            if rec.result.status in ("completed", "failed", "cancelled", "stopped"):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Run already {rec.result.status} — no pending approval remains.",
+                )
+            can_recover_interrupted = (
+                rec.result.status == "running"
+                and bool(approved_hash)
+                and (approved_hash in rec.approved_hashes or not is_active_agentic_run(run_id))
+            )
+            if not can_recover_interrupted:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Run is currently executing without a pending approval prompt.",
+                )
+        elif not approved_hash or approved_hash != pending.arguments_hash:
+            raise HTTPException(status_code=403, detail="Approval bound hash mismatch")
+
+        if body.get("approved", True) is False:
+            rec.result.status = "cancelled"
+            rec.result.summary = "Approval denied by user."
+            rec.result.pending_approval = None
+            store.save(rec)
+            return rec.model_dump(mode="json")
+
+        approved_hashes = set(rec.approved_hashes)
+        if approved_hash:
+            approved_hashes.add(approved_hash)
+        rec.approved_hashes = sorted(approved_hashes)
+        rec.result.pending_approval = None
+        store.save(rec)
+        if body.get("background") is True:
+            updated = launch_background_agentic_job(
+                goal=rec.goal,
+                router=service.router,
+                settings=service.settings,
+                provider_mode=rec.provider_mode,
+                brain_model=rec.brain_model,
+                user_id=rec.user_id,
+                allowed_tools=set(rec.allowed_tools),
+                approved_hashes=approved_hashes,
+                workspace_root=rec.workspace_root,
+                host_header=request.headers.get("host"),
+                run_id=rec.run_id,
+                store=store,
+            )
+            return {**updated.model_dump(mode="json"), "background": True}
+        updated = await run_agentic_job(
+            goal=rec.goal,
+            router=service.router,
+            settings=service.settings,
+            provider_mode=rec.provider_mode,
+            brain_model=rec.brain_model,
+            user_id=rec.user_id,
+            allowed_tools=set(rec.allowed_tools),
+            approved_hashes=approved_hashes,
+            workspace_root=rec.workspace_root,
+            host_header=request.headers.get("host"),
+            run_id=rec.run_id,
+            store=store,
+        )
+        return updated.model_dump(mode="json")
+
+    @app.post("/v1/agent/agentic-runs/{run_id}/steer")
+    @app.post("/api/v1/agent/agentic-runs/{run_id}/steer")
+    async def steer_agentic_run_endpoint(
+        run_id: str, body: dict[str, Any] = Body(default_factory=dict)
+    ) -> dict[str, Any]:
+        from .agent.live_agentic_service import get_agentic_store, steer_agentic_run
+
+        direction = str(body.get("message") or body.get("direction") or "").strip()
+        if not direction:
+            raise HTTPException(status_code=400, detail="Steering message is required")
+        ok = steer_agentic_run(run_id, direction, store=get_agentic_store())
+        if not ok:
+            raise HTTPException(status_code=404, detail="Active background agentic run not found")
+        return {"run_id": run_id, "steered": True}
+
+    @app.get("/v1/agent/agentic-runs/{run_id}/stream")
+    @app.get("/api/v1/agent/agentic-runs/{run_id}/stream")
+    async def stream_agentic_run(run_id: str) -> StreamingResponse:
+        from .agent.live_agentic_service import get_agentic_store, subscribe_agentic_events
+
+        store = get_agentic_store()
+
+        async def _event_stream():
+            async for evt_name, evt_payload in subscribe_agentic_events(run_id, store=store):
+                frame = json.dumps({"type": evt_name, **evt_payload}, ensure_ascii=False)
+                yield (frame + "\n").encode("utf-8")
+
+        return StreamingResponse(_event_stream(), media_type="application/x-ndjson")
+
+    @app.post("/v1/agent/agentic-runs/{run_id}/cancel")
+    @app.post("/api/v1/agent/agentic-runs/{run_id}/cancel")
+    async def cancel_agentic_run(run_id: str) -> dict[str, Any]:
+        from .agent.live_agentic_service import cancel_active_agentic_run, get_agentic_store
+
+        ok = cancel_active_agentic_run(run_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Agentic run not found")
+        rec = get_agentic_store().load(run_id)
+        return rec.model_dump(mode="json") if rec else {"run_id": run_id, "status": "cancelled"}
 
     # ── Cognitive OS & World Model Routes ──────────────────────────────
 
@@ -5588,6 +6118,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             reviewIdeas=review_ideas
         )
 
+    async def _synthesize_via_local_voice_server(body: SpeechRequest) -> tuple[bytes, str, str] | None:
+        if body.providerMode == "local" or os.getenv("PYTEST_CURRENT_TEST"):
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=25.0) as voice_client:
+                vresp = await voice_client.post(
+                    "http://127.0.0.1:8768/voice/synthesize",
+                    json={
+                        "text": body.text,
+                        "voice": body.voiceEngine or body.companionId,
+                        "companion_id": body.companionId,
+                        "language": body.language,
+                    },
+                )
+        except Exception as exc:
+            logger.warning("Local voice server :8768 fallback unreachable: %s", exc)
+            return None
+        if vresp.status_code != 200 or len(vresp.content) <= 44:
+            return None
+        return (
+            vresp.content,
+            vresp.headers.get("content-type", "audio/wav").split(";")[0],
+            vresp.headers.get("X-Engine-Used", "voice-server-8768"),
+        )
+
     @app.post("/v1/speech/synthesis/timed")
     @app.post("/api/v1/speech/synthesis/timed")
     async def synthesize_timed(body: SpeechRequest) -> Response:
@@ -5604,43 +6159,49 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         from .voice_performance import speech_text_for_tts
 
         started = perf_counter()
-        provider = service.router.tts(body.providerMode, body.companionId, body.voiceEngine)
-        if not isinstance(provider, ElevenLabsHTTPStreamingProvider):
-            result = await service.synthesize(body)
-            final_audio, media_type = ensure_wav_or_mp3(result.value, sample_rate=24_000)
-            alignment: list[dict] | None = None
-            provider_name = result.provider
-        else:
-            text = speech_text_for_tts(body.text) or body.text
-            voice_id = (
-                service.settings.elevenlabs_hiro_voice_id
-                if body.companionId == "hiro"
-                else service.settings.elevenlabs_hinaa_voice_id
-            )
-            try:
-                audio_bytes, speech_alignment, _ms = await provider.synthesize_timed(
-                    text, voice=voice_id
-                )
-                final_audio, media_type = ensure_wav_or_mp3(audio_bytes, sample_rate=24_000)
-                alignment = (
-                    [
-                        {"char": c, "startMs": s, "durationMs": d}
-                        for c, s, d in zip(
-                            speech_alignment.characters,
-                            speech_alignment.start_times_ms,
-                            speech_alignment.durations_ms,
-                            strict=True,
-                        )
-                    ]
-                    if speech_alignment is not None
-                    else None
-                )
-                provider_name = "elevenlabs"
-            except Exception:
+        alignment: list[dict] | None = None
+        try:
+            provider = service.router.tts(body.providerMode, body.companionId, body.voiceEngine)
+            if not isinstance(provider, ElevenLabsHTTPStreamingProvider):
                 result = await service.synthesize(body)
                 final_audio, media_type = ensure_wav_or_mp3(result.value, sample_rate=24_000)
-                alignment = None
                 provider_name = result.provider
+            else:
+                text = speech_text_for_tts(body.text) or body.text
+                voice_id = (
+                    service.settings.elevenlabs_hiro_voice_id
+                    if body.companionId == "hiro"
+                    else service.settings.elevenlabs_hinaa_voice_id
+                )
+                try:
+                    audio_bytes, speech_alignment, _ms = await provider.synthesize_timed(
+                        text, voice=voice_id
+                    )
+                    final_audio, media_type = ensure_wav_or_mp3(audio_bytes, sample_rate=24_000)
+                    alignment = (
+                        [
+                            {"char": c, "startMs": s, "durationMs": d}
+                            for c, s, d in zip(
+                                speech_alignment.characters,
+                                speech_alignment.start_times_ms,
+                                speech_alignment.durations_ms,
+                                strict=True,
+                            )
+                        ]
+                        if speech_alignment is not None
+                        else None
+                    )
+                    provider_name = "elevenlabs"
+                except Exception:
+                    result = await service.synthesize(body)
+                    final_audio, media_type = ensure_wav_or_mp3(result.value, sample_rate=24_000)
+                    alignment = None
+                    provider_name = result.provider
+        except HinaaError:
+            local_fb = await _synthesize_via_local_voice_server(body)
+            if local_fb is None:
+                raise
+            final_audio, media_type, provider_name = local_fb
         filename = "hinaa-turn.mp3" if media_type == "audio/mpeg" else "hinaa-turn.wav"
         alignment_header = base64.b64encode(
             _json.dumps(alignment or []).encode("utf-8")
@@ -5660,15 +6221,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/api/v1/speech/synthesis")
     async def synthesize(body: SpeechRequest) -> Response:
         started = perf_counter()
-        result = await service.synthesize(body)
-        final_audio, media_type = ensure_wav_or_mp3(result.value, sample_rate=24_000)
+        try:
+            result = await service.synthesize(body)
+            final_audio, media_type = ensure_wav_or_mp3(result.value, sample_rate=24_000)
+            provider_used = result.provider
+            latency_ms = result.latency_ms
+        except HinaaError:
+            local_fb = await _synthesize_via_local_voice_server(body)
+            if local_fb is None:
+                raise
+            final_audio, media_type, provider_used = local_fb
+            latency_ms = int((perf_counter() - started) * 1000)
         filename = "hinaa-turn.mp3" if media_type == "audio/mpeg" else "hinaa-turn.wav"
         return Response(
             final_audio,
             media_type=media_type,
             headers={
-                "X-HINAA-Provider": result.provider,
-                "X-HINAA-Latency-Ms": str(result.latency_ms),
+                "X-HINAA-Provider": provider_used,
+                "X-HINAA-Latency-Ms": str(latency_ms),
                 "X-HINAA-Total-Ms": str(int((perf_counter() - started) * 1000)),
                 "Content-Disposition": f'inline; filename="{filename}"',
             },

@@ -94,3 +94,99 @@ async def test_3stage_health_rate_limited_circuit_breaker():
     assert outcome.inference is False
     assert outcome.state == "rate_limited"
     assert outcome.retry_after_seconds > 0
+
+
+def test_provider_unavailable_recovers_after_cooldown(tmp_path) -> None:
+    """Transient 5xx PROVIDER_UNAVAILABLE must not lock a provider in AUTH_ERROR."""
+    import json
+    from time import time as wall_time
+    from hinaa_api.circuit_breaker import disable_persistence, enable_persistence
+
+    cb = ProviderCircuitBreaker("claude")
+    cb.record_failure("PROVIDER_UNAVAILABLE", "503 from gateway")
+    assert cb.state == CircuitBreakerState.MODEL_UNAVAILABLE
+    cb.cooloff_until = monotonic() - 1.0
+    can_exec, _, _ = cb.can_execute()
+    assert can_exec is True
+    assert cb.state == CircuitBreakerState.HALF_OPEN
+
+    # Legacy persisted AUTH_ERROR caused by PROVIDER_UNAVAILABLE is healed on restore.
+    state_file = tmp_path / "breakers.json"
+    state_file.write_text(
+        json.dumps({
+            "claude": {
+                "state": "auth_error",
+                "consecutiveFailures": 1,
+                "cooloffUntilWall": wall_time() + 100,
+                "lastFailureCode": "PROVIDER_UNAVAILABLE",
+                "lastFailureMessage": "503",
+            }
+        }),
+        encoding="utf-8",
+    )
+    reset_circuit_breakers()
+    enable_persistence(state_file)
+    try:
+        healed = get_circuit_breaker("claude")
+        assert healed.state == CircuitBreakerState.READY
+    finally:
+        disable_persistence()
+
+
+@pytest.mark.asyncio
+async def test_xkiro_stream_retries_transient_overloaded_sse(monkeypatch) -> None:
+    """Inline SSE overload errors on HTTP 200 retry on the same pinned model."""
+    import asyncio
+    from contextlib import asynccontextmanager
+    from hinaa_api.prompts.assembly import assemble_prompt
+    from hinaa_api.prompts.models import PromptInput
+    from hinaa_api.providers.openai_llm import OpenAILLMProvider
+
+    prompt = assemble_prompt(PromptInput(companion_id="hinaa", interaction_mode="realtime", user_text="hi"))
+    calls = 0
+
+    class FakeResp:
+        def __init__(self, lines: list[str]) -> None:
+            self.status_code = 200
+            self.headers: dict[str, str] = {}
+            self._lines = lines
+            self.text = ""
+
+        async def aiter_lines(self):
+            for ln in self._lines:
+                yield ln
+
+    class FakeClient:
+        @asynccontextmanager
+        async def stream(self, *args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                yield FakeResp([
+                    'data: {"error":{"message":"This model is temporarily overloaded upstream. Please retry in a few seconds.","type":"server_error"}}',
+                ])
+            else:
+                yield FakeResp([
+                    'data: {"choices":[{"delta":{"content":"56"}}]}',
+                    "data: [DONE]",
+                ])
+
+    @asynccontextmanager
+    async def fake_pooled_client():
+        yield FakeClient()
+
+    async def no_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("hinaa_api.providers.openai_llm._pooled_client", fake_pooled_client)
+    monkeypatch.setattr(asyncio, "sleep", no_sleep)
+
+    provider = OpenAILLMProvider(
+        "test-key",
+        "openai/gpt-6.2-sol",
+        base_url="https://api.xkiro.com/v1",
+        provider_id="xkiro",
+    )
+    chunks = [chunk async for chunk in provider._stream_text(prompt)]
+    assert calls == 2
+    assert "".join(chunks) == "56"

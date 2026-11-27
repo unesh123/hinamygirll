@@ -497,9 +497,26 @@ def _clean_natural_speech_and_display(text: str) -> tuple[str, bool]:
         "",
         cleaned,
     )
-    # Strip <svg>...</svg> blocks and standalone svg lines
-    cleaned = re.sub(r"<svg[\s\S]*?</svg>", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"(?im)^\s*svg\s*$\n?", "", cleaned)
+    # Strip <svg>...</svg> blocks and standalone svg lines, but only
+    # outside fenced code blocks (``` … ```) so user-requested SVG examples
+    # survive in displayText.
+    def _strip_svg_outside_fences(src: str) -> str:
+        fence_re = re.compile(r"(```[\w-]*|```|~~~[\w-]*|~~~)")
+        segments = fence_re.split(src)
+        inside = False
+        out: list[str] = []
+        for seg in segments:
+            if seg.startswith("```") or seg.startswith("~~~"):
+                inside = not inside
+                out.append(seg)
+            elif inside:
+                out.append(seg)
+            else:
+                seg = re.sub(r"<svg[\s\S]*?</svg>", "", seg, flags=re.IGNORECASE)
+                seg = re.sub(r"(?im)^\s*svg\s*$\n?", "", seg)
+                out.append(seg)
+        return "".join(out)
+    cleaned = _strip_svg_outside_fences(cleaned)
     # Strip internal workflow tokens
     cleaned = re.sub(r"\b(?:workflow_mode|generation_set_id)\b\s*", "", cleaned)
     # Strip emojis, hearts, and decorative symbols
@@ -1277,6 +1294,24 @@ class ProviderRouter:
                 user_action_required=True,
             )
 
+    def _require_toptools_brain(self) -> None:
+        if self.settings.active_toptools_key is None or self.settings.active_toptools_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "Top-Tools AI is not configured. Add TOPTOOLS_API_KEY to apps/api/.env.local.",
+                503,
+                user_action_required=True,
+            )
+
+    def _require_tokenrouter_brain(self) -> None:
+        if self.settings.active_tokenrouter_key is None or self.settings.active_tokenrouter_base_url is None:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "TokenRouter is not configured. Add TOKENROUTER_API_KEY to apps/api/.env.local.",
+                503,
+                user_action_required=True,
+            )
+
     def _require_articul8_brain(self) -> None:
         if self.settings.active_articul8_key is None or self.settings.active_articul8_base_url is None:
             raise HinaaError(
@@ -1291,6 +1326,15 @@ class ProviderRouter:
             raise HinaaError(
                 "EXPLABS_API_KEY_MISSING",
                 "EXPLABS_API_KEY is not set. Please create one under Settings -> API Keys and export it.",
+                503,
+                user_action_required=True,
+            )
+
+    def _require_cantrust_brain(self) -> None:
+        if not self.settings.cantrust_configured:
+            raise HinaaError(
+                "PROVIDER_CONFIGURATION_MISSING",
+                "CanTrustAI mode is not configured. Missing backend variable: CANTRUST_API_KEY in apps/api/.env.local.",
                 503,
                 user_action_required=True,
             )
@@ -1685,6 +1729,46 @@ class ProviderRouter:
                 base_url=active_respan_base_url,
                 provider_id="respan",
             )
+        if mode == "toptools":
+            self._require_toptools_brain()
+            active_toptools_key = self.settings.active_toptools_key
+            active_toptools_base_url = self.settings.active_toptools_base_url
+            assert active_toptools_key and active_toptools_base_url
+            try:
+                model = self.settings.resolve_toptools_model(brain_model)
+            except ValueError as error:
+                raise HinaaError(
+                    "PROVIDER_MODEL_NOT_ALLOWED",
+                    str(error),
+                    422,
+                    user_action_required=True,
+                ) from error
+            return OpenAILLMProvider(
+                active_toptools_key.get_secret_value(),
+                model,
+                base_url=active_toptools_base_url,
+                provider_id="toptools",
+            )
+        if mode == "tokenrouter":
+            self._require_tokenrouter_brain()
+            active_tokenrouter_key = self.settings.active_tokenrouter_key
+            active_tokenrouter_base_url = self.settings.active_tokenrouter_base_url
+            assert active_tokenrouter_key and active_tokenrouter_base_url
+            try:
+                model = self.settings.resolve_tokenrouter_model(brain_model)
+            except ValueError as error:
+                raise HinaaError(
+                    "PROVIDER_MODEL_NOT_ALLOWED",
+                    str(error),
+                    422,
+                    user_action_required=True,
+                ) from error
+            return OpenAILLMProvider(
+                active_tokenrouter_key.get_secret_value(),
+                model,
+                base_url=active_tokenrouter_base_url,
+                provider_id="tokenrouter",
+            )
         if mode == "coarena":
             self._require_coarena_brain()
             active_coarena_key = self.settings.active_coarena_key
@@ -1705,6 +1789,21 @@ class ProviderRouter:
                 "PROVIDER_CAPABILITY_MISMATCH",
                 "Bivia returns bounded decisions, not chat text. Select a chat model; use bivia_decide for decisions.",
                 422, user_action_required=True,
+            )
+        if mode in ("cantrustai", "cantrust"):
+            self._require_cantrust_brain()
+            active_cantrust_key = self.settings.active_cantrust_key
+            active_cantrust_base_url = self.settings.active_cantrust_base_url
+            assert active_cantrust_key and active_cantrust_base_url
+            try:
+                model = self.settings.resolve_cantrust_model(brain_model)
+            except ValueError as exc:
+                raise HinaaError("PROVIDER_MODEL_NOT_ALLOWED", str(exc), 422, user_action_required=True) from exc
+            return OpenAILLMProvider(
+                active_cantrust_key.get_secret_value(),
+                model,
+                base_url=active_cantrust_base_url,
+                provider_id="cantrustai",
             )
         if mode == "real":
             # Text generation depends only on the brain credential. Speech has
@@ -1742,20 +1841,20 @@ class ProviderRouter:
         )
 
     def tts(self, mode: str, companion_id: CompanionId | None = None, voice_engine: str | None = None) -> TTSProvider:
+        from .providers.edge_tts_provider import EdgeNeuralTTSProvider
+
         effective_engine = (voice_engine or "").lower().strip()
 
-        # Primary neural voice: ElevenLabs (Aisha / Sweet Girlfriend)
-        if self.settings.elevenlabs_configured and (
-            effective_engine == "elevenlabs"
-            or not effective_engine
-            or effective_engine == "auto"
-            or self.settings.voice_provider in ("auto", "elevenlabs")
-        ):
-            return make_elevenlabs_provider(
-                self.elevenlabs_config(), mode=self.settings.elevenlabs_transport
+        if effective_engine in ("edge", "edge-tts", "ana", "ava", "jenny", "cute-girl") or effective_engine.startswith("edge:"):
+            custom_voice = effective_engine.split(":", 1)[1].strip() if ":" in effective_engine else ""
+            default_v = (
+                custom_voice
+                or getattr(self.settings, "edge_tts_voice_hinaa", "en-US-AnaNeural")
+                or "en-US-AnaNeural"
             )
+            return EdgeNeuralTTSProvider(default_voice=default_v)
 
-        if effective_engine.startswith("deepgram") and self.settings.deepgram_configured:
+        if (effective_engine.startswith("deepgram") or effective_engine in ("thalia", "luna")) and self.settings.deepgram_configured:
             assert self.settings.deepgram_api_key
             if self._deepgram_tts_provider is None:
                 self._deepgram_tts_provider = DeepgramTTSProvider(
@@ -1785,6 +1884,28 @@ class ProviderRouter:
             return self.mock_tts
         if mode == "local":
             return self.local_tts
+
+        # Primary neural voice when not overridden by another engine: ElevenLabs (falls back on cooldown/401 to Deepgram -> Edge)
+        if self.settings.elevenlabs_configured and (
+            effective_engine == "elevenlabs"
+            or not effective_engine
+            or effective_engine == "auto"
+        ):
+            if effective_engine != "elevenlabs" and voice_on_cooldown(_ELEVENLABS_PROVIDER):
+                if self.settings.deepgram_configured:
+                    assert self.settings.deepgram_api_key
+                    if self._deepgram_tts_provider is None:
+                        self._deepgram_tts_provider = DeepgramTTSProvider(
+                            api_key=self.settings.deepgram_api_key.get_secret_value(),
+                            base_url=self.settings.deepgram_base_url,
+                        )
+                    return self._deepgram_tts_provider
+                return EdgeNeuralTTSProvider(
+                    default_voice=getattr(self.settings, "edge_tts_voice_hinaa", "en-US-AnaNeural")
+                )
+            return make_elevenlabs_provider(
+                self.elevenlabs_config(), mode=self.settings.elevenlabs_transport
+            )
 
         # Deepgram Aura fallback when ElevenLabs is unconfigured
         if (
@@ -2831,25 +2952,28 @@ class ConversationService:
                 plan.language = "en-US"
             plan.emotion = Emotion(primary="happy", intensity=0.7, valence=0.7, arousal=0.5)
 
-        image_command = bool(
-            re.search(r"\b(?:generate|create|make|draw|paint|render|बनाओ|बनाऊ|बनाइदेऊ|गर)\b.*\b(?:image|images|picture|pictures|photo|photos|portrait|artwork|wallpaper|चित्र|तस्वीर)\b", unquoted, re.I)
-            or re.search(r"\b(?:image|images|picture|pictures|photo|photos|चित्र|तस्वीर)\s+(?:generate|create|make|draw|करो|गर)\b", unquoted, re.I)
-            or re.search(r"^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?(?:please\s+)?(?:draw|paint)\s+[a-z0-9]", unquoted, re.I)
-            or (
-                re.search(r"^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?(?:please\s+)?(?:generate|draw|paint|render|create)\s+", unquoted, re.I)
-                and any(k in unquoted.lower() for k in ("hina", "hinaa", *CHARACTER_ENTITY_MAP))
-            )
-            or (
-                bool(re.search(r"\b(?:same\s+one|use\s+this|use\s+that|use\s+this\s+image)\b", unquoted, re.I))
-                and bool(re.search(r"\b(?:darker|brighter|better|variation|different|in\s+|with\s+|wearing\s+|sitting\s+|standing\s+|looking\s+|smiling)\b", unquoted, re.I))
-            )
-            or is_command(
-                [
-                    r"^\s*(please\s+)?(generate|create|make|draw|paint|render|बनाओ|बनाऊ|बनाइदेऊ)\b",
-                    r"^\s*(?:\d+|one|two|three|four|चार|एक|दुई|एउटा)?\s*(?:fast\s+|quality\s+)?(?:images?|pictures?|photos?|चित्र|तस्वीर)\s+(?:generate|create|make|करो|गर)\b",
-                    r"^\s*(?:generate|create|make|बनाओ|बनाऊ|बनाइदेऊ)\b.*(?:image|picture|photo|चित्र|तस्वीर)",
-                ],
-                target=r"\b(image|images|picture|pictures|photo|photos|portrait|artwork|variation|variations)\b|चित्र|तस्वीर",
+        image_command = (
+            not re.search(r"\b(?:mp4|video|reel|animation|ffmpeg|playwright|kinetic)\b", unquoted, re.I)
+            and bool(
+                re.search(r"\b(?:generate|create|make|draw|paint|render|बनाओ|बनाऊ|बनाइदेऊ|गर)\b.*\b(?:image|images|picture|pictures|photo|photos|portrait|artwork|wallpaper|चित्र|तस्वीर)\b", unquoted, re.I)
+                or re.search(r"\b(?:image|images|picture|pictures|photo|photos|चित्र|तस्वीर)\s+(?:generate|create|make|draw|करो|गर)\b", unquoted, re.I)
+                or re.search(r"^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?(?:please\s+)?(?:draw|paint)\s+[a-z0-9]", unquoted, re.I)
+                or (
+                    re.search(r"^\s*(?:(?:hey\s+)?hinaa?[\s,]+)?(?:please\s+)?(?:generate|draw|paint|render|create)\s+", unquoted, re.I)
+                    and any(k in unquoted.lower() for k in ("hina", "hinaa", *CHARACTER_ENTITY_MAP))
+                )
+                or (
+                    bool(re.search(r"\b(?:same\s+one|use\s+this|use\s+that|use\s+this\s+image)\b", unquoted, re.I))
+                    and bool(re.search(r"\b(?:darker|brighter|better|variation|different|in\s+|with\s+|wearing\s+|sitting\s+|standing\s+|looking\s+|smiling)\b", unquoted, re.I))
+                )
+                or is_command(
+                    [
+                        r"^\s*(please\s+)?(generate|create|make|draw|paint|render|बनाओ|बनाऊ|बनाइदेऊ)\b",
+                        r"^\s*(?:\d+|one|two|three|four|चार|एक|दुई|एउटा)?\s*(?:fast\s+|quality\s+)?(?:images?|pictures?|photos?|चित्र|तस्वीर)\s+(?:generate|create|make|करो|गर)\b",
+                        r"^\s*(?:generate|create|make|बनाओ|बनाऊ|बनाइदेऊ)\b.*(?:image|picture|photo|चित्र|तस्वीर)",
+                    ],
+                    target=r"\b(image|images|picture|pictures|photo|photos|portrait|artwork|variation|variations)\b|चित्र|तस्वीर",
+                )
             )
         )
         if image_command and not any(t.toolName == "image_generate" for t in plan.toolRequests):
@@ -3503,7 +3627,7 @@ class ConversationService:
 
         # Autonomous Coding, Shell Execution, File Mutation & Agentic Workbench Pattern
         CODING_AUTONOMY_PATTERN = re.compile(
-            r"(?i)\b(?:code|coding|build|fix|debug|refactor|test|terminal|powershell|bash|cmd|shell|script|python|git|commit|push|clean[- ]room|subagent|fork|patch|edit\s+file|write\s+file|read\s+file|create\s+file)\b"
+            r"(?i)\b(?:code|coding|build|fix|debug|refactor|test|terminal|powershell|bash|cmd|shell|script|python|git|commit|push|clean[- ]room|subagent|fork|patch|inspect|search\s+code|grep|glob|edit\s+file|write\s+file|read\s+file|create\s+file|ml\s*ai|routine)\b"
         )
         if CODING_AUTONOMY_PATTERN.search(text):
             allowed_set.update([
@@ -3513,46 +3637,62 @@ class ConversationService:
                 "subagent_fork",
                 "file_read",
                 "file_write",
+                "workspace_list_dir",
+                "workspace_read_file",
+                "workspace_write_file",
+                "workspace_edit_file",
+                "workspace_glob",
+                "workspace_grep",
+                "workspace_run_command",
+                "render_code_animation",
+                "mlai_list_routines",
+                "mlai_run_routine",
                 "system_info",
             ])
 
-        # Hacking & Kali Linux Offensive Autonomy Pattern
-        HACKING_PATTERN = re.compile(
-            r"(?i)\b(?:hack|scan|nmap|sqlmap|nikto|hydra|metasploit|msf|kali|wsl|exploit|bypass|vuln|vulnerability|recon|brute\s*force|rce|shell|port|reverse\s*shell|target|lead|clue)\b"
-        )
-        if HACKING_PATTERN.search(text):
-            allowed_set.update([
-                "hacker_agent",
-                "bypass_engine",
-                "exploit_memory",
-                "lead_follower",
-                "proxy_manager",
-                "continuous_loop",
-            ])
-
-        # Financial, Money Guard & Crypto Wallet Pattern
+        # Financial, Money Guard Pattern
         MONEY_WALLET_PATTERN = re.compile(
-            r"(?i)\b(?:money|wallet|crypto|balance|expense|income|spend|deposit|withdraw|dollar|funds|transaction|reinvest)\b"
+            r"(?i)\b(?:money|balance|expense|income|dollar|funds|transaction)\b"
         )
         if MONEY_WALLET_PATTERN.search(text):
             allowed_set.update([
                 "money_guard",
-                "crypto_wallet",
             ])
 
-        # Full PC Control, Workspace, Multi-Account & Autonomy Pattern
+        # Autonomy & Productivity Pattern
         AUTONOMY_PATTERN = re.compile(
-            r"(?i)\b(?:full\s*pc|pc\s*control|run\s*command|powershell|cmd|terminal|workspace|scratch|note|captures?|multi\s*account|account|switch\s*account|improve|self\s*improver|parallel|decompos(?:e|er)|goal|uncensored)\b"
+            r"(?i)\b(?:run\s*command|powershell|cmd|terminal|workspace|scratch|note|captures?|improve|self\s*improver|parallel|decompos(?:e|er)|goal)\b"
         )
         if AUTONOMY_PATTERN.search(text):
             allowed_set.update([
-                "full_pc_control",
                 "workspace",
-                "uncensored_mode",
+                "workspace_read_file",
+                "workspace_glob",
+                "workspace_grep",
                 "parallel_executor",
                 "auto_goal_decomposer",
-                "multi_account",
                 "self_improver",
+            ])
+
+        ULTRA_PATTERN = re.compile(
+            r"(?i)\b(?:workspace|exports|hinaa-ultra|file\s+called|mp4|bridal|reel|animation|kinetic|playwright|server|port\s+\d+|kira|nova|sage|screenshot|memory|ffmpeg)\b"
+        )
+        if ULTRA_PATTERN.search(text):
+            allowed_set.update([
+                "ultra_file_write",
+                "file_list",
+                "video_create",
+                "render_code_animation",
+                "create_lyric_video",
+                "create_motion_video",
+                "record_frames",
+                "ffmpeg_export",
+                "server_start",
+                "shell_run",
+                "agent_spawn",
+                "browser_screenshot",
+                "ultra_memory_save",
+                "ultra_memory_get",
             ])
 
         try:
@@ -3634,8 +3774,17 @@ class ConversationService:
         added = [tool for tool in kept if tool.reason == "deterministic-intent"]
         if added:
             confirmation = " ".join(self._action_confirmation(tool) for tool in added)
-            plan.displayText = confirmation
-            plan.spokenText = confirmation
+            existing = (plan.displayText or "").strip()
+            # If the LLM already produced substantial prose or code fences,
+            # prepend the tool confirmation instead of overwriting it.
+            has_code = "```" in existing
+            has_substance = len(existing) > 120 and not denies_capability(existing)
+            if has_code or has_substance:
+                plan.displayText = f"{confirmation}\n\n{existing}"
+                plan.spokenText = confirmation
+            else:
+                plan.displayText = confirmation
+                plan.spokenText = confirmation
             _apply_response_quality_guard(plan, user_text=request.text, response_mode=getattr(request, "responseMode", None))
             return
 
@@ -3719,6 +3868,28 @@ class ConversationService:
             return f"Launching Hacker Agent reconnaissance on {target}. 🛡️⚔️"
         if tool.toolName == "workspace":
             return f"Accessing secure workspace storage ({parameters.get('category', 'scratch')}). 📂"
+        if tool.toolName == "ultra_file_write":
+            return f"Writing `{parameters.get('filename', 'output.txt')}` into the HINAA Ultra workspace."
+        if tool.toolName == "file_list":
+            return f"Listing files inside `{parameters.get('path', '.')}` in HINAA Ultra."
+        if tool.toolName == "server_start":
+            return f"Starting static server for `{parameters.get('dir_path', 'exports')}` on port {parameters.get('port', 4500)}."
+        if tool.toolName == "video_create":
+            dur = parameters.get("duration_seconds", 5)
+            return f"Rendering {dur}s MP4 animation in code via Playwright + FFmpeg."
+        if tool.toolName == "render_code_animation":
+            dur = parameters.get("duration_seconds", 5)
+            return f"Rendering {dur}s code animation MP4 via Playwright + FFmpeg with ffprobe verification."
+        if tool.toolName == "ffmpeg_export":
+            return f"Encoding frames from `{parameters.get('frames_dir', 'frames')}` into MP4."
+        if tool.toolName == "browser_screenshot":
+            return f"Capturing screenshot of {parameters.get('url', 'target page')}."
+        if tool.toolName == "shell_run":
+            cmd_str = (parameters.get("command") or "").strip()
+            return f"Running `{cmd_str}` in HINAA Ultra shell." if cmd_str else "Running command in HINAA Ultra shell."
+        if tool.toolName == "agent_spawn":
+            agent_name = str(parameters.get("name") or "agent").title()
+            return f"Assigning {agent_name} to execute: {parameters.get('task', '')}."
         return f"Running {tool.toolName}."
 
     @staticmethod
@@ -4233,6 +4404,8 @@ class ConversationService:
             "tokentable": self.settings.active_tokentable_model,
             "xkiro": self.settings.active_xkiro_model,
             "coarena": self.settings.active_coarena_model,
+            "toptools": self.settings.active_toptools_model,
+            "tokenrouter": self.settings.active_tokenrouter_model,
             "cavoti": self.settings.active_cavoti_model,
             "apmix": self.settings.active_apmix_model,
             "oxion": self.settings.active_oxion_model,
@@ -4305,9 +4478,8 @@ class ConversationService:
         """
         configured: dict[str, tuple[bool, str | None]] = {
             "coarena": (self.settings.coarena_configured, self.settings.active_coarena_model),
-            "xkiro": (self.settings.xkiro_configured, self.settings.active_xkiro_model),
-            "real": (self.settings.gemini_configured, self.settings.gemini_model),
             "experiential": (self.settings.explabs_configured, self.settings.active_explabs_model),
+            "xkiro": (self.settings.xkiro_configured, self.settings.active_xkiro_model),
             "pgsgrove": (self.settings.pgsgrove_configured, self.settings.active_pgsgrove_model),
             "agent-router": (
                 self.settings.agent_router_configured,
@@ -4324,7 +4496,10 @@ class ConversationService:
             "claude": (self.settings.claude_configured, self.settings.active_claude_model),
             "custom": (self.settings.custom_configured, self.settings.active_custom_model),
             "cx-gateway": (self.settings.cx_gateway_configured, self.settings.cx_gateway_model),
+            "toptools": (self.settings.toptools_configured, self.settings.active_toptools_model),
+            "tokenrouter": (self.settings.tokenrouter_configured, self.settings.active_tokenrouter_model),
             "qwen": (self.settings.qwen_configured, self.settings.qwen_model),
+            "real": (self.settings.gemini_configured, self.settings.gemini_model),
             "openai": (self.settings.openai_configured, self.settings.active_openai_model),
             "groq": (self.settings.groq_configured, self.settings.groq_model),
         }
@@ -4394,42 +4569,130 @@ class ConversationService:
         return candidates
 
     async def _resolve_turn_media(self, request: TurnRequest) -> list[Any]:
+        import asyncio
+        from dataclasses import is_dataclass, replace
         from .media import MediaResolver
+        from .media.asset_store import get_asset_store
+
         resolver = MediaResolver()
         resolved: list[Any] = []
+        seen_refs: set[str] = set()
+
         # Check attachment_ids
         for aid in (request.attachment_ids or []):
+            if not aid or aid in seen_refs:
+                continue
             try:
                 res = await resolver.resolve(aid)
                 resolved.append(res)
+                seen_refs.add(aid)
             except Exception:
                 logger.warning("Failed to resolve attachment ID %s", aid, exc_info=True)
+
         # Check attachments
         for att in (request.attachments or []):
             aid = att.get("asset_id") or att.get("assetId")
             url = att.get("url")
             ref = aid if (aid and not str(aid).startswith("client-")) else (url or aid)
-            if ref and ref not in (request.attachment_ids or []):
+            if ref and ref not in seen_refs:
                 try:
                     res = await resolver.resolve(ref, role=att.get("role"))
                     resolved.append(res)
+                    seen_refs.add(ref)
                 except Exception:
-                    if url and url != ref:
+                    if url and url != ref and url not in seen_refs:
                         try:
                             res = await resolver.resolve(url, role=att.get("role"))
                             resolved.append(res)
+                            seen_refs.add(url)
                         except Exception:
                             logger.warning("Failed to resolve attachment fallback %s", str(url)[:50], exc_info=True)
                     else:
                         logger.warning("Failed to resolve attachment %s", str(ref)[:50], exc_info=True)
-        # Check imageUrl
-        if request.imageUrl and not resolved:
+
+        # Check imageUrl (even when other attachments exist, unless duplicate)
+        if getattr(request, "imageUrl", None) and request.imageUrl not in seen_refs:
+            if not any(getattr(r, "data_url", None) == request.imageUrl for r in resolved):
+                try:
+                    res = await resolver.resolve(request.imageUrl, role="inspection")
+                    resolved.append(res)
+                    seen_refs.add(request.imageUrl)
+                except Exception:
+                    logger.warning("Failed to resolve imageUrl", exc_info=True)
+
+        # Check additional reference_images (style/multi-image references)
+        for ref_img in (getattr(request, "reference_images", None) or []):
+            if not ref_img or ref_img in seen_refs:
+                continue
+            if any(getattr(r, "asset_id", None) == ref_img or getattr(r, "data_url", None) == ref_img for r in resolved):
+                seen_refs.add(ref_img)
+                continue
             try:
-                res = await resolver.resolve(request.imageUrl)
+                res = await resolver.resolve(ref_img, role="style_reference")
                 resolved.append(res)
+                seen_refs.add(ref_img)
             except Exception:
-                logger.warning("Failed to resolve imageUrl", exc_info=True)
-        return resolved
+                logger.warning("Failed to resolve reference_image %s", str(ref_img)[:50], exc_info=True)
+
+        # Expand uploaded videos into frame-by-frame timeline metadata + keyframe images
+        expanded: list[Any] = []
+        store = get_asset_store()
+        for item in resolved:
+            mime = str(getattr(item, "mime_type", "") or "").lower()
+            is_video = mime.startswith("video/")
+            if not is_video:
+                expanded.append(item)
+                continue
+
+            v_aid = getattr(item, "asset_id", None)
+            v_path = store.get_file_path(v_aid) if v_aid else None
+            v_info: dict[str, Any] | None = None
+            if v_path is not None and v_path.is_file():
+                try:
+                    from .media.video_inspector import inspect_video_frames
+
+                    v_info = await asyncio.to_thread(
+                        inspect_video_frames,
+                        v_path,
+                        num_frames=6,
+                        store_frames=(getattr(request, "providerMode", None) != "mock"),
+                    )
+                except Exception:
+                    logger.warning("Video frame inspection failed for %s", v_aid, exc_info=True)
+
+            if v_info and v_info.get("summary_text"):
+                existing_txt = str(getattr(item, "text_excerpt", "") or "").strip()
+                combined_txt = f"{existing_txt}\n\n{v_info['summary_text']}".strip() if existing_txt else v_info["summary_text"]
+                if is_dataclass(item):
+                    try:
+                        item = replace(item, text_excerpt=combined_txt)
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        setattr(item, "text_excerpt", combined_txt)
+                    except Exception:
+                        pass
+            expanded.append(item)
+
+            if v_info and getattr(request, "providerMode", None) != "mock":
+                key_ids: list[str] = []
+                if v_info.get("contact_sheet_asset_id"):
+                    key_ids.append(str(v_info["contact_sheet_asset_id"]))
+                for frm in (v_info.get("frames") or [])[:4]:
+                    if frm.get("asset_id"):
+                        key_ids.append(str(frm["asset_id"]))
+                for kid in key_ids:
+                    if kid in seen_refs:
+                        continue
+                    try:
+                        f_res = await resolver.resolve(kid, role="inspection")
+                        expanded.append(f_res)
+                        seen_refs.add(kid)
+                    except Exception:
+                        logger.debug("Skipping extracted video frame %s", kid, exc_info=True)
+
+        return expanded
 
     def _durable_conversation_context(
         self,
@@ -5226,7 +5489,7 @@ class ConversationService:
             resolved_provider = request.providerMode
             resolved_model = request.brainModel
 
-        is_remote_primary = request.providerMode in ("claude", "agent-router", "cx-gateway", "custom")
+        is_remote_primary = request.providerMode in ("claude", "agent-router", "cx-gateway", "custom", "cantrustai", "cantrust")
         # Use the configured LLM timeout for all providers. The old 2.5s was far
         # too short for mwapi.dev (which needs 3-8s cold) and caused constant
         # timeouts. HINAA_LLM_TIMEOUT_SECONDS=90 from .env.local applies here.
@@ -5235,7 +5498,7 @@ class ConversationService:
         # must not be paid another full timeout of silence on every turn, and
         # a brain past cooloff proves recovery on a cheap probe budget.
         primary_bench_cooloff = self._primary_cooloff_remaining(request.providerMode)
-        if not primary_bench_cooloff and self._primary_probing(request.providerMode) and request.providerMode != "ollama":
+        if not primary_bench_cooloff and self._primary_probing(request.providerMode) and request.providerMode not in ("ollama", "cantrustai", "cantrust", "claude", "xkiro", "coarena", "toptools", "tokenrouter"):
             primary_plan_timeout = min(primary_plan_timeout, 12.0)
         attempted_brain = request.providerMode
         fast_provider_id = None
@@ -5716,7 +5979,8 @@ class ConversationService:
             ) and not any(t.toolName == "create_motion_video" for t in result.value.toolRequests):
                 from .tools.intent_gate import sanction_tools
                 sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
-                motion_title = sanction.parameters.get("create_motion_video", {}).get("title", request.text)
+                raw_motion_title = str(sanction.parameters.get("create_motion_video", {}).get("title", request.text) or "").strip()
+                motion_title = (raw_motion_title.splitlines()[0].strip()[:115] if raw_motion_title else "") or "Motion video"
                 default_scenes = [
                     {"title": motion_title[:80], "subtitle": "Local Code-Driven Motion", "duration": 4.0, "layout": "orbit", "accent": "#9f8cff"},
                     {"title": "Core Architecture", "subtitle": "Deterministic Render", "duration": 4.0, "layout": "bars", "accent": "#5eead4"},
@@ -5734,16 +5998,7 @@ class ConversationService:
                     result.value.displayText = f"Rendering your local code-driven motion video: *{motion_title}*! 🎥✨"
                     result.value.spokenText = f"Rendering your motion video for {motion_title} right now!"
 
-            # Autonomy & Offensive Tools Guarantees
-            if "crypto_wallet" in allowed_tools and not any(t.toolName == "crypto_wallet" for t in result.value.toolRequests):
-                if re.search(r"(?i)\b(?:wallet|crypto)\b", request.text):
-                    action = "balance" if "balance" in request.text.lower() else "summary"
-                    result.value.toolRequests.append(ToolRequest(toolName="crypto_wallet", parameters={"action": action}, status="ready", reason="deterministic-intent"))
-                    if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot check", "can't check", "unable to check", "as an ai", "sorry")):
-                        result.value.displayText = "Checking your crypto wallet balance right now! 💰✨"
-                        result.value.spokenText = "Checking your crypto wallet balance right now!"
-
-            if "money_guard" in allowed_tools and not any(t.toolName in {"money_guard", "crypto_wallet"} for t in result.value.toolRequests):
+            if "money_guard" in allowed_tools and not any(t.toolName == "money_guard" for t in result.value.toolRequests):
                 if re.search(r"(?i)\b(?:money|dollar|balance|expense|income)\b", request.text):
                     action = "balance" if "balance" in request.text.lower() else "summary"
                     result.value.toolRequests.append(ToolRequest(toolName="money_guard", parameters={"action": action}, status="ready", reason="deterministic-intent"))
@@ -5751,29 +6006,12 @@ class ConversationService:
                         result.value.displayText = "Checking your financial ledger and balance right now! 💵✨"
                         result.value.spokenText = "Checking your financial balance right now!"
 
-            if "uncensored_mode" in allowed_tools and not any(t.toolName == "uncensored_mode" for t in result.value.toolRequests):
-                if re.search(r"(?i)\buncensored\b", request.text):
-                    act = "enable" if re.search(r"(?i)\b(?:on|enable|activate)\b", request.text) else ("disable" if re.search(r"(?i)\b(?:off|disable)\b", request.text) else "status")
-                    result.value.toolRequests.append(ToolRequest(toolName="uncensored_mode", parameters={"action": act}, status="ready", reason="deterministic-intent"))
-                    if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot", "can't", "unable", "as an ai")):
-                        result.value.displayText = f"Uncensored mode is now {'enabled' if act == 'enable' else ('disabled' if act == 'disable' else 'checked')}! 🔓✨"
-                        result.value.spokenText = f"Uncensored mode {act}ed!"
-
             if "workspace" in allowed_tools and not any(t.toolName == "workspace" for t in result.value.toolRequests):
                 if re.search(r"(?i)\b(?:workspace|scratch|captures?)\b", request.text):
                     result.value.toolRequests.append(ToolRequest(toolName="workspace", parameters={"action": "list", "category": "scratch"}, status="ready", reason="deterministic-intent"))
                     if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot", "can't", "unable", "as an ai")):
-                        result.value.displayText = "Inspecting your workspace scratch and exploit files! 📁✨"
+                        result.value.displayText = "Inspecting your workspace files! 📁✨"
                         result.value.spokenText = "Opening your workspace files now!"
-
-            if "hacker_agent" in allowed_tools and not any(t.toolName == "hacker_agent" for t in result.value.toolRequests):
-                if re.search(r"(?i)\b(?:scan|hack|nmap|sqlmap|nikto|hydra|kali)\b", request.text):
-                    tm = re.search(r"(\b(?:\d{1,3}\.){3}\d{1,3}\b|https?://[^\s]+|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})", request.text)
-                    tgt = tm.group(1) if tm else "127.0.0.1"
-                    result.value.toolRequests.append(ToolRequest(toolName="hacker_agent", parameters={"target": tgt, "goal": request.text}, status="ready", reason="deterministic-intent"))
-                    if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot", "can't", "unable", "as an ai", "sorry")):
-                        result.value.displayText = f"Launching Kali Linux offensive recon on *{tgt}* right now! 🛡️⚡"
-                        result.value.spokenText = f"Launching Kali Linux scan on {tgt} now!"
 
             result.value.toolRequests = [
                 tr for tr in result.value.toolRequests if tr.toolName in allowed_tools
@@ -5844,6 +6082,8 @@ class ConversationService:
         *,
         user_id: str | None = None,
         emit_event: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
+        muse_context: str | None = None,
+        resolved_media: list[Any] | None = None,
     ) -> ProviderResult[AssistantTurnPlan]:
         from .providers.timing import ProviderTiming
         from .models import ToolRequest
@@ -6010,6 +6250,7 @@ class ConversationService:
         grounded_sources: list[Any] = []
         if (
             request.providerMode != "mock"
+            and not muse_context
             and not _route_meta.get("skip_recent_working_context")
             and self._should_pre_search(request.text, d_state=d_state)
         ):
@@ -6110,6 +6351,12 @@ class ConversationService:
                 dialogue_state_block = build_dialogue_state_block(d_state)
             except Exception:
                 pass
+        if muse_context:
+            dialogue_state_block = (
+                f"{dialogue_state_block}\n\n{muse_context}".strip()
+                if dialogue_state_block
+                else muse_context
+            )
 
         durable_memory = self._capture_turn_facts(request, user_id)
         history = session_history or self._resolve_session_history(request.sessionId, request.conversationId)
@@ -6146,7 +6393,8 @@ class ConversationService:
             live_search_block=live_search_block,
             decision=route_decision_rt,
         )
-        resolved_media = await self._resolve_turn_media(request)
+        if resolved_media is None:
+            resolved_media = await self._resolve_turn_media(request)
         rag_context_block_rt = ""
         if getattr(self, "rag_service", None) and self.rag_service.is_knowledge_seeking(request.text):
             try:
@@ -6162,11 +6410,16 @@ class ConversationService:
         # the whitelist its own words earned: passing () here told her the turn
         # had no tools while the injector below filed the action anyway.
         is_voice_turn = request.responseMode == "concise_voice"
-        live_allowed_tools = (
+        raw_allowed_tools = (
             ()
             if is_voice_turn
             else self._turn_tool_whitelist(request.text, gate_decision.intent, history=session_history)
         )
+        # During Muse dual-brain co-build or live agent steering, never hijack the turn with single-file template design_website
+        if muse_context or getattr(request, "activeAgentRunId", None):
+            live_allowed_tools = tuple(t for t in raw_allowed_tools if t != "design_website")
+        else:
+            live_allowed_tools = raw_allowed_tools
         from .prompts.skill_doctrine import doctrine_for_turn
         from .skills.loader import skill_block_for_turn
         prompt = build_turn_prompt(
@@ -6212,7 +6465,7 @@ class ConversationService:
             resolved_provider = request.providerMode
             resolved_model = request.brainModel
 
-        is_remote_primary = request.providerMode in ("claude", "agent-router", "cx-gateway", "custom")
+        is_remote_primary = request.providerMode in ("claude", "agent-router", "cx-gateway", "custom", "cantrustai", "cantrust")
         primary_idle_timeout = self.settings.llm_stream_idle_timeout_seconds
         primary_live_timeout = max(
             self.settings.llm_stream_ceiling_seconds, primary_idle_timeout
@@ -6222,7 +6475,7 @@ class ConversationService:
         # turn goes straight to the fallback chain. A brain past cooloff but
         # not yet proven healthy gets a cheap probe budget for the same reason.
         primary_bench_cooloff = self._primary_cooloff_remaining(request.providerMode)
-        if not primary_bench_cooloff and self._primary_probing(request.providerMode) and request.providerMode != "ollama":
+        if not primary_bench_cooloff and self._primary_probing(request.providerMode) and request.providerMode not in ("ollama", "cantrustai", "cantrust", "claude", "xkiro", "coarena", "toptools", "tokenrouter"):
             primary_idle_timeout = min(primary_idle_timeout, 12.0)
             primary_live_timeout = min(primary_live_timeout, 45.0)
         primary_text: list[str] = []
@@ -6803,9 +7056,11 @@ class ConversationService:
                     result.value.displayText = f"### {'📊 Presentation' if is_slides else '📄 Document'}: {clean_title}\n\nGenerating your {clean_title} {'presentation slides' if is_slides else 'PDF document'} now! The download and preview card will be ready in a moment."
                     result.value.spokenText = f"Generating your {clean_title} {'presentation slides' if is_slides else 'PDF document'} for you right now."
 
-            # Deterministic Website Design Guarantee
+            # Deterministic Website Design Guarantee (disabled when Muse dual-brain workspace builder owns the build)
             if (
                 "design_website" in live_allowed_tools
+                and not muse_context
+                and not getattr(request, "activeAgentRunId", None)
             ) and not any(t.toolName == "design_website" for t in result.value.toolRequests):
                 clean_web_title = (re.search(r"(?i)\b(?:for|about|on)\s+([a-zA-Z0-9\s:_-]{3,60}?)(?:\s*[,.!?]|\s*$)", request.text) or None)
                 web_title = clean_web_title.group(1).strip().title() if clean_web_title else "Web Application"
@@ -6971,7 +7226,8 @@ class ConversationService:
             ) and not any(t.toolName == "create_motion_video" for t in result.value.toolRequests):
                 from .tools.intent_gate import sanction_tools
                 sanction = sanction_tools(request.text, known_subjects=CHARACTER_ENTITY_MAP)
-                motion_title = sanction.parameters.get("create_motion_video", {}).get("title", request.text)
+                raw_motion_title = str(sanction.parameters.get("create_motion_video", {}).get("title", request.text) or "").strip()
+                motion_title = (raw_motion_title.splitlines()[0].strip()[:115] if raw_motion_title else "") or "Motion video"
                 default_scenes = [
                     {"title": motion_title[:80], "subtitle": "Local Code-Driven Motion", "duration": 4.0, "layout": "orbit", "accent": "#9f8cff"},
                     {"title": "Core Architecture", "subtitle": "Deterministic Render", "duration": 4.0, "layout": "bars", "accent": "#5eead4"},
@@ -6989,16 +7245,7 @@ class ConversationService:
                     result.value.displayText = f"Rendering your local code-driven motion video: *{motion_title}*! 🎥✨"
                     result.value.spokenText = f"Rendering your motion video for {motion_title} right now!"
 
-            # Autonomy & Offensive Tools Guarantees
-            if "crypto_wallet" in live_allowed_tools and not any(t.toolName == "crypto_wallet" for t in result.value.toolRequests):
-                if re.search(r"(?i)\b(?:wallet|crypto)\b", request.text):
-                    action = "balance" if "balance" in request.text.lower() else "summary"
-                    result.value.toolRequests.append(ToolRequest(toolName="crypto_wallet", parameters={"action": action}, status="ready", reason="deterministic-intent"))
-                    if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot check", "can't check", "unable to check", "as an ai", "sorry")):
-                        result.value.displayText = "Checking your crypto wallet balance right now! 💰✨"
-                        result.value.spokenText = "Checking your crypto wallet balance right now!"
-
-            if "money_guard" in live_allowed_tools and not any(t.toolName in {"money_guard", "crypto_wallet"} for t in result.value.toolRequests):
+            if "money_guard" in live_allowed_tools and not any(t.toolName == "money_guard" for t in result.value.toolRequests):
                 if re.search(r"(?i)\b(?:money|dollar|balance|expense|income)\b", request.text):
                     action = "balance" if "balance" in request.text.lower() else "summary"
                     result.value.toolRequests.append(ToolRequest(toolName="money_guard", parameters={"action": action}, status="ready", reason="deterministic-intent"))
@@ -7006,29 +7253,12 @@ class ConversationService:
                         result.value.displayText = "Checking your financial ledger and balance right now! 💵✨"
                         result.value.spokenText = "Checking your financial balance right now!"
 
-            if "uncensored_mode" in live_allowed_tools and not any(t.toolName == "uncensored_mode" for t in result.value.toolRequests):
-                if re.search(r"(?i)\buncensored\b", request.text):
-                    act = "enable" if re.search(r"(?i)\b(?:on|enable|activate)\b", request.text) else ("disable" if re.search(r"(?i)\b(?:off|disable)\b", request.text) else "status")
-                    result.value.toolRequests.append(ToolRequest(toolName="uncensored_mode", parameters={"action": act}, status="ready", reason="deterministic-intent"))
-                    if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot", "can't", "unable", "as an ai")):
-                        result.value.displayText = f"Uncensored mode is now {'enabled' if act == 'enable' else ('disabled' if act == 'disable' else 'checked')}! 🔓✨"
-                        result.value.spokenText = f"Uncensored mode {act}ed!"
-
             if "workspace" in live_allowed_tools and not any(t.toolName == "workspace" for t in result.value.toolRequests):
                 if re.search(r"(?i)\b(?:workspace|scratch|captures?)\b", request.text):
                     result.value.toolRequests.append(ToolRequest(toolName="workspace", parameters={"action": "list", "category": "scratch"}, status="ready", reason="deterministic-intent"))
                     if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot", "can't", "unable", "as an ai")):
-                        result.value.displayText = "Inspecting your workspace scratch and exploit files! 📁✨"
+                        result.value.displayText = "Inspecting your workspace files! 📁✨"
                         result.value.spokenText = "Opening your workspace files now!"
-
-            if "hacker_agent" in live_allowed_tools and not any(t.toolName == "hacker_agent" for t in result.value.toolRequests):
-                if re.search(r"(?i)\b(?:scan|hack|nmap|sqlmap|nikto|hydra|kali)\b", request.text):
-                    tm = re.search(r"(\b(?:\d{1,3}\.){3}\d{1,3}\b|https?://[^\s]+|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})", request.text)
-                    tgt = tm.group(1) if tm else "127.0.0.1"
-                    result.value.toolRequests.append(ToolRequest(toolName="hacker_agent", parameters={"target": tgt, "goal": request.text}, status="ready", reason="deterministic-intent"))
-                    if not result.value.displayText or any(w in result.value.displayText.lower() for w in ("cannot", "can't", "unable", "as an ai", "sorry")):
-                        result.value.displayText = f"Launching Kali Linux offensive recon on *{tgt}* right now! 🛡️⚡"
-                        result.value.spokenText = f"Launching Kali Linux scan on {tgt} now!"
 
             result.value.toolRequests = [
                 tr for tr in result.value.toolRequests if tr.toolName in live_allowed_tools
@@ -7140,9 +7370,6 @@ class ConversationService:
         async def emit_event(name: str, payload: dict[str, Any]) -> None:
             await queue.put(("event", (name, payload)))
 
-        turn_task = asyncio.create_task(
-            self.create_live_plan(request, emit_delta, user_id=user_id, emit_event=emit_event)
-        )
         emitted: list[str] = []
         delta_sequence = 0
 
@@ -7160,26 +7387,363 @@ class ConversationService:
             delta_sequence += 1
             return ev
 
-        # Instant-action path: when his sentence fully specifies the work --
-        # "open netflix", "run X in the terminal", "remind me at 6", "build a
-        # site for my gym" -- the gate files the same call the slow path would
-        # and then replaces the brain's 20-45 second monologue with the action
-        # confirmation anyway. Acting immediately turns that wait into an
-        # instant answer, and she speaks while the tool runs. A question mark
-        # keeps the brain: he asked something, so action alone is not the reply.
-        # State-bound tools stay on the slow path: image_generate binds its
-        # reference asset from conversation state inside create_live_plan, and
-        # an instant filing would lose the picture he pointed at.
         from .prompts.performance import build_plan_from_text
         from .tools.intent_gate import gate_tool_requests
 
+        # Multi-step server-side Agentic Runtime mode (`think -> tool -> observe -> iterate`)
+        _req_agentic = getattr(request, "agenticMode", None)
+        _text_clean = (request.text or "").strip()
+        _AUTO_AGENTIC_RE = re.compile(
+            r"(?i)(?:^/(?:code|agent|site|website|video|motion)\b|\b(?:"
+            r"workspace|repository|repo\b|codebase|pytest|vitest|py_compile|"
+            r"tsc\b|eslint|ruff|playwright|ffmpeg|render_code_animation|studiofx|"
+            r"kinetic[\s-]+typography|motion[\s-]+(?:video|graphics|reel)|"
+            r"full[- ]?page\s+html|html\s+(?:file|page|app|site|landing)|\bmp4\b|"
+            r"video_inspect_frames|frame[- ]?by[- ]?frame|"
+            r"vite|three\.?js|webgl|package\.json|multi[- ]?file|multi[- ]?page|"
+            r"storefront|watch\s+hub|ai\s+agents?|"
+            r"(?:create|write|build|make|design|scaffold|generate|implement|develop|edit|fix|debug|refactor|upgrade|patch|render|export|rebuild)\b[\s\S]{0,180}?\b"
+            r"(?:sora|html|webpage|web\s*page|website|web\s*app|webapp|platform|storefront|landing\s+page|portfolio|dashboard|visualizer|simulation|game|"
+            r"python|script|program|cli|api|server|backend|frontend|module|component|project|site|file|app|agent|"
+            r"mp4|video|reel|reels|tiktok|youtube\s+short|animation|motion\s+graphics|kinetic\s+intro|typography)|"
+            r"(?:viral\s+(?:edit|video|reel|tiktok|short)|tiktok\s+edit|insta(?:gram)?\s+reel|typography\s+edit|make\s+(?:one|it|that)\s+for\s+me|start\s+coding|code\s+and\s+(?:render|create|build)|using\s+(?:html|code|skl|playwright|ffmpeg))|"
+            r"(?:product|stack|pages|visual\s+direction|files\s+created)\s*:|"
+            r"(?:inspect|debug|trace|fix|check|audit|find|read|analyze|explain)\b[^.?!]{0,90}\b"
+            r"(?:in\s+(?:our|the|this)\s+(?:code|repo|codebase|project|file|api|app|ui|server|backend|frontend)|"
+            r"line\s+numbers?|frame[- ]?by[- ]?frame|\.py\b|\.tsx?\b|\.jsx?\b|\.html?\b|\.css\b|[A-Z][a-z]+[A-Z][A-Za-z0-9_]*)|"
+            r"(?:run|execute)\b[^.?!]{0,60}\b(?:the\s+)?(?:tests?|pytest|vitest|build|linter|typecheck|command|script|python|calculation|code)"
+            r")\b)"
+        )
+        _CAPABILITY_Q_RE = re.compile(
+            r"(?i)^\s*(?:what\s+(?:kind|types?)\s+of\b|explain\s+what\s+(?:you|hina|html|<)|why\s+is\s+the\s+website\s+broken\b|what\s+does\s+<)"
+        )
+        _HAS_EXEC_IMPERATIVE_RE = re.compile(
+            r"(?i)\b(?:start\s+coding|execute\s+(?:it|this|everything|now)|do\s+it\s+(?:in\s+one\s+go|now)|run\s+it\s+now|"
+            r"render\s+(?:it|this|a|an|the)|give\s+me\s+the\s+(?:final|rendered)|create\s+(?:it|this|one)|"
+            r"build\s+(?:it|this|one)|make\s+(?:one|it|that)\s+(?:for\s+me|now))\b"
+        )
+        _NON_AGENTIC_GUARD_RE = re.compile(
+            r"(?i)(?:^/(?:image|search|pdf|walk|roam)\b|"
+            r"\b(?:generate|create|make|draw|paint|render)\s+(?:an?\s+)?(?:image|picture|photo|portrait|illustration|sketch|artwork)\b|"
+            r"\b(?:play|listen\s+to|put\s+on)\s+(?:a|the|my|some)?\s*(?:song|music|track)\b|"
+            r"\b(?:spotify|youtube)\s+play\b|\bremind\s+me\b)"
+        )
+        _RETRY_FOLLOWUP_RE = re.compile(
+            r"(?i)^(?:ok(?:ay)?[\s,]+|please[\s,]+|now[\s,]+|bro[\s,]+|hey[\s,]+|hina[\s,]+)*(?:can\s+you\s+)?"
+            r"(?:continue(?:\s+(?:bro|now|please|building))?|try\s+again|retry(?:\s+(?:it|that|now))?|do\s+(?:it|that)(?:\s+(?:again|now|properly|in\s+one\s+go))?|execute(?:\s+(?:it|that))?(?:\s+(?:now|in\s+one\s+go))?|run\s+(?:it|that)(?:\s+now)?|render\s+(?:it|that|one)(?:\s+(?:for\s+me|now))?|make\s+(?:it|that|one)(?:\s+(?:for\s+me|now|better|high\s+level))?|create\s+(?:it|that|one)(?:\s+(?:for\s+me|now))?|build\s+(?:it|that|one|sora)(?:\s+(?:for\s+me|now|properly))?|upgrade(?:\s+(?:it|that))?(?:\s+now)?|go\s+ahead(?:\s+and\s+(?:execute|render|create|build|do)\s+it)?)"
+            r"(?:[\s,?]+|$)"
+        )
+        resolved_media = await self._resolve_turn_media(request)
+        initial_images: list[tuple[str, bytes]] = []
+        attached_files: list[dict[str, Any]] = []
+        for rm in resolved_media:
+            rm_mime = str(getattr(rm, "mime_type", "") or "")
+            rm_bytes = getattr(rm, "bytes_data", None)
+            rm_kind = str(getattr(getattr(rm, "kind", None), "value", getattr(rm, "kind", "")) or "").lower()
+            rm_name = str(getattr(rm, "filename", None) or getattr(rm, "source", None) or "attachment")
+            rm_aid = str(getattr(rm, "asset_id", None) or "")
+            rm_txt = str(getattr(rm, "text_excerpt", None) or "")
+            if rm_mime.startswith("image/") and rm_bytes and len(initial_images) < 8:
+                initial_images.append((rm_mime, rm_bytes))
+            elif rm_txt or rm_kind in ("document", "pdf", "spreadsheet", "archive", "video") or (rm_mime and not rm_mime.startswith("image/")):
+                attached_files.append({
+                    "filename": rm_name,
+                    "mimeType": rm_mime,
+                    "kind": rm_kind or ("video" if rm_mime.startswith("video/") else "document"),
+                    "assetId": rm_aid,
+                    "textExcerpt": rm_txt[:24_000],
+                })
+        for raw_att in (getattr(request, "attachments", None) or ()):
+            if isinstance(raw_att, dict) and raw_att.get("textExcerpt"):
+                raw_name = str(raw_att.get("filename") or raw_att.get("name") or "attachment.txt")
+                if not any(f.get("filename") == raw_name for f in attached_files):
+                    attached_files.append({
+                        "filename": raw_name,
+                        "mimeType": str(raw_att.get("mimeType") or raw_att.get("mime_type") or "text/plain"),
+                        "kind": str(raw_att.get("kind") or "document"),
+                        "assetId": str(raw_att.get("assetId") or raw_att.get("asset_id") or ""),
+                        "textExcerpt": str(raw_att.get("textExcerpt") or "")[:24_000],
+                    })
+
+        recent_hist = self._turn_history(request)
+        muse_turn_context: str | None = None
+        _active_bg_run_id = (getattr(request, "activeAgentRunId", None) or "").strip() or None
+        if _active_bg_run_id and not re.match(r"(?i)^/(?:code|agent|goal|site|website|video|motion)\b", _text_clean):
+            from .agent.live_agentic_service import (
+                describe_active_agentic_run,
+                get_agentic_store,
+                steer_agentic_run,
+            )
+
+            if steer_agentic_run(
+                _active_bg_run_id,
+                _text_clean,
+                images=initial_images or None,
+                attached_files=attached_files or None,
+                store=get_agentic_store(),
+            ):
+                yield self._event("agent.steered", {"runId": _active_bg_run_id, "message": _text_clean})
+                snap = describe_active_agentic_run(_active_bg_run_id, store=get_agentic_store())
+                muse_turn_context = (
+                    "[MUSE DUAL-BRAIN LIVE STEERING MODE — WORKSPACE RUNNER IS ATTACHED]: Your Background Builder Brain IS actively running in the upper-end HUD "
+                    "and has just received the user's message (plus any newly attached images/files) as live steering direction (`[LIVE USER DIRECTION]`). "
+                    "NEVER claim no workspace/file runner is attached. "
+                    "Respond naturally like Muse AI: (1) warmly acknowledge their design/feature preference or question, "
+                    "(2) cite ONLY factual progress from the live snapshot below (never invent unverified files or URLs), and "
+                    "(3) ask 1-2 crisp follow-up co-creation questions to refine the build.\n\n"
+                    f"{snap}"
+                )
+                page_guard = None
+
+        _promoted_retry_goal: str | None = None
+        if (
+            not muse_turn_context
+            and _req_agentic is None
+            and bool(_RETRY_FOLLOWUP_RE.match(_text_clean))
+            and bool(_text_clean)
+            and recent_hist
+        ):
+            # Walk backward to locate the latest concrete coding/HTML/video user request in context
+            for r_role, r_content in reversed(recent_hist[-10:]):
+                if r_role != "user":
+                    continue
+                cand = str(r_content or "").strip()
+                if not cand or _RETRY_FOLLOWUP_RE.match(cand):
+                    continue
+                if _AUTO_AGENTIC_RE.search(cand) and not _NON_AGENTIC_GUARD_RE.search(cand):
+                    _promoted_retry_goal = cand
+                    break
+                # Also promote if the user attached a brief or previously got a "no render tool" refusal for video/mp4/html
+            if _promoted_retry_goal is None:
+                for r_role, r_content in reversed(recent_hist[-6:]):
+                    txt_h = str(r_content or "")
+                    if r_role == "assistant" and re.search(
+                        r"(?i)kinetic[\s-]+typography|playwright|ffmpeg|render\s+(?:and\s+attach\s+)?(?:a|the)?\s*(?:video|mp4)|render\s+tool",
+                        txt_h,
+                    ):
+                        # Pick the preceding non-trivial user turn
+                        for u_role, u_content in reversed(recent_hist[-8:]):
+                            uc = str(u_content or "").strip()
+                            if u_role == "user" and uc and not _RETRY_FOLLOWUP_RE.match(uc):
+                                _promoted_retry_goal = uc
+                                break
+                        if not _promoted_retry_goal:
+                            _promoted_retry_goal = "Render the requested kinetic-typography MP4 preview using render_code_animation."
+                        break
+
+        _use_agentic = (
+            not muse_turn_context
+            and (
+                _req_agentic is True
+                or (
+                    _req_agentic is None
+                    and (
+                        bool(_promoted_retry_goal)
+                        or (
+                            bool(_AUTO_AGENTIC_RE.search(_text_clean))
+                            and (
+                                not bool(_CAPABILITY_Q_RE.search(_text_clean))
+                                or bool(_HAS_EXEC_IMPERATIVE_RE.search(_text_clean))
+                            )
+                            and not bool(_NON_AGENTIC_GUARD_RE.search(_text_clean))
+                        )
+                    )
+                )
+            )
+        )
+        if _use_agentic:
+            import os as _os
+            from .agent.live_agentic_service import (
+                format_agentic_markdown,
+                launch_background_agentic_job,
+                run_agentic_job,
+            )
+            from .runtime_paths import project_root
+
+            raw_goal = _promoted_retry_goal or _text_clean
+            goal_text = re.sub(r"(?i)^/(?:code|agent|goal|site|website|video|motion)\s+", "", raw_goal).strip() or raw_goal
+            # Expose the clean unified workspace + studio toolset without overlapping legacy :8765 duplicates
+            _LEGACY_DUPES = frozenset({
+                "shell_run", "file_list", "file_read", "file_write", "ultra_file_write",
+                "coding_agent", "clean_room_loop", "terminal_hands", "subagent_fork",
+                "video_create", "ffmpeg_export", "record_frames", "create_motion_video",
+                "html_anime_generate", "workspace", "auto_goal_decomposer", "parallel_executor",
+                "self_improver", "system_info", "agent_spawn", "browser_screenshot",
+                "server_start", "ultra_memory_get", "ultra_memory_save",
+            })
+            allowed_for_agentic = {
+                t for t in (self._builtin_turn_tool_whitelist(goal_text, None, history=request.history) or ())
+                if t not in _LEGACY_DUPES
+            }
+            allowed_for_agentic.update({
+                "workspace_list_dir",
+                "workspace_read_file",
+                "workspace_write_file",
+                "workspace_edit_file",
+                "workspace_delete_file",
+                "workspace_move_file",
+                "workspace_git_status_diff",
+                "workspace_checkpoint",
+                "workspace_glob",
+                "workspace_grep",
+                "workspace_run_command",
+                "workspace_verify_html",
+                "workspace_verify_url",
+                "workspace_start_process",
+                "workspace_process_logs",
+                "workspace_stop_process",
+                "workspace_spawn_subagent",
+                "video_inspect_frames",
+                "web_search",
+                "web_extract",
+                "web_answer",
+                "image_search",
+                "render_code_animation",
+                "mlai_list_routines",
+                "mlai_run_routine",
+            })
+            if re.search(
+                r"(?i)\b(?:react|vite|three\.?js|webgl|typescript|multi[- ]?file|multi[- ]?page|package\.json|src/|ai\s+agent|full[- ]?stack|backend|frontend|storefront|sora|dashboard|interactive|game|3d|blender|canvas|physics|editor|advanced|full[- ]?fledged)\b",
+                goal_text,
+            ):
+                allowed_for_agentic.discard("design_website")
+            ws_dir = _os.environ.get("HINAA_LOCAL_WORKSPACE_DIR") or str(project_root())
+            _MUSE_COBUILD_RE = re.compile(
+                r"(?i)\b(?:website|web\s*page|webpage|web\s*app|webapp|landing\s*page|ui\b|clone|scrape|merlin|dashboard|portfolio|frontend|old[- ]?new|sora|storefront|platform|ai\s+agents?|agent|vite|react|three\.?js|game|3d)\b"
+            )
+            _EXPLICIT_VIDEO_RENDER_RE = re.compile(
+                r"(?i)\b(?:render_code_animation|kinetic[\s-]+typography|bridal\s+reel|viral\s+(?:edit|reel|tiktok)|insta(?:gram)?\s+reel|tiktok\s+edit|typography\s+edit|(?:create|render|export|make)\s+(?:an?\s+)?(?:\w+\s+){0,3}(?:mp4|motion\s+video|animation\s+reel))\b"
+            )
+            _ONE_GO_RE = re.compile(
+                r"(?i)\b(?:in\s+one\s+(?:go|shot|time|turn|pass)|one\s+time\b|no\s+(?:questions?|clarifications?|asking)|"
+                r"without\s+asking|don'?t\s+ask|do\s+not\s+ask|execute\s+(?:it\s+)?(?:immediately|instantly|right\s+now|now)|"
+                r"start\s+coding|just\s+(?:do|build|create|make|render|run|execute)\s+(?:it|everything|now)|"
+                r"from\s+start\s+to\s+finish|end[- ]?to[- ]?end)\b"
+            )
+            _should_muse_dual_brain = (
+                _req_agentic is None
+                and request.providerMode != "mock"
+                and not bool(_EXPLICIT_VIDEO_RENDER_RE.search(goal_text))
+                and not bool(_ONE_GO_RE.search(goal_text))
+                and bool(_MUSE_COBUILD_RE.search(goal_text))
+            )
+            if _should_muse_dual_brain:
+                allowed_for_agentic.discard("design_website")
+                launch_background_agentic_job(
+                    goal=goal_text,
+                    router=self.router,
+                    settings=self.settings,
+                    provider_mode=request.providerMode,
+                    brain_model=request.brainModel,
+                    user_id=user_id or "default_user",
+                    allowed_tools=allowed_for_agentic,
+                    workspace_root=ws_dir,
+                    max_steps=16,
+                    history=recent_hist,
+                    run_id=correlation_id,
+                    initial_images=initial_images or None,
+                    attached_files=attached_files or None,
+                )
+                yield self._event("agentic.started", {"runId": correlation_id, "goal": goal_text, "maxSteps": 16})
+                yield self._event(
+                    "agentic.background",
+                    {
+                        "runId": correlation_id,
+                        "goal": goal_text,
+                        "status": "running",
+                        "streamUrl": f"/api/v1/agent/agentic-runs/{correlation_id}/stream",
+                        "steerUrl": f"/api/v1/agent/agentic-runs/{correlation_id}/steer",
+                    },
+                )
+                page_guard = None
+                muse_turn_context = (
+                    "[MUSE DUAL-BRAIN CO-CREATOR LAUNCH — WORKSPACE RUNNER IS ATTACHED]:\n"
+                    "You now have TWO active brains working together like Muse AI:\n"
+                    f"1. Background Builder Brain (`{correlation_id}`) IS ATTACHED and just launched in the upper-end HUD to research/scaffold: {goal_text}\n"
+                    "2. YOU are Brain #2 (Muse Co-Creator Chat Brain). NEVER say 'no workspace/file runner attached', and do NOT output raw HTML/code dumps or claim files/URLs are finished yet!\n"
+                    "Respond warmly and crisply in 4-7 sentences with numbered questions:\n"
+                    "- Briefly confirm the background builder just kicked off at the upper bar (with live progress updates) so chat stays live with you.\n"
+                    "- Ask 3 focused, high-leverage clarifying design/product questions (e.g. visual vibe/palette, core interactive UI flows, layout sections/controls) so the user can shape the build.\n"
+                    "- Mention they can reply naturally (even attaching screenshots, videos, or specs) anytime and you'll steer the running builder live."
+                )
+            else:
+                ev_queue: asyncio.Queue[tuple[str, dict[str, Any]] | None] = asyncio.Queue()
+
+                async def _on_agentic_event(evt_name: str, evt_payload: dict[str, Any]) -> None:
+                    await ev_queue.put((evt_name, evt_payload))
+
+                agentic_task = asyncio.create_task(
+                    run_agentic_job(
+                        goal=goal_text,
+                        router=self.router,
+                        settings=self.settings,
+                        provider_mode=request.providerMode,
+                        brain_model=request.brainModel,
+                        user_id=user_id or "default_user",
+                        allowed_tools=allowed_for_agentic,
+                        workspace_root=ws_dir,
+                        max_steps=16,
+                        history=recent_hist,
+                        run_id=correlation_id,
+                        on_event=_on_agentic_event,
+                        initial_images=initial_images or None,
+                        attached_files=attached_files or None,
+                    )
+                )
+                while not agentic_task.done() or not ev_queue.empty():
+                    try:
+                        item = await asyncio.wait_for(ev_queue.get(), timeout=0.25)
+                        if item is not None:
+                            ev_name, ev_payload = item
+                            yield self._event(ev_name, {"correlationId": correlation_id, **ev_payload})
+                    except asyncio.TimeoutError:
+                        continue
+                persisted = await agentic_task
+                res = persisted.result
+                report_md = format_agentic_markdown(res)
+                clean_spoken = re.sub(r"```[\s\S]*?```", "", res.summary or "").strip()
+                clean_spoken = re.sub(r"\s+", " ", re.sub(r"[`*_#\[\]()]", "", clean_spoken)).strip()
+                if res.status in ("failed", "blocked", "budget_exhausted"):
+                    spoken_short = clean_spoken[:180] or f"Execution stopped ({res.blocker or res.status})."
+                elif any(a.get("kind") == "video" for a in (res.artifacts or [])):
+                    spoken_short = clean_spoken[:180] or "Rendered your MP4 animation and loaded it in chat."
+                elif res.files_changed:
+                    spoken_short = clean_spoken[:180] or f"Updated {len(res.files_changed)} workspace file(s) cleanly."
+                else:
+                    spoken_short = clean_spoken[:180] or "Finished executing the workspace task."
+                agentic_plan = build_plan_from_text(
+                    text=report_md,
+                    companion_id=request.companionId or "hinaa",
+                    language=getattr(request, "language", None) or "en-US",
+                    depth="report",
+                )
+                agentic_plan.spokenText = spoken_short
+                agentic_plan.requestedProvider = request.providerMode
+                agentic_plan.requestedModel = request.brainModel
+                agentic_plan.resolvedProvider = request.providerMode
+                agentic_plan.resolvedModel = request.brainModel
+                yield _make_delta_event(spoken_short)
+                elapsed_ms = int((time.time() - start_time) * 1000)
+                yield self._event("planning.completed", {"step": res.steps_executed or 1, "durationMs": elapsed_ms, "correlationId": correlation_id})
+                yield self._event("plan", {"plan": agentic_plan.model_dump(), "provider": f"{request.providerMode}:agentic"})
+                yield self._event("usage", {"latencyMs": elapsed_ms, "stepsExecuted": res.steps_executed})
+                yield self._event("run.completed", {
+                    "runId": correlation_id,
+                    "status": res.status,
+                    "stepsExecuted": res.steps_executed,
+                    "artifacts": res.artifacts,
+                    "filesChanged": res.files_changed,
+                    "latencyMs": elapsed_ms,
+                    "totalDurationMs": elapsed_ms,
+                })
+                return
+
         _INSTANT_ACTION_TOOLS = frozenset({
             "computer_operator",
-            "terminal_hands",
             "reminder.create",
             "youtube_playback_request",
             "ui_control",
-            "design_website",
+            "browser_cloud_agent",
             "browser_navigate",
             "browser_execute_task",
             "browser_press_key",
@@ -7190,10 +7754,90 @@ class ConversationService:
         )
         if (
             instant_requests
-            and "?" not in request.text
+            and not request.text.rstrip().endswith("?")
             and all(getattr(req, "reason", None) == "deterministic-intent" for req in instant_requests)
             and all(req.toolName in _INSTANT_ACTION_TOOLS for req in instant_requests)
+            and not re.search(
+                r"(?i)\b(?:show|write|explain|give|display|print|output|generate)\b[^.?!]*\b(?:code|script|program|function|class|snippet|example|html|css|js|python|svg)\b",
+                request.text,
+            )
         ):
+            # Server-executed local deterministic code animation (Playwright + FFmpeg + ffprobe QC)
+            if any(req.toolName == "render_code_animation" for req in instant_requests):
+                from .tools.code_animation_tool import RenderCodeAnimationParams, render_code_animation_handler
+
+                req_anim = next(r for r in instant_requests if r.toolName == "render_code_animation")
+                tool_run_id = str(uuid.uuid4())
+                yield self._event("planning.completed", {
+                    "step": 1,
+                    "durationMs": int((time.time() - start_time) * 1000),
+                    "correlationId": correlation_id,
+                })
+                yield self._event("tool.started", {
+                    "toolRunId": tool_run_id,
+                    "toolName": "render_code_animation",
+                    "step": 1,
+                    "totalSteps": 1,
+                    "parameters": req_anim.parameters,
+                    "correlationId": correlation_id,
+                })
+                yield self._event("tool.progress", {
+                    "toolRunId": tool_run_id,
+                    "toolName": "render_code_animation",
+                    "message": "Rendering animation frames in Playwright + FFmpeg & running ffprobe QC...",
+                })
+                try:
+                    render_res = await render_code_animation_handler(
+                        RenderCodeAnimationParams(**(req_anim.parameters or {}))
+                    )
+                    out_meta = render_res.get("output") or {}
+                    dl_url = render_res.get("download_url") or ""
+                    reply_text = (
+                        f"Rendered **{out_meta.get('resolution', '')}** MP4 "
+                        f"({out_meta.get('duration_sec', '')}s @ {out_meta.get('fps', '')} fps, "
+                        f"codec `{out_meta.get('video_codec', 'h264')}`, "
+                        f"{out_meta.get('size_bytes', 0):,} bytes, `sha256:{str(out_meta.get('checksum_sha256', ''))[:12]}`).\n\n"
+                        f"[Download / Play MP4]({dl_url})"
+                    )
+                    yield self._event("tool.completed", {
+                        "toolRunId": tool_run_id,
+                        "toolName": "render_code_animation",
+                        "status": "completed",
+                        "output": render_res,
+                    })
+                    yield self._event("artifact.ready", {
+                        "toolRunId": tool_run_id,
+                        "kind": "video",
+                        "assetId": render_res.get("asset_id"),
+                        "downloadUrl": dl_url,
+                        "output": out_meta,
+                    })
+                except Exception as render_exc:
+                    reply_text = f"Render failed cleanly: {render_exc}"
+                    yield self._event("tool.failed", {
+                        "toolRunId": tool_run_id,
+                        "toolName": "render_code_animation",
+                        "error": str(render_exc),
+                    })
+                anim_plan = build_plan_from_text(
+                    text=reply_text,
+                    companion_id=request.companionId or "hinaa",
+                    language=getattr(request, "language", None) or "en-US",
+                    depth="detailed",
+                )
+                anim_plan.toolRequests = list(instant_requests)
+                yield _make_delta_event(reply_text)
+                elapsed_ms = int((time.time() - start_time) * 1000)
+                yield self._event("plan", {"plan": anim_plan.model_dump(), "provider": "local:playwright-ffmpeg"})
+                yield self._event("usage", {"latencyMs": elapsed_ms})
+                yield self._event("run.completed", {
+                    "runId": correlation_id,
+                    "status": "completed",
+                    "latencyMs": elapsed_ms,
+                    "totalDurationMs": elapsed_ms,
+                })
+                return
+
             confirmation = " ".join(self._action_confirmation(req) for req in instant_requests)
             instant_plan = build_plan_from_text(
                 text=confirmation,
@@ -7248,6 +7892,31 @@ class ConversationService:
                 "totalDurationMs": int((time.time() - start_time) * 1000),
             })
             return
+
+        import inspect as _inspect_sig
+
+        _plan_kwargs: dict[str, Any] = {"user_id": user_id, "emit_event": emit_event}
+        try:
+            _sig_params = _inspect_sig.signature(self.create_live_plan).parameters
+            if "resolved_media" in _sig_params or any(
+                p.kind == _inspect_sig.Parameter.VAR_KEYWORD for p in _sig_params.values()
+            ):
+                _plan_kwargs["resolved_media"] = resolved_media
+            if muse_turn_context is not None and (
+                "muse_context" in _sig_params
+                or any(p.kind == _inspect_sig.Parameter.VAR_KEYWORD for p in _sig_params.values())
+            ):
+                _plan_kwargs["muse_context"] = muse_turn_context
+        except (TypeError, ValueError):
+            if muse_turn_context is not None:
+                _plan_kwargs["muse_context"] = muse_turn_context
+        turn_task = asyncio.create_task(
+            self.create_live_plan(
+                request,
+                emit_delta,
+                **_plan_kwargs,
+            )
+        )
 
         # Slow providers report transport status only. Synthetic acknowledgements
         # must never enter the assistant text or trigger speech synthesis.
@@ -7314,7 +7983,10 @@ class ConversationService:
             full_text = result.value.displayText or ""
             if page_guard is not None and page_guard.closed:
                 from .providers.display_stream_decoder import drop_inlined_page_source, drop_inlined_document_code
-                full_text = drop_inlined_document_code(drop_inlined_page_source(full_text))
+                if page_active:
+                    full_text = drop_inlined_page_source(full_text)
+                if doc_active:
+                    full_text = drop_inlined_document_code(full_text)
             streamed_so_far = "".join(emitted)
             if not streamed_so_far and full_text:
                 # Provider emitted no deltas at all during execution; yield full text once
@@ -7432,6 +8104,37 @@ class ConversationService:
             "totalDurationMs": int((time.time() - start_time) * 1000),
         })
 
+    def _pick_deepgram_voice(self, companion_id: CompanionId, voice_engine: str | None = None) -> str:
+        if companion_id == "hiro":
+            return self.settings.deepgram_tts_model_hiro
+        eng = (voice_engine or "").lower().strip()
+        if eng == "thalia":
+            return "aura-2-thalia-en"
+        if eng == "luna":
+            return "aura-2-luna-en"
+        if eng == "athena":
+            return "aura-2-athena-en"
+        if eng.startswith("deepgram:") and eng.split(":", 1)[1].strip():
+            return eng.split(":", 1)[1].strip()
+        return getattr(self.settings, "deepgram_tts_model_cute", None) or self.settings.deepgram_tts_model_hinaa
+
+    async def _synthesize_edge_neural(
+        self,
+        text: str,
+        companion_id: CompanionId,
+        voice_override: str | None = None,
+    ) -> ProviderResult[bytes] | None:
+        from .providers.edge_tts_provider import EdgeNeuralTTSProvider
+
+        default_voice = voice_override or getattr(self.settings, "edge_tts_voice_hinaa", "en-US-AnaNeural")
+        edge_provider = EdgeNeuralTTSProvider(default_voice=default_voice)
+        try:
+            async with asyncio.timeout(max(15.0, self.settings.provider_timeout_seconds)):
+                return await edge_provider.synthesize(text, voice=voice_override or "", companion_id=companion_id)
+        except Exception as err:
+            logger.warning("Edge Neural TTS synthesis failed (%s): %s", type(err).__name__, err)
+            return None
+
     async def synthesize(self, request: SpeechRequest) -> ProviderResult[bytes]:
         # The speaker button reads the same text the bubble shows, so the voice
         # channel gets the shaping the Talk path already applies: emoji and the
@@ -7441,12 +8144,21 @@ class ConversationService:
         try:
             async with asyncio.timeout(12.0 if request.realtime else max(25.0, self.settings.provider_timeout_seconds)):
                 provider = self.router.tts(request.providerMode, request.companionId, request.voiceEngine)
-                if isinstance(provider, DeepgramTTSProvider):
-                    dg_voice = (
-                        self.settings.deepgram_tts_model_hiro
-                        if request.companionId == "hiro"
-                        else self.settings.deepgram_tts_model_hinaa
+                from .providers.edge_tts_provider import EdgeNeuralTTSProvider
+
+                if isinstance(provider, EdgeNeuralTTSProvider):
+                    return await provider.synthesize(
+                        text,
+                        voice=getattr(provider, "_default_voice", ""),
+                        companion_id=request.companionId,
                     )
+
+                if isinstance(provider, DeepgramTTSProvider):
+                    if re.search(r"[\u0900-\u097F]", text):
+                        edge_dev = await self._synthesize_edge_neural(text, request.companionId)
+                        if edge_dev is not None:
+                            return edge_dev
+                    dg_voice = self._pick_deepgram_voice(request.companionId, request.voiceEngine)
                     try:
                         return await provider.synthesize(text, voice=dg_voice)
                     except Exception as dg_err:
@@ -7475,7 +8187,10 @@ class ConversationService:
                                 )
                             except Exception as fa_err:
                                 logger.warning("Secondary Fish Audio fallback failed: %s", fa_err)
-                        if self.settings.elevenlabs_configured:
+                        edge_fb = await self._synthesize_edge_neural(text, request.companionId)
+                        if edge_fb is not None:
+                            return edge_fb
+                        if self.settings.elevenlabs_configured and not voice_on_cooldown(_ELEVENLABS_PROVIDER):
                             try:
                                 el_provider = make_elevenlabs_provider(
                                     self.elevenlabs_config(), mode=self.settings.elevenlabs_transport
@@ -7539,15 +8254,17 @@ class ConversationService:
                     except Exception as fa_err:
                         logger.warning("Fish Audio synthesis failed (%s), falling back to secondary voice: %s", type(fa_err).__name__, fa_err)
                         if self.settings.deepgram_configured:
-                            dg_voice = (
-                                self.settings.deepgram_tts_model_hiro
-                                if request.companionId == "hiro"
-                                else self.settings.deepgram_tts_model_hinaa
-                            )
+                            dg_voice = self._pick_deepgram_voice(request.companionId, request.voiceEngine)
                             dg = self._get_deepgram_tts_provider()
                             if dg is not None:
-                                return await dg.synthesize(text, voice=dg_voice)
-                            raise
+                                try:
+                                    return await dg.synthesize(text, voice=dg_voice)
+                                except Exception as dg_err:
+                                    logger.warning("Fish->Deepgram fallback failed (%s): %s", type(dg_err).__name__, dg_err)
+                        edge_fb = await self._synthesize_edge_neural(text, request.companionId)
+                        if edge_fb is not None:
+                            return edge_fb
+                        raise
                 return await provider.synthesize(text, voice)
         except TimeoutError as error:
             raise HinaaError(
@@ -7634,12 +8351,16 @@ class ConversationService:
         cause: Exception,
         turn_id: str | None = None,
     ) -> ProviderResult[bytes] | None:
-        """Last-resort voice. Returns None when there is nothing to fall back to."""
-        if not self.settings.deepgram_configured or not is_fallback_worthy(cause):
+        """Last-resort voice. Falls back from Deepgram Aura to free Edge Neural."""
+        if not is_fallback_worthy(cause):
             return None
-        return await self._deepgram_voice(
-            text=text, companion_id=companion_id, turn_id=turn_id
-        )
+        if self.settings.deepgram_configured and not re.search(r"[\u0900-\u097F]", text):
+            dg_res = await self._deepgram_voice(
+                text=text, companion_id=companion_id, turn_id=turn_id
+            )
+            if dg_res is not None:
+                return dg_res
+        return await self._synthesize_edge_neural(text, companion_id)
 
     async def _deepgram_voice(
         self,
@@ -7648,18 +8369,18 @@ class ConversationService:
         companion_id: CompanionId,
         turn_id: str | None = None,
     ) -> ProviderResult[bytes] | None:
-        """Speak with the configured Aura fallback voice, or None if it fails."""
+        """Speak with the configured Aura fallback voice, or Edge Neural if it fails."""
         if not self.settings.deepgram_configured:
-            return None
+            return await self._synthesize_edge_neural(text, companion_id)
         assert self.settings.deepgram_api_key
         voice = fallback_voice_id(
             companion_id,
-            hinaa_voice=self.settings.deepgram_tts_model_hinaa,
+            hinaa_voice=getattr(self.settings, "deepgram_tts_model_cute", None) or self.settings.deepgram_tts_model_hinaa,
             hiro_voice=self.settings.deepgram_tts_model_hiro,
         )
         provider = self._get_deepgram_tts_provider()
         if provider is None:
-            return None
+            return await self._synthesize_edge_neural(text, companion_id)
         ledger = get_run_ledger()
         started = time.perf_counter()
         try:
@@ -7681,7 +8402,7 @@ class ConversationService:
             )
             return result
         except Exception as error:
-            logger.error("Voice fallback also failed: %s", error)
+            logger.error("Deepgram fallback failed, trying Edge Neural: %s", error)
             ledger.record_tts(
                 provider="deepgram-fallback",
                 voice_id=voice,
@@ -7692,7 +8413,7 @@ class ConversationService:
                 error=str(error),
                 turn_id=turn_id,
             )
-            return None
+            return await self._synthesize_edge_neural(text, companion_id)
 
     async def synthesize_text(
         self,
@@ -7708,31 +8429,37 @@ class ConversationService:
         live: bool = False,
         voice_engine: str | None = None,
     ) -> ProviderResult[bytes]:
+        from .providers.edge_tts_provider import EdgeNeuralTTSProvider
+
         provider = self.router.tts(mode, companion_id, voice_engine)
+        if isinstance(provider, EdgeNeuralTTSProvider):
+            return await provider.synthesize(
+                text,
+                voice=getattr(provider, "_default_voice", ""),
+                companion_id=companion_id,
+            )
         if isinstance(provider, DeepgramTTSProvider):
             has_devanagari = bool(re.search(r"[\u0900-\u097F]", text))
-            if has_devanagari and self.settings.azure_configured:
-                # Deepgram Aura is English-only and cannot pronounce Devanagari.
-                # Azure hi-IN-SwaraNeural is the authentic native Indian Hindi voice!
-                try:
-                    azure_voice = (
-                        self.settings.azure_speech_male_voice
-                        if companion_id == "hiro"
-                        else self.settings.azure_speech_female_voice
-                    )
-                    azure_provider = AzureSpeechProvider(
-                        self.settings.azure_speech_key.get_secret_value(),
-                        self.settings.azure_speech_region,
-                    )
-                    return await azure_provider.synthesize_calibrated(text, azure_voice, 1.15, 0.5, 1.0)
-                except Exception as az_err:
-                    logger.warning("Azure Hindi speech synthesis attempt: %s", az_err)
+            if has_devanagari:
+                if self.settings.azure_configured:
+                    try:
+                        azure_voice = (
+                            self.settings.azure_speech_male_voice
+                            if companion_id == "hiro"
+                            else self.settings.azure_speech_female_voice
+                        )
+                        azure_provider = AzureSpeechProvider(
+                            self.settings.azure_speech_key.get_secret_value(),
+                            self.settings.azure_speech_region,
+                        )
+                        return await azure_provider.synthesize_calibrated(text, azure_voice, 1.15, 0.5, 1.0)
+                    except Exception as az_err:
+                        logger.warning("Azure Hindi speech synthesis attempt: %s", az_err)
+                edge_dev = await self._synthesize_edge_neural(text, companion_id)
+                if edge_dev is not None:
+                    return edge_dev
 
-            dg_voice = (
-                self.settings.deepgram_tts_model_hiro
-                if companion_id == "hiro"
-                else self.settings.deepgram_tts_model_hinaa
-            )
+            dg_voice = self._pick_deepgram_voice(companion_id, voice_engine)
             try:
                 async with asyncio.timeout(max(30.0, self.settings.provider_timeout_seconds)):
                     return await provider.synthesize(text, voice=dg_voice)
@@ -7758,6 +8485,9 @@ class ConversationService:
                         return await fa.synthesize(text, voice=voice_id)
                     except Exception:
                         pass
+                edge_fb = await self._synthesize_edge_neural(text, companion_id)
+                if edge_fb is not None:
+                    return edge_fb
                 if self.settings.azure_configured:
                     try:
                         azure_voice = (
@@ -7782,11 +8512,20 @@ class ConversationService:
                 else self.settings.fish_audio_voice_ids[1]
             )
             if not voice_id:
+                edge_fb = await self._synthesize_edge_neural(text, companion_id)
+                if edge_fb is not None:
+                    return edge_fb
                 raise HinaaError("TTS_FAILED", "Fish Audio voice id is not configured.", 503, True)
             try:
                 async with asyncio.timeout(self.settings.provider_timeout_seconds):
                     return await provider.synthesize(text, voice=voice_id, language_hint=language.split("-")[0] if language != "mixed" else "auto")
             except Exception as error:
+                dg_fb = await self._deepgram_voice(text=text, companion_id=companion_id)
+                if dg_fb is not None:
+                    return dg_fb
+                edge_fb = await self._synthesize_edge_neural(text, companion_id)
+                if edge_fb is not None:
+                    return edge_fb
                 raise HinaaError("TTS_FAILED", f"Fish Audio TTS failed: {error}", 503, True) from error
         if isinstance(
             provider,

@@ -4,7 +4,10 @@ import asyncio
 import base64
 import contextlib
 import json
+import logging
 import re
+
+_log = logging.getLogger(__name__)
 from typing import Any
 from collections.abc import AsyncIterator, Awaitable, Callable
 from time import perf_counter
@@ -99,16 +102,16 @@ def _llm_budget_tokens(prompt: Any = None) -> int:
 
     depth = getattr(prompt, "response_depth", None)
 
-    # Minimal / safety redirects keep a safe token limit with headroom
-    # for reasoning models to formulate a concise response.
+    # Minimal / safety redirects keep enough headroom for reasoning models
+    # (<think> + final reply) without truncating mid-thought.
     if depth in {"minimal", "clarification", "safety_redirect"}:
-        return min(default_budget, 1024)
+        return min(default_budget, 4096)
     # Conversational & supportive turns require full expressive capacity so
     # reasoning models and thorough answers never break or truncate mid-sentence.
     if depth in {"conversational", "supportive"}:
-        return min(default_budget, 4096)
-    if depth in {"explanatory", "procedural"}:
         return min(default_budget, 8192)
+    if depth in {"explanatory", "procedural"}:
+        return default_budget
     if depth == "report":
         return default_budget
 
@@ -317,6 +320,7 @@ _GATEWAY_PROVIDERS = {
     "custom",
     "cx-gateway",
     "claude",
+    "cantrustai",
     "ollama",
     "omniroute",
     "xkiro",
@@ -327,8 +331,25 @@ _GATEWAY_PROVIDERS = {
     "apmix",
     "oxion",
     "articul8",
+    "toptools",
+    "tokenrouter",
     "experiential",
 }
+
+
+_TRANSIENT_STREAM_MARKERS = (
+    "overloaded",
+    "retry in",
+    "temporarily",
+    "try again",
+    "rate limit",
+    "busy",
+)
+
+
+def _is_transient_stream_error(message: str) -> bool:
+    lowered = message.lower()
+    return any(marker in lowered for marker in _TRANSIENT_STREAM_MARKERS)
 
 
 class OpenAILLMProvider:
@@ -375,6 +396,210 @@ class OpenAILLMProvider:
         """The model id this instance sends. The router resolves aliases to it, so
         diagnostics must name this rather than the model the client asked for."""
         return self._model
+
+    async def complete_raw_agentic(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int = 8192,
+        images: list[tuple[str, bytes]] | None = None,
+        tool_schemas: list[dict[str, Any]] | None = None,
+        messages: list[dict[str, Any]] | None = None,
+        tool_choice: str = "auto",
+    ) -> str:
+        """Direct raw completion for bounded coding/studio agent loops with native OpenAI tool_calls + gateway fallback."""
+        can_exec, reason, _ = self._circuit_breaker.can_execute()
+        if not can_exec:
+            code = "PROVIDER_RATE_LIMIT" if "rate_limited" in (reason or "") else "PROVIDER_UNAVAILABLE"
+            status_code = 429 if code == "PROVIDER_RATE_LIMIT" else 503
+            raise HinaaError(code, reason or f"{self._provider_label()} is currently in cooldown.", status_code, True)
+        started = perf_counter()
+        use_max_tokens = self._provider_id in {"qwen", "agent-router", "codecraft"} | _GATEWAY_PROVIDERS
+
+        def _image_blocks() -> list[dict[str, Any]]:
+            blocks: list[dict[str, Any]] = []
+            for mime_type, raw_bytes in (images or [])[:8]:
+                if raw_bytes:
+                    b64 = base64.b64encode(raw_bytes).decode("ascii")
+                    blocks.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime_type or 'image/jpeg'};base64,{b64}"},
+                    })
+            return blocks
+
+        def _build_payload(include_images: bool, include_tools: bool, choice_mode: str = "auto") -> dict[str, object]:
+            img_blocks = _image_blocks() if (include_images and images) else []
+            if include_tools and tool_schemas and messages:
+                msg_list: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+                for m in messages:
+                    msg_list.append(dict(m))
+                if img_blocks:
+                    if msg_list and msg_list[-1].get("role") == "user" and isinstance(msg_list[-1].get("content"), str):
+                        msg_list[-1] = {
+                            "role": "user",
+                            "content": [{"type": "text", "text": msg_list[-1]["content"]}, *img_blocks],
+                        }
+                    else:
+                        msg_list.append({
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": "Inspect the attached visual preview carefully before responding."},
+                                *img_blocks,
+                            ],
+                        })
+                payload: dict[str, object] = {
+                    "model": self._model_for_payload(),
+                    "messages": msg_list,
+                    "tools": tool_schemas,
+                    "tool_choice": choice_mode,
+                    "temperature": self._effective_temperature(0.2),
+                    ("max_tokens" if use_max_tokens else "max_completion_tokens"): max_tokens,
+                }
+                return payload
+
+            if img_blocks:
+                user_content: Any = [{"type": "text", "text": user_prompt}, *img_blocks]
+            else:
+                user_content = user_prompt
+            payload = {
+                "model": self._model_for_payload(),
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                "temperature": self._effective_temperature(0.2),
+                ("max_tokens" if use_max_tokens else "max_completion_tokens"): max_tokens,
+            }
+            if include_tools and tool_schemas:
+                payload["tools"] = tool_schemas
+                payload["tool_choice"] = choice_mode
+            return payload
+
+        def _extract_native_decision(msg: dict[str, Any]) -> str:
+            tcalls = msg.get("tool_calls")
+            if isinstance(tcalls, list) and tcalls:
+                normalized: list[dict[str, Any]] = []
+                for tc in tcalls[:6]:
+                    if not isinstance(tc, dict):
+                        continue
+                    fn = tc.get("function") or {}
+                    tname = str(fn.get("name") or "").strip()
+                    if not tname:
+                        continue
+                    raw_args = fn.get("arguments")
+                    parsed_args: dict[str, Any] = {}
+                    if isinstance(raw_args, dict):
+                        parsed_args = raw_args
+                    elif isinstance(raw_args, str) and raw_args.strip():
+                        try:
+                            cand = json.loads(raw_args)
+                            if isinstance(cand, dict):
+                                parsed_args = cand
+                        except Exception:
+                            return json.dumps({
+                                "action": "_parse_error",
+                                "error": f"Truncated JSON arguments for native tool '{tname}'. Retry concisely.",
+                            })
+                    normalized.append({"tool": tname, "arguments": parsed_args})
+                rationale = str(msg.get("content") or msg.get("reasoning") or "Native tool call")[:240]
+                if len(normalized) == 1:
+                    return json.dumps({
+                        "action": "call_tool",
+                        "tool": normalized[0]["tool"],
+                        "arguments": normalized[0]["arguments"],
+                        "rationale": rationale,
+                    }, ensure_ascii=False)
+                if len(normalized) > 1:
+                    return json.dumps({
+                        "action": "call_tools",
+                        "calls": normalized,
+                        "rationale": rationale,
+                    }, ensure_ascii=False)
+            content = msg.get("content")
+            if isinstance(content, str) and content.strip():
+                return content
+            reasoning_raw = msg.get("reasoning") or msg.get("reasoning_content")
+            if isinstance(reasoning_raw, str) and reasoning_raw.strip():
+                # Only salvage reasoning tokens if the model emitted an explicit <tool> or action JSON block;
+                # never leak raw internal chain-of-thought prose as a final assistant reply.
+                if re.search(r"<\s*tool\b|\{\s*[\"']action[\"']\s*:", reasoning_raw, re.IGNORECASE):
+                    return reasoning_raw
+            return ""
+
+        last_resp: httpx.Response | None = None
+        num_keys = max(1, len(self._keys))
+        use_vision = bool(images)
+        use_tools = bool(tool_schemas)
+        req_choice = "required" if (tool_choice == "required" and use_tools) else "auto"
+        try:
+            for key_idx in range(num_keys):
+                active_choice = req_choice if use_tools else "auto"
+                async with _pooled_client() as client:
+                    response = await client.post(
+                        self._chat_url(),
+                        headers=self._headers(),
+                        json=_build_payload(use_vision, use_tools, active_choice),
+                    )
+                if use_tools and active_choice == "required" and response.status_code in {400, 404, 415, 422, 501}:
+                    # Gateway rejected tool_choice='required'; downgrade to 'auto' while keeping native tools.
+                    active_choice = "auto"
+                    async with _pooled_client() as client:
+                        response = await client.post(
+                            self._chat_url(),
+                            headers=self._headers(),
+                            json=_build_payload(use_vision, True, active_choice),
+                        )
+                if use_tools and response.status_code in {400, 404, 415, 422, 501}:
+                    # Gateway does not support native OpenAI tools/tool roles; fall back seamlessly.
+                    use_tools = False
+                    async with _pooled_client() as client:
+                        response = await client.post(
+                            self._chat_url(),
+                            headers=self._headers(),
+                            json=_build_payload(use_vision, False, "auto"),
+                        )
+                if use_vision and response.status_code in {400, 415, 422}:
+                    # Text-only gateway rejected multimodal content blocks; fall back seamlessly.
+                    use_vision = False
+                    async with _pooled_client() as client:
+                        response = await client.post(
+                            self._chat_url(),
+                            headers=self._headers(),
+                            json=_build_payload(False, use_tools, active_choice if use_tools else "auto"),
+                        )
+                last_resp = response
+                if response.status_code in {401, 403, 429} and key_idx < num_keys - 1:
+                    self._rotate_key()
+                    continue
+                self._raise_for_status(response)
+                data = response.json()
+                choices = data.get("choices") or []
+                msg = choices[0].get("message", {}) if choices else {}
+                text_out = _extract_native_decision(msg)
+                if use_tools and not text_out.strip():
+                    # Some proxies return empty content when `tools` is supplied; retry flattened prompt mode once.
+                    use_tools = False
+                    async with _pooled_client() as client:
+                        fb_resp = await client.post(
+                            self._chat_url(),
+                            headers=self._headers(),
+                            json=_build_payload(use_vision, False, "auto"),
+                        )
+                    if fb_resp.is_success:
+                        fb_data = fb_resp.json()
+                        fb_choices = fb_data.get("choices") or []
+                        fb_msg = fb_choices[0].get("message", {}) if fb_choices else {}
+                        text_out = _extract_native_decision(fb_msg)
+                self._circuit_breaker.record_success(int((perf_counter() - started) * 1000))
+                return text_out
+            if last_resp is not None:
+                self._raise_for_status(last_resp)
+            return ""
+        except HinaaError:
+            raise
+        except Exception as error:
+            raise self._map_provider_error(error) from error
 
     async def create_plan(
         self,
@@ -578,7 +803,9 @@ class OpenAILLMProvider:
             timing.mark("text_complete")
             answer = outcome.text.strip()
             if not answer:
-                thinking_val = getattr(outcome, "thinking", None)
+                thinking_val = getattr(outcome, "thinking", None) or (
+                    first_decoder.thinking if first_decoder else None
+                )
                 if thinking_val and str(thinking_val).strip():
                     answer = str(thinking_val).strip()
                 else:
@@ -643,8 +870,12 @@ class OpenAILLMProvider:
             self._raise_for_status(response)
             data = response.json()
             choices = data.get("choices") or []
-            content = choices[0].get("message", {}).get("content") if choices else None
-            return content if isinstance(content, str) else ""
+            msg = choices[0].get("message", {}) if choices else {}
+            content = msg.get("content")
+            if isinstance(content, str) and content.strip():
+                return content
+            reasoning = msg.get("reasoning") or msg.get("reasoning_content")
+            return reasoning if isinstance(reasoning, str) else ""
         if last_resp is not None:
             self._raise_for_status(last_resp)
         return ""
@@ -705,7 +936,7 @@ class OpenAILLMProvider:
                 {"role": "user", "content": "\n\n".join(schema_repair_contents(invalid_raw))},
             ],
             "temperature": self._effective_temperature(0.0),
-            ("max_tokens" if self._provider_id in {"qwen", "agent-router", "codecraft"} | _GATEWAY_PROVIDERS else "max_completion_tokens"): 4096,
+            ("max_tokens" if self._provider_id in {"qwen", "agent-router", "codecraft"} | _GATEWAY_PROVIDERS else "max_completion_tokens"): _llm_budget_tokens(),
             "response_format": {"type": "json_object"},
         }
         last_resp: httpx.Response | None = None
@@ -725,8 +956,16 @@ class OpenAILLMProvider:
             data = response.json()
             choices = data.get("choices") or []
             msg = choices[0].get("message", {}) if choices else {}
-            content = msg.get("content") or msg.get("reasoning") or msg.get("reasoning_content")
-            return content if isinstance(content, str) else ""
+            content = msg.get("content")
+            if isinstance(content, str) and content.strip():
+                return content
+            reasoning_raw = msg.get("reasoning") or msg.get("reasoning_content")
+            if isinstance(reasoning_raw, str) and reasoning_raw.strip():
+                # Only salvage reasoning tokens if the model emitted an explicit <tool> or action JSON block;
+                # never leak raw internal chain-of-thought prose as a final assistant reply.
+                if re.search(r"<\s*tool\b|\{\s*[\"']action[\"']\s*:", reasoning_raw, re.IGNORECASE):
+                    return reasoning_raw
+            return ""
         if last_resp is not None:
             self._raise_for_status(last_resp)
         return ""
@@ -768,77 +1007,141 @@ class OpenAILLMProvider:
                 streamed_any = False
                 stream_failed_early = False
                 key_failed_early = False
-                try:
-                    async with _pooled_client() as client:
-                        async with client.stream(
-                            "POST",
-                            self._chat_url(),
-                            headers=self._headers(),
-                            json=payload,
-                        ) as response:
-                            if response.status_code in {401, 403, 429} and key_idx < num_keys - 1:
-                                self._rotate_key()
-                                key_failed_early = True
-                            elif (response.status_code >= 400 or response.status_code in {429, 503}) and len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
-                                stream_failed_early = True
-                            else:
-                                self._raise_for_status(response)
-                                in_thought = False
-                                async for line in response.aiter_lines():
-                                    if not line.startswith("data:"):
-                                        continue
-                                    event = line.removeprefix("data:").strip()
-                                    if event == "[DONE]":
+                for transient_attempt in range(3):
+                    retry_transient_same_model = False
+                    try:
+                        async with _pooled_client() as client:
+                            async with client.stream(
+                                "POST",
+                                self._chat_url(),
+                                headers=self._headers(),
+                                json=payload,
+                            ) as response:
+                                if response.status_code in {401, 403, 429} and key_idx < num_keys - 1:
+                                    self._rotate_key()
+                                    key_failed_early = True
+                                elif (response.status_code >= 400 or response.status_code in {429, 503}) and len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
+                                    stream_failed_early = True
+                                else:
+                                    if response.status_code >= 400:
+                                        await response.aread()
+                                    self._raise_for_status(response)
+                                    in_thought = False
+                                    first_tok_cap_s = 28.0 if self._provider_id == "toptools" else None
+                                    first_tok_deadline = (
+                                        perf_counter() + first_tok_cap_s if first_tok_cap_s else 0.0
+                                    )
+                                    lines_iter = response.aiter_lines().__aiter__()
+                                    while True:
+                                        try:
+                                            if first_tok_cap_s and not streamed_any:
+                                                remaining = first_tok_deadline - perf_counter()
+                                                if remaining <= 0:
+                                                    raise TimeoutError("First token keepalive deadline exceeded")
+                                                line = await asyncio.wait_for(lines_iter.__anext__(), timeout=remaining)
+                                            else:
+                                                line = await lines_iter.__anext__()
+                                        except StopAsyncIteration:
+                                            break
+                                        if not line.startswith("data:"):
+                                            continue
+                                        event = line.removeprefix("data:").strip()
+                                        if event == "[DONE]":
+                                            if finish_reason_holder is not None and not finish_reason_holder.get("value"):
+                                                finish_reason_holder["value"] = "stop"
+                                            break
+                                        try:
+                                            data = json.loads(event)
+                                        except json.JSONDecodeError:
+                                            continue
+                                        if isinstance(data, dict) and "error" in data:
+                                            if len(models_to_try) > 1 and candidate_model != models_to_try[-1] and not streamed_any:
+                                                stream_failed_early = True
+                                                break
+                                            err_obj = data["error"]
+                                            err_msg = err_obj.get("message", "Upstream stream error") if isinstance(err_obj, dict) else str(err_obj)
+                                            if not streamed_any and _is_transient_stream_error(err_msg) and transient_attempt < 2:
+                                                retry_transient_same_model = True
+                                                break
+                                            if _is_transient_stream_error(err_msg):
+                                                if "rate limit" in err_msg.lower():
+                                                    raise HinaaError("PROVIDER_RATE_LIMIT", err_msg, 429, True)
+                                                raise HinaaError("PROVIDER_TEMPORARY_MAINTENANCE", err_msg, 503, True)
+                                            raise HinaaError("PROVIDER_UNAVAILABLE", err_msg, 502, True)
+                                        choices = data.get("choices") or []
+                                        if not choices:
+                                            continue
+                                        if finish_reason_holder is not None:
+                                            raw_fr = choices[0].get("finish_reason")
+                                            if raw_fr:
+                                                finish_reason_holder["value"] = str(raw_fr)
+                                        delta_dict = choices[0].get("delta") or {}
+                                        content_chunk = delta_dict.get("content")
+                                        reasoning_chunk = delta_dict.get("reasoning_content") or delta_dict.get("reasoning")
+                                        if isinstance(reasoning_chunk, str) and reasoning_chunk:
+                                            streamed_any = True
+                                            if not in_thought:
+                                                in_thought = True
+                                                yield "<think>"
+                                            yield reasoning_chunk
+                                        if isinstance(content_chunk, str) and content_chunk:
+                                            streamed_any = True
+                                            if in_thought:
+                                                in_thought = False
+                                                yield "</think>\n\n"
+                                            yield content_chunk
+                                    if retry_transient_same_model:
+                                        pass
+                                    elif not streamed_any and len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
+                                        stream_failed_early = True
+                                    elif streamed_any:
                                         if finish_reason_holder is not None and not finish_reason_holder.get("value"):
                                             finish_reason_holder["value"] = "stop"
-                                        break
-                                    try:
-                                        data = json.loads(event)
-                                    except json.JSONDecodeError:
-                                        continue
-                                    if isinstance(data, dict) and "error" in data:
-                                        if len(models_to_try) > 1 and candidate_model != models_to_try[-1] and not streamed_any:
-                                            stream_failed_early = True
-                                            break
-                                        err_msg = data["error"].get("message", "Upstream stream error")
-                                        raise HinaaError("PROVIDER_UNAVAILABLE", err_msg, 502, True)
-                                    choices = data.get("choices") or []
-                                    if not choices:
-                                        continue
-                                    if finish_reason_holder is not None:
-                                        raw_fr = choices[0].get("finish_reason")
-                                        if raw_fr:
-                                            finish_reason_holder["value"] = str(raw_fr)
-                                    delta_dict = choices[0].get("delta") or {}
-                                    content_chunk = delta_dict.get("content")
-                                    reasoning_chunk = delta_dict.get("reasoning_content") or delta_dict.get("reasoning")
-                                    if isinstance(reasoning_chunk, str) and reasoning_chunk:
-                                        streamed_any = True
-                                        if not in_thought:
-                                            in_thought = True
-                                            yield "<think>"
-                                        yield reasoning_chunk
-                                    if isinstance(content_chunk, str) and content_chunk:
-                                        streamed_any = True
                                         if in_thought:
-                                            in_thought = False
                                             yield "</think>\n\n"
-                                        yield content_chunk
-                                if not streamed_any and len(models_to_try) > 1 and candidate_model != models_to_try[-1]:
-                                    stream_failed_early = True
-                                elif streamed_any:
-                                    if finish_reason_holder is not None and not finish_reason_holder.get("value"):
-                                        finish_reason_holder["value"] = "stop"
-                                    if in_thought:
-                                        yield "</think>\n\n"
-                                    return
-                except Exception:
-                    if key_failed_early:
+                                        return
+                    except HinaaError as err:
+                        if (
+                            not streamed_any
+                            and transient_attempt < 2
+                            and err.code in {"PROVIDER_TEMPORARY_MAINTENANCE", "PROVIDER_RATE_LIMIT"}
+                            and self._provider_id in _GATEWAY_PROVIDERS
+                        ):
+                            retry_transient_same_model = True
+                        elif key_failed_early:
+                            break
+                        elif len(models_to_try) > 1 and candidate_model != models_to_try[-1] and not streamed_any:
+                            stream_failed_early = True
+                            break
+                        else:
+                            raise
+                    except TimeoutError:
+                        if not streamed_any and self._provider_id == "toptools" and transient_attempt < 1:
+                            _log.warning(
+                                "Top-Tools AI stalled on empty keepalives before first token; retrying once."
+                            )
+                            retry_transient_same_model = True
+                        elif not streamed_any and self._provider_id == "toptools":
+                            raise HinaaError(
+                                "PROVIDER_TIMEOUT",
+                                "Top-Tools AI timed out waiting for a non-empty response token.",
+                                504,
+                                True,
+                            )
+                        else:
+                            raise
+                    except Exception:
+                        if key_failed_early:
+                            break
+                        if len(models_to_try) > 1 and candidate_model != models_to_try[-1] and not streamed_any:
+                            stream_failed_early = True
+                            break
+                        else:
+                            raise
+                    if retry_transient_same_model:
+                        await asyncio.sleep(1.2 * (transient_attempt + 1))
                         continue
-                    if len(models_to_try) > 1 and candidate_model != models_to_try[-1] and not streamed_any:
-                        stream_failed_early = True
-                    else:
-                        raise
+                    break
                 if key_failed_early:
                     continue
                 if stream_failed_early:
@@ -882,6 +1185,70 @@ class OpenAILLMProvider:
             msg = f"{self._provider_label()} returned 404 (endpoint or model mismatch)."
             self._circuit_breaker.record_failure("ENDPOINT_MISMATCH", msg)
             raise HinaaError("ENDPOINT_MISMATCH", msg, 404, user_action_required=True)
+
+        provider_text = safe_error_text(response.text, [self._key]).lower()
+        upstream_msg = ""
+        try:
+            err_json = response.json()
+            if isinstance(err_json, dict):
+                err_obj = err_json.get("error")
+                if isinstance(err_obj, dict):
+                    upstream_msg = safe_error_text(str(err_obj.get("message") or ""), [self._key]).strip()
+                elif isinstance(err_obj, str):
+                    upstream_msg = safe_error_text(err_obj, [self._key]).strip()
+        except Exception:
+            upstream_msg = ""
+
+        if response.status_code == 402 or any(
+            m in provider_text for m in ("insufficient_balance", "not part of the free tier", "payment required")
+        ):
+            msg = upstream_msg or (
+                f"{self._provider_label()} declined model '{self._model}' (HTTP {response.status_code} quota/plan limit)."
+            )
+            raise HinaaError(
+                "PROVIDER_QUOTA_OR_TIER",
+                msg,
+                402,
+                retryable=False,
+                user_action_required=True,
+            )
+
+        if response.status_code == 403 and any(
+            marker in provider_text for marker in ("ip_not_allowed", "ip not allowed", "ip address is not allowed")
+        ):
+            msg = (
+                f"{self._provider_label()} blocked this machine's public IP (HTTP 403 IP_NOT_ALLOWED). "
+                f"Allowlist your IP in {self._provider_label()} dashboard."
+            )
+            raise HinaaError(
+                "PROVIDER_IP_NOT_ALLOWED",
+                msg,
+                403,
+                retryable=False,
+                user_action_required=True,
+            )
+
+        if response.status_code == 403 and any(
+            marker in provider_text
+            for marker in (
+                "model_access_denied",
+                "plan's model",
+                "not allowed for model",
+                "model is not allowed",
+                "upgrade at",
+            )
+        ):
+            msg = (
+                f"{self._provider_label()} does not include model {self._model} on the current plan "
+                "(HTTP 403). Switch to an allowed model on this provider."
+            )
+            raise HinaaError(
+                "PROVIDER_MODEL_NOT_ALLOWED",
+                msg,
+                403,
+                retryable=False,
+                user_action_required=True,
+            )
 
         if response.status_code in {401, 403, 429}:
             self._rotate_key()
@@ -928,7 +1295,7 @@ class OpenAILLMProvider:
             )
         if response.status_code == 503 and any(
             marker in provider_text
-            for marker in ("service_upgrading", "upgraded right now", "maintenance", "temporarily unavailable")
+            for marker in ("service_upgrading", "upgraded right now", "maintenance", "temporarily unavailable", "overloaded")
         ):
             msg = f"{self._provider_label()} is temporarily undergoing service maintenance or upgrade. Please retry shortly."
             self._circuit_breaker.record_failure("PROVIDER_TEMPORARY_MAINTENANCE", msg)
@@ -1051,6 +1418,12 @@ class OpenAILLMProvider:
             return "SeekAI"
         if self._provider_id == "pgsgrove":
             return "PGSGrove AI"
+        if self._provider_id == "coarena":
+            return "Coarena AI"
+        if self._provider_id == "toptools":
+            return "Top-Tools AI"
+        if self._provider_id == "tokenrouter":
+            return "TokenRouter"
         return "OpenAI"
 
 

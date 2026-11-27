@@ -46,13 +46,13 @@ export function useBrainState({
       const labelLower = step.label.toLowerCase();
       const idLower = step.id.toLowerCase();
       
-      if (idLower.includes('plan') || labelLower.includes('plan')) {
+      if (idLower.includes('plan') || idLower.startsWith('step-') || idLower === 'run' || labelLower.includes('plan') || labelLower.includes('reason') || labelLower.includes('autonomous loop')) {
         matchedType = 'planner';
-      } else if (idLower.includes('search') || idLower.includes('research') || labelLower.includes('search')) {
+      } else if (idLower.includes('search') || idLower.includes('research') || labelLower.includes('search') || labelLower.includes('subagent')) {
         matchedType = 'researcher';
-      } else if (idLower.includes('browser') || idLower.includes('operator') || idLower.includes('desktop') || labelLower.includes('browser') || labelLower.includes('mouse') || labelLower.includes('click') || labelLower.includes('operator')) {
+      } else if (idLower.includes('browser') || idLower.includes('operator') || idLower.includes('desktop') || labelLower.includes('browser') || labelLower.includes('mouse') || labelLower.includes('click') || labelLower.includes('operator') || labelLower.includes('verify')) {
         matchedType = 'operator';
-      } else if (idLower.includes('code') || labelLower.includes('code') || labelLower.includes('tool')) {
+      } else if (idLower.includes('code') || idLower.includes('art-') || labelLower.includes('code') || labelLower.includes('tool') || labelLower.includes('workspace') || labelLower.includes('render') || labelLower.includes('motion') || labelLower.includes('produced')) {
         matchedType = 'coder';
       } else if (idLower.includes('memory') || labelLower.includes('memory')) {
         matchedType = 'memory';

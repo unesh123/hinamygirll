@@ -84,7 +84,7 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
-    provider_mode: Literal["gmi", "mock", "local", "groq", "openai", "custom", "real", "claude", "qwen", "agent-router", "cx-gateway", "gemini-live", "codecraft", "experiential", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "oxion", "articul8", "respan"] = Field(
+    provider_mode: Literal["gmi", "mock", "local", "groq", "openai", "custom", "real", "claude", "cantrustai", "cantrust", "qwen", "agent-router", "cx-gateway", "gemini-live", "codecraft", "experiential", "ollama", "pgsgrove", "seekai", "tokentable", "xkiro", "cavoti", "apmix", "oxion", "articul8", "respan", "coarena", "toptools", "tokenrouter"] = Field(
         "gemini-live", alias="HINAA_PROVIDER_MODE"
     )
     azure_speech_key: SecretStr | None = Field(None, alias="AZURE_SPEECH_KEY")
@@ -94,10 +94,7 @@ class Settings(BaseSettings):
     gemini_planner_model: str = Field("gemini-3.5-flash", alias="GEMINI_PLANNER_MODEL")
     gemini_allowed_models_raw: str = Field(
         (
-            "gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.8-flash,gemini-flash-latest,gemini-pro-latest,"
-            "gemini-3.1-pro-preview,gemini-3.6-flash,gemini-3-flash-preview,gemini-flash-lite-latest,"
-            "gemini-2.5-flash-lite,gemini-2.5-flash,gemini-2.5-pro,gemini-2.0-flash,gemini-2.0-flash-exp,"
-            "gemini-2.0-flash-lite,gemini-1.5-flash,gemini-1.5-pro,gemini-3.8-flash-high"
+            "gemini-3.5-flash,gemini-3.5-flash-lite,gemini-2.5-flash-lite,gemini-3.8-flash,gemini-3-flash-preview,gemini-flash-latest,gemini-pro-latest"
         ),
         alias="GEMINI_ALLOWED_MODELS",
     )
@@ -159,6 +156,15 @@ class Settings(BaseSettings):
     groq_model: str = Field("llama-3.1-8b-instant", alias="GROQ_MODEL")
     openai_api_key: SecretStr | None = Field(None, alias="OPENAI_API_KEY")
     openai_model: str = Field("gpt-5-mini", alias="OPENAI_MODEL")
+    openai_image_api_key: SecretStr | None = Field(
+        None, validation_alias=AliasChoices("OPENAI_IMAGE_API_KEY", "IMAGE_PROXY_API_KEY")
+    )
+    openai_image_base_url: str | None = Field(
+        None, validation_alias=AliasChoices("OPENAI_IMAGE_BASE_URL", "IMAGE_PROXY_BASE_URL")
+    )
+    openai_image_model: str | None = Field(
+        None, validation_alias=AliasChoices("OPENAI_IMAGE_MODEL", "IMAGE_MODEL")
+    )
     # Fast brain for casual chat: reasoning models (cx/gpt-5.6-sol, agent
     # router) burn hidden tokens before the first visible one, which makes
     # small talk feel slow. Short social turns route to this non-reasoning
@@ -374,7 +380,7 @@ class Settings(BaseSettings):
         "auto,claude-fable-5-1,claude-fable-5,claude-opus-5-5,claude-opus-5,claude-sonnet-5,gpt-6-astra,gpt-6-sol,deepseek-ai/DeepSeek-V4.1-Flash,qwen3.8-max",
         validation_alias=AliasChoices("TOKENTABLE_ALLOWED_MODELS", "TOKEN_TABLE_ALLOWED_MODELS"),
     )
-    # XKiro Multi-Model AI Gateway — fast free Qwen 3.8 Max, Qwen 3.7 Flash, coder models
+    # XKiro Multi-Model AI Gateway — verified live HTTP 200 models first
     xkiro_api_key: SecretStr | None = Field(
         None,
         validation_alias=AliasChoices("XKIRO_API_KEY", "XK_IRO_API_KEY"),
@@ -388,17 +394,16 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("XKIRO_BASE_URL", "XK_IRO_BASE_URL"),
     )
     xkiro_model: str = Field(
-        "qwen/qwen3.8-max:free",
+        "openai/gpt-6.2-sol",
         validation_alias=AliasChoices("XKIRO_MODEL", "XK_IRO_MODEL"),
     )
-    # Pinned to the Qwen family only. The previous list ended in ",*" and
-    # mixed DeepSeek / MiniMax / Muse Spark / stealth models in, so any
-    # model ID was accepted and a fallback could silently switch families
-    # mid-conversation. No wildcard here: resolve_xkiro_model() must reject
-    # anything not in this list.
     xkiro_allowed_models_raw: str = Field(
-        "qwen/qwen3.8-max:free,qwen/qwen3.8-omni-flash:free,qwen/qwen3.7-flash:free,qwen/qwen3.7-max:free,qwen/qwen3.6-max-preview:free,qwen/qwen3.5-flash:free",
+        "openai/gpt-6.2-sol,openai/gpt-6.1-terra,openai/gpt-6-sol,openai/gpt-6-luna,openai/gpt-5.6-sol,openai/gpt-5.6-terra,openai/gpt-5.6-luna,x-ai/grok-4.7,x-ai/grok-4.6,x-ai/grok-4.5,z-ai/glm-5.4,z-ai/glm-5.3-flash,z-ai/glm-5.2,z-ai/glm-5.1,z-ai/glm-5-turbo,nvidia/nemotron-3.5-super-vl,nvidia/nemotron-3-ultra,nvidia/nemotron-3-nano-omni,cohere/command-a-plus,cohere/north-mini-code,cohere/command-a-reasoning,cohere/command-a-vision,cohere/command-a,sensenova/sensenova-6.8-flash-lite,*",
         validation_alias=AliasChoices("XKIRO_ALLOWED_MODELS", "XK_IRO_ALLOWED_MODELS"),
+    )
+    xkiro_daily_image_limit: int = Field(
+        25,
+        validation_alias=AliasChoices("XKIRO_DAILY_IMAGE_LIMIT", "HINAA_XKIRO_DAILY_IMAGE_LIMIT"),
     )
     # Video generation (fal.ai) — the paid MP4 path. The key is never in
     # chat or the frontend; it lives in the backend env. Without it the video
@@ -427,6 +432,7 @@ class Settings(BaseSettings):
     # pinned Qwen model and says so (see resolve_primary_brain). A frontier
     # model is a key + a paid account away, not a code change away.
     primary_brain: str | None = Field(None, alias="HINAA_PRIMARY_BRAIN")
+    visible_providers_raw: str = Field("", alias="HINAA_VISIBLE_PROVIDERS")
     # Cavoti AI Gateway — frontier models (claude-fable-5, claude-opus-5, claude-haiku-4-5)
     cavoti_api_key: SecretStr | None = Field(
         None,
@@ -495,7 +501,7 @@ class Settings(BaseSettings):
         "gpt-4o-mini,gpt-4o,claude-3-5-sonnet,gemini-1.5-flash,*",
         validation_alias=AliasChoices("RESPAN_AI_ALLOWED_MODELS", "RESPAN_ALLOWED_MODELS"),
     )
-    # Coarena AI Gateway — free frontier models (claude-sonnet-5-5, gemini-4-argon, etc.)
+    # Coarena AI Gateway — free frontier models (deepseek-v4-1-flash-1017, gemini-3-8-flash, gpt-6-luna)
     coarena_api_key: SecretStr | None = Field(
         None,
         validation_alias=AliasChoices("COARENA_API_KEY", "COARENA_KEY"),
@@ -505,12 +511,72 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("COARENA_BASE_URL"),
     )
     coarena_model: str = Field(
-        "claude-sonnet-5-5",
+        "deepseek-v4-1-flash-1017",
         validation_alias=AliasChoices("COARENA_MODEL"),
     )
     coarena_allowed_models_raw: str = Field(
-        "claude-sonnet-5-5,claude-opus-5-5,claude-fable-5,claude-fable-5-1,claude-fable-5-2,claude-haiku-5-5,gemini-4-argon,gemini-4-carbon,gemini-3-8-flash,grok-4-7,deepseek-v4-1-flash-1017,glm-5-3-flash,hy4,kimi-k3,kimi-k3-1-pro,mimo-v2-6-pro,minimax-m3-1-flash,qwen3-8-2-4t-a95b,*",
+        "deepseek-v4-1-flash-1017,gemini-3-8-flash,gpt-6-luna,claude-sonnet-5-5,claude-opus-5-5,claude-fable-5,claude-fable-5-1,claude-fable-5-2,claude-haiku-5-5,gemini-4-argon,gemini-4-carbon,grok-4-7,glm-5-3-flash,hy4,kimi-k3,kimi-k3-1-pro,mimo-v2-6-pro,minimax-m3-1-flash,qwen3-8-2-4t-a95b,*",
         validation_alias=AliasChoices("COARENA_ALLOWED_MODELS"),
+    )
+    # Top-Tools AI Gateway — OpenAI-compatible Pro gateway (Top-Tools-Ai-Pro 1M context, vision, tool calls)
+    toptools_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("TOPTOOLS_API_KEY", "TOPTOOLS_AI_API_KEY", "TOPTOOLS_KEY"),
+    )
+    toptools_base_url: str = Field(
+        "https://top-tools-ai.com/api/v1",
+        validation_alias=AliasChoices("TOPTOOLS_BASE_URL", "TOPTOOLS_AI_BASE_URL"),
+    )
+    toptools_model: str = Field(
+        "Top-Tools-Ai-Pro",
+        validation_alias=AliasChoices("TOPTOOLS_MODEL", "TOPTOOLS_AI_MODEL"),
+    )
+    toptools_allowed_models_raw: str = Field(
+        "Top-Tools-Ai-Pro,Top-Tools-Ai-Basic,Top-Tools-Ai-Max,*",
+        validation_alias=AliasChoices("TOPTOOLS_ALLOWED_MODELS", "TOPTOOLS_AI_ALLOWED_MODELS"),
+    )
+    # TokenRouter Gateway — OpenAI-compatible multi-provider router (DeepSeek & frontier models)
+    tokenrouter_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("TOKENROUTER_API_KEY", "TOKEN_ROUTER_API_KEY", "TOKENROUTER_KEY"),
+    )
+    tokenrouter_base_url: str = Field(
+        "https://api.tokenrouter.com/v1",
+        validation_alias=AliasChoices("TOKENROUTER_BASE_URL", "TOKEN_ROUTER_BASE_URL"),
+    )
+    tokenrouter_model: str = Field(
+        "deepseek/deepseek-chat",
+        validation_alias=AliasChoices("TOKENROUTER_MODEL", "TOKEN_ROUTER_MODEL"),
+    )
+    tokenrouter_allowed_models_raw: str = Field(
+        "deepseek/deepseek-chat,deepseek/deepseek-reasoner,deepseek-chat,deepseek-reasoner,*",
+        validation_alias=AliasChoices("TOKENROUTER_ALLOWED_MODELS", "TOKEN_ROUTER_ALLOWED_MODELS"),
+    )
+    # CanTrustAI Gateway — high-speed DeepSeek and Claude models
+    cantrust_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("CANTRUST_API_KEY", "CANTRUSTAI_API_KEY", "CANTRUST_AI_API_KEY"),
+    )
+    cantrust_base_url: str = Field(
+        "https://api.cantrustai.xyz/v1",
+        validation_alias=AliasChoices("CANTRUST_BASE_URL", "CANTRUSTAI_BASE_URL", "CANTRUST_AI_BASE_URL"),
+    )
+    cantrust_model: str = Field(
+        "deepseek/deepseek-v4.1-flash",
+        validation_alias=AliasChoices("CANTRUST_MODEL", "CANTRUSTAI_MODEL"),
+    )
+    cantrust_allowed_models_raw: str = Field(
+        "deepseek/deepseek-v4.1-flash",
+        validation_alias=AliasChoices("CANTRUST_ALLOWED_MODELS", "CANTRUSTAI_ALLOWED_MODELS"),
+    )
+    # ML AI Code (https://code.ml.ai) — cloud coding automations / routines API
+    mlai_code_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("MLAI_CODE_API_KEY", "MLAI_API_KEY"),
+    )
+    mlai_code_base_url: str = Field(
+        "https://code.ml.ai",
+        validation_alias=AliasChoices("MLAI_CODE_BASE_URL", "MLAI_BASE_URL"),
     )
     # Articul8 / Bivia ("Ben") Multi-Modal Decision Engine
     articul8_api_key: SecretStr | None = Field(
@@ -760,6 +826,16 @@ class Settings(BaseSettings):
     deepgram_tts_model_hiro: str = Field("aura-2-odysseus-en", alias="DEEPGRAM_TTS_MODEL_HIRO")
     # Deepgram Aura deep velvety feminine voice for Hinaa (aura-2-athena-en)
     deepgram_tts_model_hinaa: str = Field("aura-2-athena-en", alias="DEEPGRAM_TTS_MODEL_HINAA")
+    deepgram_tts_model_cute: str = Field("aura-2-thalia-en", alias="DEEPGRAM_TTS_MODEL_CUTE")
+    edge_tts_voice_hinaa: str = Field("en-US-AnaNeural", alias="EDGE_TTS_VOICE_HINAA")
+    heygen_api_key: SecretStr | None = Field(
+        None,
+        validation_alias=AliasChoices("HEYGEN_API_KEY", "Heygen_API_KEY"),
+    )
+    heygen_base_url: str = Field(
+        "https://api.heygen.com",
+        validation_alias=AliasChoices("HEYGEN_BASE_URL", "Heygen_BASE_URL"),
+    )
     # /v1/listen only accepts prerecorded models; flux is realtime-only and 404s here.
     deepgram_stt_model: str = Field("nova-2-general", alias="DEEPGRAM_STT_MODEL")
     allowed_origins: Annotated[list[str], NoDecode] = Field(
@@ -883,6 +959,8 @@ class Settings(BaseSettings):
     # the host until a verified session can replace the origin check. See tools/policy.py.
     allow_remote_local_tools: bool = Field(False, alias="HINAA_ALLOW_REMOTE_LOCAL_TOOLS")
     allow_tunnel_dev_auth: bool = Field(False, alias="HINAA_ALLOW_TUNNEL_DEV_AUTH")
+    full_autonomy: bool = Field(False, alias="HINAA_FULL_AUTONOMY")
+    auto_approve: bool = Field(False, alias="HINAA_AUTO_APPROVE")
     magnific_disabled: bool = Field(False, alias="HINAA_MAGNIFIC_DISABLED")
     clerk_jwt_key: str | None = Field(None, alias="CLERK_JWT_KEY")
     # Without a PEM, the Clerk SDK fetches this instance's public keys over the
@@ -1364,6 +1442,10 @@ class Settings(BaseSettings):
         return bool(self.deepgram_api_key and self.deepgram_api_key.get_secret_value())
 
     @property
+    def heygen_configured(self) -> bool:
+        return bool(self.heygen_api_key and self.heygen_api_key.get_secret_value())
+
+    @property
     def active_openai_key(self) -> SecretStr | None:
         if self.openai_api_key and self.openai_api_key.get_secret_value():
             return self.openai_api_key
@@ -1724,16 +1806,65 @@ class Settings(BaseSettings):
         return value or None
 
     @property
+    def visible_providers(self) -> list[str]:
+        return [p.strip() for p in self.visible_providers_raw.split(",") if p.strip()]
+
+    @property
     def active_xkiro_model(self) -> str:
-        return self.xkiro_model or "qwen/qwen3.8-max:free"
+        retired = {"mistralai/mistral-large-4-0", "mistralai/mistral-medium-3.5"}
+        raw = (self.xkiro_model or "").strip()
+        if not raw or raw in retired:
+            return "openai/gpt-6.2-sol"
+        return raw
 
     @property
     def xkiro_allowed_models(self) -> list[str]:
-        configured = [m.strip() for m in self.xkiro_allowed_models_raw.split(",") if m.strip()]
-        models = configured or [self.active_xkiro_model]
+        retired = {"mistralai/mistral-large-4-0", "mistralai/mistral-medium-3.5"}
+        verified_defaults = (
+            "openai/gpt-6.2-sol",
+            "openai/gpt-6.1-terra",
+            "openai/gpt-6-sol",
+            "openai/gpt-6-luna",
+            "openai/gpt-5.6-sol",
+            "openai/gpt-5.6-terra",
+            "openai/gpt-5.6-luna",
+            "x-ai/grok-4.7",
+            "x-ai/grok-4.6",
+            "z-ai/glm-5.4",
+            "z-ai/glm-5.3-flash",
+            "nvidia/nemotron-3.5-super-vl",
+            "nvidia/nemotron-3-ultra",
+            "cohere/command-a-plus",
+            "cohere/north-mini-code",
+            "cohere/command-a-reasoning",
+            "cohere/command-a",
+        )
+        configured = [
+            m.strip()
+            for m in self.xkiro_allowed_models_raw.split(",")
+            if m.strip() and m.strip() not in retired
+        ]
+        models = list(configured)
+        for verified in verified_defaults:
+            if verified not in models:
+                models.append(verified)
         if self.active_xkiro_model and self.active_xkiro_model not in models:
             models.insert(0, self.active_xkiro_model)
+        if "*" not in models:
+            models.append("*")
         return list(dict.fromkeys(models))
+
+    @property
+    def active_browser_use_base_url(self) -> str:
+        raw = (self.browser_use_base_url or "").strip().rstrip("/")
+        lowered = raw.lower()
+        if not raw or "browserbase.com" in lowered or "cloud.browser-use.com" in lowered:
+            return "https://api.browser-use.com/api/v4"
+        if lowered.endswith("/api/v2"):
+            return f"{raw[:-7]}/api/v4"
+        if "api.browser-use.com" in lowered and not lowered.endswith("/api/v4"):
+            return "https://api.browser-use.com/api/v4"
+        return raw
 
     def resolve_xkiro_model(self, requested: str | None = None) -> str:
         req = (requested or "").strip()
@@ -1772,6 +1903,8 @@ class Settings(BaseSettings):
             "openai": self.openai_configured,
             "qwen": self.qwen_configured,
             "coarena": self.coarena_configured,
+            "toptools": self.toptools_configured,
+            "tokenrouter": self.tokenrouter_configured,
             "cavoti": self.cavoti_configured,
             "explabs": self.explabs_configured,
             "xkiro": bool(
@@ -1978,7 +2111,7 @@ class Settings(BaseSettings):
 
     @property
     def active_coarena_model(self) -> str:
-        return self.coarena_model or "claude-sonnet-5-5"
+        return self.coarena_model or "deepseek-v4-1-flash-1017"
 
     @property
     def coarena_allowed_models(self) -> list[str]:
@@ -1994,6 +2127,136 @@ class Settings(BaseSettings):
             allowed = ", ".join(self.coarena_allowed_models)
             raise ValueError(f"Coarena model is not in COARENA_ALLOWED_MODELS: {allowed}")
         return model
+
+    @property
+    def toptools_configured(self) -> bool:
+        return bool(
+            self.toptools_api_key
+            and self.toptools_api_key.get_secret_value()
+            and self.active_toptools_base_url
+        )
+
+    @property
+    def active_toptools_key(self) -> SecretStr | None:
+        if self.toptools_api_key and self.toptools_api_key.get_secret_value():
+            return self.toptools_api_key
+        return None
+
+    @property
+    def active_toptools_base_url(self) -> str | None:
+        value = (self.toptools_base_url or "").strip().rstrip("/")
+        return value or "https://top-tools-ai.com/api/v1"
+
+    @property
+    def active_toptools_model(self) -> str:
+        return self.toptools_model or "Top-Tools-Ai-Pro"
+
+    @property
+    def toptools_allowed_models(self) -> list[str]:
+        configured = [m.strip() for m in self.toptools_allowed_models_raw.split(",") if m.strip()]
+        models = configured or [self.active_toptools_model]
+        if self.active_toptools_model and self.active_toptools_model not in models:
+            models.insert(0, self.active_toptools_model)
+        return models
+
+    def resolve_toptools_model(self, requested: str | None = None) -> str:
+        model = (requested or "").strip() or self.active_toptools_model
+        if "*" not in self.toptools_allowed_models and model not in self.toptools_allowed_models:
+            allowed = ", ".join(self.toptools_allowed_models)
+            raise ValueError(f"Top-Tools AI model is not in TOPTOOLS_ALLOWED_MODELS: {allowed}")
+        return model
+
+    @property
+    def tokenrouter_configured(self) -> bool:
+        return bool(
+            self.tokenrouter_api_key
+            and self.tokenrouter_api_key.get_secret_value()
+            and self.active_tokenrouter_base_url
+        )
+
+    @property
+    def active_tokenrouter_key(self) -> SecretStr | None:
+        if self.tokenrouter_api_key and self.tokenrouter_api_key.get_secret_value():
+            return self.tokenrouter_api_key
+        return None
+
+    @property
+    def active_tokenrouter_base_url(self) -> str | None:
+        value = (self.tokenrouter_base_url or "").strip().rstrip("/")
+        return value or "https://api.tokenrouter.com/v1"
+
+    @property
+    def active_tokenrouter_model(self) -> str:
+        return self.tokenrouter_model or "deepseek/deepseek-chat"
+
+    @property
+    def tokenrouter_allowed_models(self) -> list[str]:
+        configured = [m.strip() for m in self.tokenrouter_allowed_models_raw.split(",") if m.strip()]
+        models = configured or [self.active_tokenrouter_model]
+        if self.active_tokenrouter_model and self.active_tokenrouter_model not in models:
+            models.insert(0, self.active_tokenrouter_model)
+        return list(dict.fromkeys(models))
+
+    def resolve_tokenrouter_model(self, requested: str | None = None) -> str:
+        model = (requested or "").strip() or self.active_tokenrouter_model
+        if "*" not in self.tokenrouter_allowed_models and model not in self.tokenrouter_allowed_models:
+            allowed = ", ".join(self.tokenrouter_allowed_models)
+            raise ValueError(f"TokenRouter model is not in TOKENROUTER_ALLOWED_MODELS: {allowed}")
+        return model
+
+    @property
+    def cantrust_configured(self) -> bool:
+        return bool(
+            self.cantrust_api_key
+            and self.cantrust_api_key.get_secret_value()
+            and self.active_cantrust_base_url
+        )
+
+    @property
+    def active_cantrust_key(self) -> SecretStr | None:
+        if self.cantrust_api_key and self.cantrust_api_key.get_secret_value():
+            return self.cantrust_api_key
+        return None
+
+    @property
+    def active_cantrust_base_url(self) -> str | None:
+        value = (self.cantrust_base_url or "").strip().rstrip("/")
+        if value and not value.endswith("/v1"):
+            value = f"{value}/v1"
+        return value or "https://api.cantrustai.xyz/v1"
+
+    @property
+    def active_cantrust_model(self) -> str:
+        return self.cantrust_model or "deepseek/deepseek-v4.1-flash"
+
+    @property
+    def cantrust_allowed_models(self) -> list[str]:
+        configured = [m.strip() for m in self.cantrust_allowed_models_raw.split(",") if m.strip()]
+        models = configured or [self.active_cantrust_model]
+        if self.active_cantrust_model and self.active_cantrust_model not in models:
+            models.insert(0, self.active_cantrust_model)
+        return list(dict.fromkeys(models))
+
+    def resolve_cantrust_model(self, requested: str | None = None) -> str:
+        model = (requested or "").strip() or self.active_cantrust_model
+        if "*" not in self.cantrust_allowed_models and model not in self.cantrust_allowed_models:
+            allowed = ", ".join(self.cantrust_allowed_models)
+            raise ValueError(f"CanTrustAI model is not in CANTRUST_ALLOWED_MODELS: {allowed}")
+        return model
+
+    @property
+    def active_mlai_code_key(self) -> SecretStr | None:
+        if self.mlai_code_api_key and self.mlai_code_api_key.get_secret_value().strip():
+            return self.mlai_code_api_key
+        return None
+
+    @property
+    def active_mlai_code_base_url(self) -> str:
+        return (self.mlai_code_base_url or "https://code.ml.ai").strip().rstrip("/") or "https://code.ml.ai"
+
+    @property
+    def mlai_code_configured(self) -> bool:
+        return self.active_mlai_code_key is not None and bool(self.active_mlai_code_base_url)
 
     @property
     def articul8_configured(self) -> bool:

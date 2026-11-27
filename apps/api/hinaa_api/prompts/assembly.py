@@ -134,18 +134,23 @@ def _self_state_layer(voice: bool = False, allowed_tools: tuple[str, ...] | None
 
         settings = get_settings()
         brains = [
-            name
-            for name in (
-                "claude",
-                "gemini",
-                "openai",
-                "groq",
-                "qwen",
-                "azure",
-                "agent-router",
-                "custom",
+            label
+            for label, attr in (
+                ("xkiro", "xkiro_configured"),
+                ("cantrustai", "cantrust_configured"),
+                ("coarena", "coarena_configured"),
+                ("toptools", "toptools_configured"),
+        ("tokenrouter", "tokenrouter_configured"),
+                ("claude", "claude_configured"),
+                ("gemini", "gemini_configured"),
+                ("openai", "openai_configured"),
+                ("groq", "groq_configured"),
+                ("qwen", "qwen_configured"),
+                ("azure", "azure_configured"),
+                ("agent-router", "agent_router_configured"),
+                ("custom", "custom_configured"),
             )
-            if getattr(settings, f"{name.replace('-', '_')}_configured", False)
+            if getattr(settings, attr, False)
         ]
         tool_names = [tool.name for tool in registry.get_all_tools()]
         # The capability registry is the single source of truth for what this
@@ -167,7 +172,8 @@ def _self_state_layer(voice: bool = False, allowed_tools: tuple[str, ...] | None
             video_line = "- Video generation: unknown (capability registry unavailable)."
         capabilities = (
             "- Mode: Conversational Engagement. No tools are available on this turn. "
-            "Respond directly, warmly, and helpfully without invoking tool jobs unless requested."
+            "Respond directly, warmly, and helpfully without claiming you executed files, commands, or renders; "
+            "note that on explicit build/code/render requests, HINAA automatically attaches its autonomous tool runner."
             if voice or (allowed_tools is not None and len(allowed_tools) == 0)
             else (
                 f"- Active tool suite on this turn ({len(allowed_tools)}): {', '.join(sorted(allowed_tools))}."
@@ -258,7 +264,7 @@ def _schema_layer(mode: str) -> str:
             "REALTIME OUTPUT CONTRACT:\n"
             "- Reply with natural, direct text only (no JSON wrapper in the stream).\n"
             "- Do not emit stage directions, XML tags (no <spokenText> or <displayText>), emotion tags, or tool markup.\n"
-            "- CRITICAL (ABSOLUTE MANDATE): NEVER output `TOOL_REQUEST`, ```TOOL_REQUEST```, ```tool_call```, <web_search>, or simulated tool code blocks. You are in direct conversational mode and there is NO interactive tool runner in this stream.\n"
+            "- CRITICAL (ABSOLUTE MANDATE): NEVER output `TOOL_REQUEST`, ```TOOL_REQUEST```, ```tool_call```, <web_search>, unexecuted HTML/bash code dumps, or simulated tool code blocks. Do NOT claim 'there is no tool runner active/attached' or tell the user to 'say go' or 'flip the runner on'; keep replies direct in plain prose.\n"
             "- NEVER tell the user to wait while a tool runs or say 'let me search' and stop. Give your complete, substantive, authoritative answer directly in the text block.\n"
             "- spokenText is the channel that must stay speech-safe: no markdown tables, headings or code blocks. "
             "displayText is read on screen and should use whatever structure the response depth asks for.\n"
@@ -285,13 +291,27 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
         actual_mode,
         mode_inferred=inp.response_mode is None,
     )
+    muse_runner_active = bool(
+        inp.dialogue_state_block
+        and (
+            "MUSE" in inp.dialogue_state_block
+            or "Active Background Builder Run" in inp.dialogue_state_block
+            or "WORKSPACE RUNNER" in inp.dialogue_state_block
+        )
+    )
+    pid_text = _product_identity_layer(voice=inp.interaction_mode == "realtime", allowed_tools=inp.allowed_tools)
+    if muse_runner_active:
+        pid_text = pid_text.replace(
+            "Mode: Conversational Engagement. No tools are available on this turn.",
+            "Mode: Muse Co-Builder (Live Workspace Builder Runner IS attached & executing in parallel).",
+        )
     layers = [
         PromptLayer(name="safety", priority=1, trusted=True, text=SAFETY_LAYER),
         PromptLayer(
             name="product_identity",
             priority=2,
             trusted=True,
-            text=_product_identity_layer(voice=inp.interaction_mode == "realtime", allowed_tools=inp.allowed_tools),
+            text=pid_text,
         ),
         PromptLayer(
             name="companion_identity",
@@ -345,15 +365,24 @@ def assemble_prompt(inp: PromptInput) -> PromptPackage:
             priority=9,
             trusted=True,
             text=(
-                NO_TOOLS_POLICY_LAYER
-                if (inp.allowed_tools is not None and len(inp.allowed_tools) == 0)
+                (
+                    "[MUSE WORKSPACE RUNNER ATTACHED — PARALLEL CO-BUILDER MODE]\n"
+                    "Brain #1 (Workspace Builder Runner) IS attached and executing real files/commands in parallel right now! "
+                    "Do NOT emit fake tool calls in this conversational stream, and NEVER claim that no workspace/file runner is attached. "
+                    "Chat naturally, share honest progress, ask concise clarifying design questions when helpful, and relay user feedback directly to the builder."
+                )
+                if (muse_runner_active and inp.allowed_tools is not None and len(inp.allowed_tools) == 0)
                 else (
-                    REALTIME_TOOL_POLICY_LAYER
-                    if inp.interaction_mode == "realtime"
+                    NO_TOOLS_POLICY_LAYER
+                    if (inp.allowed_tools is not None and len(inp.allowed_tools) == 0)
                     else (
-                        TOOL_POLICY_LAYER + "\n\n" + registry.generate_system_prompt(inp.allowed_tools)
-                        if inp.allowed_tools is not None
-                        else TOOL_POLICY_LAYER + "\n\n" + registry.generate_system_prompt()
+                        REALTIME_TOOL_POLICY_LAYER
+                        if inp.interaction_mode == "realtime"
+                        else (
+                            TOOL_POLICY_LAYER + "\n\n" + registry.generate_system_prompt(inp.allowed_tools)
+                            if inp.allowed_tools is not None
+                            else TOOL_POLICY_LAYER + "\n\n" + registry.generate_system_prompt()
+                        )
                     )
                 )
             ),

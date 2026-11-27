@@ -103,6 +103,7 @@ class CreativeJobSpec(BaseModel):
     mask_asset_id: Optional[str] = None
     timeline_frames: Optional[List[str]] = None
     motion_scenes: Optional[List[MotionScene]] = Field(default=None, min_length=1, max_length=8)
+    timeline_json: Optional[Dict[str, Any]] = None
     fps: float = Field(24.0, ge=1.0, le=60.0)
     duration_seconds: float = Field(3.0, ge=0.1, le=60.0)
     idempotency_key: Optional[str] = None

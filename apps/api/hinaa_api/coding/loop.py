@@ -293,3 +293,110 @@ class AutonomousCodingLoop:
             self.emit("run.failed", "Tests failed post-patch", {"exit_code": exec_res.exit_code})
 
         return self.status
+
+    async def execute_goal(
+        self,
+        *,
+        planner: Any,
+        test_command: Optional[List[str]] = None,
+        use_worktree: bool = False,
+        max_steps: int = 8,
+        allowed_tools: Optional[set[str]] = None,
+    ) -> CodingTaskStatus:
+        """Execute an open-ended multi-step coding or studio goal via `AgenticLoopRunner`."""
+        from hinaa_api.agent.agentic_runner import AgenticLoopRunner
+
+        self.status.state = CodingTaskState.INITIALIZING
+        self.emit("run.started", "Initializing bounded autonomous coding & studio loop")
+        if self.is_cancelled:
+            self.status.state = CodingTaskState.CANCELLED
+            return self.status
+
+        target_ws = self.workspace_root
+        if use_worktree:
+            try:
+                from hinaa_api.harness.git_worktrees import GitWorktreeManager
+
+                mgr = GitWorktreeManager(str(self.workspace_root))
+                if mgr.is_git_repository():
+                    wt = mgr.create_worktree(self.spec.task_id)
+                    if wt and wt.worktree_path:
+                        target_ws = Path(wt.worktree_path).resolve()
+                        self.status.branch_name = wt.branch_name
+                        self.emit("tool.completed", f"Prepared isolated git worktree {wt.branch_name}", {"worktree": str(target_ws)})
+            except Exception as wt_exc:
+                self.emit("tool.failed", f"Worktree setup fell back to workspace: {wt_exc}", {"error": str(wt_exc)})
+
+        self.status.state = CodingTaskState.EXECUTING
+        cancel_ev = asyncio.Event()
+        runner = AgenticLoopRunner(
+            max_steps=max_steps,
+            wall_clock_seconds=float(self.spec.timeout_seconds),
+            workspace_root=str(target_ws),
+        )
+
+        async def _relay_event(evt_name: str, payload: Dict[str, Any]) -> None:
+            if self.is_cancelled:
+                cancel_ev.set()
+            self.emit(evt_name, str(payload.get("toolName") or payload.get("reason") or evt_name), payload)
+
+        res = await runner.run(
+            goal=self.spec.objective,
+            planner=planner,
+            allowed_tools=allowed_tools,
+            cancel_event=cancel_ev,
+            on_event=_relay_event,
+            run_id=self.spec.task_id,
+        )
+
+        for fp in res.files_changed:
+            if fp not in self.status.files_changed:
+                self.status.files_changed.append(fp)
+        if res.artifacts:
+            self.status.artifacts.extend(res.artifacts)
+            diffs = [str(a.get("diff") or "") for a in res.artifacts if a.get("diff")]
+            if diffs:
+                self.status.diff_summary = "\n".join(diffs)[:8000]
+
+        if res.status == "awaiting_approval":
+            self.status.state = CodingTaskState.WAITING_APPROVAL
+            self.status.error = res.blocker
+            return self.status
+        if res.status == "cancelled" or self.is_cancelled:
+            self.status.state = CodingTaskState.CANCELLED
+            return self.status
+        if res.status in {"failed", "blocked", "budget_exhausted"}:
+            self.status.state = CodingTaskState.FAILED
+            self.status.error = res.blocker or res.summary
+            self.emit("run.failed", self.status.error or "Goal execution blocked", {"status": res.status})
+            return self.status
+
+        if test_command:
+            self.status.state = CodingTaskState.TESTING
+            self.emit("tool.started", f"Running verification: {' '.join(test_command)}", {"command": test_command})
+            exec_res = await self.sandbox.run_command(test_command, cwd=target_ws)
+            self.status.step_results.append(CodingStepResult(
+                step_id=f"step-verify-{int(time.time()*1000)}",
+                action_type=CodingActionType.RUN_TEST,
+                status="SUCCESS" if exec_res.exit_code == 0 else "FAILED",
+                exit_code=exec_res.exit_code,
+                stdout=exec_res.stdout[:4000],
+                stderr=exec_res.stderr[:4000],
+                duration_ms=exec_res.duration_ms,
+            ))
+            if exec_res.exit_code != 0:
+                self.status.state = CodingTaskState.FAILED
+                self.status.error = f"Verification command failed (exit {exec_res.exit_code})"
+                self.emit("run.failed", self.status.error, {"exit_code": exec_res.exit_code})
+                return self.status
+            self.status.verification_evidence.append(
+                f"Verified '{' '.join(test_command)}' passed (exit 0 in {exec_res.duration_ms:.1f}ms)"
+            )
+
+        self.status.state = CodingTaskState.COMPLETED
+        self.emit("run.completed", res.summary[:300] or "Goal completed", {
+            "steps_executed": res.steps_executed,
+            "files_changed": self.status.files_changed,
+            "artifacts": len(self.status.artifacts),
+        })
+        return self.status

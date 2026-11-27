@@ -31,6 +31,9 @@ import {
   Footprints,
   Volume2,
   Pencil,
+  ShieldAlert,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { useLiveVision } from "../../features/vision/useLiveVision";
 import { downloadMarkdownPdf, downloadMarkdownPptx } from "../../features/documents/exportPdf";
@@ -133,6 +136,8 @@ const LOCAL_COMMAND_ACTIONS: Record<string, string> = {
 import { GenericResultRenderer } from "../../features/chat/components/GenericResultRenderer";
 import { ResponseRenderer } from "../../components/ui/ResponseRenderer";
 import { AgentActivityCard, type ActivityStep } from "../../features/chat/components/AgentActivityCard";
+import { ActivityFeedV2 } from "../../features/chat/components/ActivityFeedV2";
+import { LoopAgentRunPanel } from "../../features/chat/components/LoopAgentRunPanel";
 import { SearchingLoader, WebSearchLoader } from "../../components/ui/SearchingLoader";
 import { AvatarModelPicker } from "../../features/avatar/AvatarModelPicker";
 import { AVATAR_REGISTRY, DEFAULT_AVATAR_FILE } from "../../features/avatar/avatarRegistry";
@@ -161,6 +166,11 @@ function getProviderDisplayName(mode?: string): string {
     case "cavoti": return "Cavoti AI";
     case "apmix": return "APMIX.AI";
     case "oxion": return "Oxion AI";
+    case "coarena": return "Coarena AI";
+    case "cantrustai":
+    case "cantrust": return "CanTrustAI (DeepSeek)";
+    case "toptools": return "Top-Tools AI";
+    case "tokenrouter": return "TokenRouter";
     default:
       return mode.charAt(0).toUpperCase() + mode.slice(1);
   }
@@ -178,7 +188,7 @@ interface WorkModeProps {
   searchQuery?: string;
   input: string;
   onInputChange: (value: string) => void;
-  onSend: (customText?: string, attachmentRole?: AttachmentRole) => void;
+  onSend: (customText?: string, attachmentRole?: AttachmentRole, agenticMode?: boolean, extraMedia?: any[]) => void;
   onAddMessage?: (message: TranscriptMessage) => void;
   onStop: () => void;
   disabled: boolean;
@@ -201,6 +211,22 @@ interface WorkModeProps {
   }>;
   currentAgentRunId?: string;
   currentAgentConfirmationStepId?: string;
+  backgroundBuild?: {
+    runId: string;
+    goal: string;
+    status: string;
+    phase?: string;
+    headline?: string;
+    elapsedMs?: number;
+    step?: number;
+    previewUrls?: string[];
+    filesChanged?: string[];
+    summary?: string;
+  } | null;
+  pendingApproval?: { stepId: string; actionName: string; command?: string; detail?: string } | null;
+  approvalPending?: boolean;
+  approvalError?: string | null;
+  onCancelBackgroundBuild?: () => void;
   onCancelAgentRun?: () => void;
   onResumeAgentRun?: () => void;
   onConfirmAgentStep?: (approved: boolean) => void;
@@ -281,6 +307,11 @@ export function WorkMode({
   agentSteps,
   currentAgentRunId,
   currentAgentConfirmationStepId,
+  backgroundBuild = null,
+  pendingApproval = null,
+  approvalPending = false,
+  approvalError = null,
+  onCancelBackgroundBuild,
   onCancelAgentRun,
   onResumeAgentRun,
   onConfirmAgentStep,
@@ -328,6 +359,32 @@ export function WorkMode({
   onExecutiveModeChange,
 }: WorkModeProps) {
   const { scrollRef, endRef, showJump, scrollToBottom } = useAutoScroll([messages, streamingText, partialTranscript]);
+  const [visibleWindowCount, setVisibleWindowCount] = useState(80);
+  const [upperBuildExpanded, setUpperBuildExpanded] = useState(false);
+  const [dismissedBuildRunId, setDismissedBuildRunId] = useState<string | null>(null);
+  const [activeLoopTaskId, setActiveLoopTaskId] = useState<string | null>(null);
+
+  const launchLoopTask = useCallback(async (goalText: string) => {
+    const clean = goalText.trim();
+    if (!clean) return;
+    try {
+      const res = await fetch("/api/loop/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          goal_title: clean,
+          verification_command: ["true"],
+          max_turns: 8,
+        }),
+      });
+      if (res.ok) {
+        const payload = (await res.json()) as { task_id?: string };
+        if (payload.task_id) setActiveLoopTaskId(payload.task_id);
+      }
+    } catch {
+      // Non-fatal if loop harness isn't reachable
+    }
+  }, []);
   const deduplicatedMessages = useMemo(() => {
     const seen = new Set<string>();
     const deduped: TranscriptMessage[] = [];
@@ -626,13 +683,22 @@ export function WorkMode({
       attachmentRole?: AttachmentRole;
       isGoalMode?: boolean;
       text?: string;
+      attachedMedia?: any[];
     }) => {
       // Flow B: Enter ALWAYS sends normal chat text! Never block or hijack user input!
       let text = (options?.text ?? input).trim();
-      if (!text && !attachedImage) return;
+      const extraMedia = options?.attachedMedia;
+      if (!text && !attachedImage && !(extraMedia && extraMedia.length > 0)) return;
 
       if (text === "/walk" || text === "/roam") {
         window.dispatchEvent(new CustomEvent("hinaa:toggle-walk-mode"));
+        onInputChange("");
+        return;
+      }
+
+      if (/^\/loop\s+\S/i.test(text)) {
+        const goalTxt = text.replace(/^\/loop\s+/i, "").trim();
+        void launchLoopTask(goalTxt);
         onInputChange("");
         return;
       }
@@ -676,7 +742,18 @@ export function WorkMode({
         text = `/code ${text}`;
       }
 
-      onSend(text, options?.attachmentRole);
+      const explicitAgentic = mode === "code" || isGoal || mode === "goal";
+      if (explicitAgentic) {
+        if (extraMedia && extraMedia.length > 0) {
+          onSend(text, options?.attachmentRole, true, extraMedia);
+        } else {
+          onSend(text, options?.attachmentRole, true);
+        }
+      } else if (extraMedia && extraMedia.length > 0) {
+        onSend(text, options?.attachmentRole, undefined, extraMedia);
+      } else {
+        onSend(text, options?.attachmentRole);
+      }
 
       // Reset one-shot action mode back to normal chat so it never sticks to subsequent turns
       if (actionMode !== "chat" && !isGoal) {
@@ -768,7 +845,8 @@ export function WorkMode({
     return [];
   }, [toolActivitySteps, agentSteps]);
 
-  const isAgentActive = (Boolean(currentAgentRunId) || agentSteps.length > 0) && agentSteps.some((s) => s.status === "active" || s.status === "pending");
+  const isBgRunning = Boolean(backgroundBuild && (backgroundBuild.status === "running" || backgroundBuild.status === "awaiting_approval"));
+  const isAgentActive = isBgRunning || ((Boolean(currentAgentRunId) || agentSteps.length > 0) && agentSteps.some((s) => s.status === "active" || s.status === "pending"));
   const isToolActive = toolActivitySteps.some((s) => s.status === "running");
   const isExecutionLive = isAgentActive || isToolActive;
 
@@ -1268,6 +1346,312 @@ export function WorkMode({
       ) : (
         <>
           <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden", position: "relative", zIndex: 1 }}>
+        <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          {(() => {
+            const showDock =
+              Boolean(pendingApproval) ||
+              Boolean(approvalError) ||
+              (Boolean(backgroundBuild) &&
+                (backgroundBuild!.status === "running" ||
+                  backgroundBuild!.status === "awaiting_approval" ||
+                  dismissedBuildRunId !== backgroundBuild!.runId)) ||
+              (isExecutionLive && convertedActivitySteps.length > 0);
+            if (!showDock) return null;
+            const isRunning =
+              backgroundBuild?.status === "running" ||
+              backgroundBuild?.status === "awaiting_approval" ||
+              isExecutionLive;
+            const statusBadge = pendingApproval
+              ? "APPROVAL NEEDED"
+              : backgroundBuild?.status === "running"
+                ? "BUILDING LIVE"
+                : backgroundBuild?.status === "completed"
+                  ? "BUILT"
+                  : backgroundBuild?.status === "cancelled"
+                    ? "CANCELLED"
+                    : backgroundBuild?.status === "failed"
+                      ? "STOPPED"
+                      : "ACTIVE";
+            const activeLiveStep =
+              convertedActivitySteps.find((s) => s.status === "running" || s.status === "pending") ??
+              convertedActivitySteps[convertedActivitySteps.length - 1];
+            const doneCount = convertedActivitySteps.filter((s) => s.status === "completed").length;
+            return (
+              <div
+                data-testid="upper-build-hud"
+                style={{
+                  flexShrink: 0,
+                  margin: isMobile ? "8px 10px 0" : "10px clamp(20px, 4vw, 56px) 0",
+                  padding: "10px 14px",
+                  borderRadius: 12,
+                  border: pendingApproval
+                    ? isDark
+                      ? "1px solid rgba(245, 158, 11, 0.55)"
+                      : "1px solid #d97706"
+                    : isDark
+                      ? "1px solid rgba(56, 189, 248, 0.28)"
+                      : "1px solid rgba(15, 23, 42, 0.12)",
+                  background: pendingApproval
+                    ? isDark
+                      ? "rgba(245, 158, 11, 0.12)"
+                      : "rgba(254, 243, 199, 0.92)"
+                    : isDark
+                      ? "rgba(15, 23, 42, 0.88)"
+                      : "rgba(248, 250, 252, 0.96)",
+                  boxShadow: isDark ? "0 8px 24px rgba(0,0,0,0.28)" : "0 6px 20px rgba(15,23,42,0.06)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                  zIndex: 5,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1 }}>
+                    {isRunning ? (
+                      <Loader2 size={14} className="animate-spin" color={isDark ? "#38bdf8" : "#0284c7"} />
+                    ) : (
+                      <Sparkles size={14} color={isDark ? "#a78bfa" : "#7c3aed"} />
+                    )}
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 800,
+                        letterSpacing: "0.04em",
+                        padding: "2px 7px",
+                        borderRadius: 999,
+                        background: pendingApproval
+                          ? isDark
+                            ? "rgba(245,158,11,0.22)"
+                            : "#fde68a"
+                          : isDark
+                            ? "rgba(56,189,248,0.16)"
+                            : "#e0f2fe",
+                        color: pendingApproval
+                          ? isDark
+                            ? "#fbbf24"
+                            : "#92400e"
+                          : isDark
+                            ? "#7dd3fc"
+                            : "#0369a1",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {statusBadge}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 650,
+                        color: isDark ? "#f8fafc" : "#0f172a",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={backgroundBuild?.headline || backgroundBuild?.goal || activeLiveStep?.title || "Builder Brain"}
+                    >
+                      {backgroundBuild?.headline || backgroundBuild?.goal || activeLiveStep?.title || "Background Builder Brain"}
+                    </span>
+                    {backgroundBuild?.filesChanged && backgroundBuild.filesChanged.length > 0 && (
+                      <span
+                        data-testid="upper-build-files-badge"
+                        style={{
+                          fontSize: 10.5,
+                          fontWeight: 650,
+                          padding: "2px 6px",
+                          borderRadius: 6,
+                          background: isDark ? "rgba(16,185,129,0.16)" : "#dcfce7",
+                          color: isDark ? "#6ee7b7" : "#166534",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {`${backgroundBuild.filesChanged.length} file${backgroundBuild.filesChanged.length === 1 ? "" : "s"}`}
+                      </span>
+                    )}
+                    {backgroundBuild?.previewUrls && backgroundBuild.previewUrls.length > 0 && (
+                      <a
+                        href={backgroundBuild.previewUrls[backgroundBuild.previewUrls.length - 1]}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        data-testid="upper-build-preview-link"
+                        style={{
+                          fontSize: 10.5,
+                          fontWeight: 700,
+                          padding: "2px 8px",
+                          borderRadius: 6,
+                          background: isDark ? "rgba(139,92,246,0.22)" : "#ede9fe",
+                          color: isDark ? "#ddd6fe" : "#5b21b6",
+                          textDecoration: "none",
+                          flexShrink: 0,
+                        }}
+                      >
+                        Open Preview ↗
+                      </a>
+                    )}
+                    {convertedActivitySteps.length > 0 && (
+                      <span style={{ fontSize: 11, color: isDark ? "#94a3b8" : "#475569", flexShrink: 0 }}>
+                        {activeLiveStep
+                          ? `· ${activeLiveStep.title} (${doneCount}/${convertedActivitySteps.length})`
+                          : `· ${doneCount}/${convertedActivitySteps.length} steps`}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                    {convertedActivitySteps.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setUpperBuildExpanded((v) => !v)}
+                        aria-label={upperBuildExpanded ? "Collapse build steps" : "Expand build steps"}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          padding: "4px 8px",
+                          borderRadius: 6,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          border: isDark ? "1px solid rgba(255,255,255,0.16)" : "1px solid #cbd5e1",
+                          background: isDark ? "rgba(255,255,255,0.06)" : "#ffffff",
+                          color: isDark ? "#e2e8f0" : "#0f172a",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {upperBuildExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                        <span>{`Steps (${convertedActivitySteps.length})`}</span>
+                      </button>
+                    )}
+                    {isRunning && (onCancelBackgroundBuild || onCancelAgentRun) && (
+                      <button
+                        type="button"
+                        onClick={() => (onCancelBackgroundBuild ? onCancelBackgroundBuild() : onCancelAgentRun?.())}
+                        style={{
+                          padding: "4px 9px",
+                          borderRadius: 6,
+                          fontSize: 11,
+                          fontWeight: 650,
+                          border: isDark ? "1px solid rgba(248,113,113,0.4)" : "1px solid #fca5a5",
+                          background: isDark ? "rgba(239,68,68,0.14)" : "#fef2f2",
+                          color: isDark ? "#fca5a5" : "#b91c1c",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Stop build
+                      </button>
+                    )}
+                    {!isRunning && backgroundBuild?.runId && (
+                      <button
+                        type="button"
+                        aria-label="Dismiss build dock"
+                        onClick={() => setDismissedBuildRunId(backgroundBuild.runId)}
+                        style={{
+                          padding: 4,
+                          borderRadius: 6,
+                          border: "none",
+                          background: "transparent",
+                          color: isDark ? "#94a3b8" : "#64748b",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <X size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {(pendingApproval || approvalError) && (
+                  <div
+                    data-testid="upper-approval-bar"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 10,
+                      flexWrap: "wrap",
+                      paddingTop: 6,
+                      borderTop: isDark ? "1px solid rgba(245,158,11,0.25)" : "1px solid rgba(217,119,6,0.25)",
+                    }}
+                  >
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0, flex: 1 }}>
+                      {pendingApproval && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                          <ShieldAlert size={14} color={isDark ? "#fbbf24" : "#b45309"} />
+                          <span style={{ fontSize: 11, fontWeight: 700, color: isDark ? "#fbbf24" : "#92400e" }}>
+                            Requires Approval:
+                          </span>
+                          <code style={{ fontSize: 11, fontWeight: 600, color: isDark ? "#f8fafc" : "#0f172a", wordBreak: "break-word" }}>
+                            {pendingApproval.command || pendingApproval.actionName}
+                          </code>
+                        </div>
+                      )}
+                      {pendingApproval?.detail && (
+                        <span style={{ fontSize: 10.5, color: isDark ? "#cbd5e1" : "#334155" }}>
+                          {pendingApproval.detail}
+                        </span>
+                      )}
+                      {approvalError && (
+                        <span role="alert" style={{ fontSize: 11, fontWeight: 600, color: isDark ? "#fca5a5" : "#b91c1c" }}>
+                          {approvalError}
+                        </span>
+                      )}
+                    </div>
+                    {pendingApproval && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                        <button
+                          type="button"
+                          disabled={approvalPending}
+                          onClick={() => onConfirmAgentStep?.(false)}
+                          style={{
+                            padding: "5px 10px",
+                            borderRadius: 6,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            border: isDark ? "1px solid rgba(255,255,255,0.2)" : "1px solid #cbd5e1",
+                            background: isDark ? "rgba(255,255,255,0.1)" : "#ffffff",
+                            color: isDark ? "#f8fafc" : "#0f172a",
+                            cursor: approvalPending ? "not-allowed" : "pointer",
+                            opacity: approvalPending ? 0.6 : 1,
+                          }}
+                        >
+                          Deny
+                        </button>
+                        <button
+                          type="button"
+                          disabled={approvalPending}
+                          onClick={() => onConfirmAgentStep?.(true)}
+                          style={{
+                            padding: "5px 12px",
+                            borderRadius: 6,
+                            fontSize: 11,
+                            fontWeight: 700,
+                            border: "none",
+                            background: isDark ? "#f8fafc" : "#0f172a",
+                            color: isDark ? "#0f172a" : "#ffffff",
+                            cursor: approvalPending ? "not-allowed" : "pointer",
+                            opacity: approvalPending ? 0.7 : 1,
+                          }}
+                        >
+                          {approvalPending ? "Allowing..." : "Allow"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {upperBuildExpanded && convertedActivitySteps.length > 0 && (
+                  <div
+                    style={{
+                      maxHeight: 240,
+                      overflowY: "auto",
+                      paddingTop: 6,
+                      borderTop: isDark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(15,23,42,0.08)",
+                    }}
+                  >
+                    <ActivityFeedV2
+                      steps={convertedActivitySteps}
+                      orientation={isMobile ? "stacked" : "auto"}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         {/* Transcript column — full screen width with generous responsive padding */}
         <div
           ref={scrollRef}
@@ -1440,9 +1824,34 @@ export function WorkMode({
           {/* Welcome */}
           {showWelcome && <WorkWelcome isDark={isDark} onAction={onWelcomeAction} />}
 
-          {/* Messages (Deduplicated & memoized for butter-smooth 120fps streaming) */}
+          {/* Virtual scroll windowing when conversation exceeds 100 messages */}
+          {!showWelcome && deduplicatedMessages.length > 100 && deduplicatedMessages.length > visibleWindowCount && (
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
+              <button
+                type="button"
+                onClick={() => setVisibleWindowCount((n) => n + 80)}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 999,
+                  border: "1px solid var(--border-default)",
+                  background: "var(--bg-surface-raised)",
+                  color: "var(--text-secondary)",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Show earlier messages ({deduplicatedMessages.length - visibleWindowCount} hidden)
+              </button>
+            </div>
+          )}
+
+          {/* Messages (Deduplicated, windowed above 100 items & memoized) */}
           {!showWelcome &&
-            deduplicatedMessages.map((msg) => (
+            (deduplicatedMessages.length > 100
+              ? deduplicatedMessages.slice(-visibleWindowCount)
+              : deduplicatedMessages
+            ).map((msg) => (
               <WorkMessage
                 key={msg.id}
                 message={msg}
@@ -1459,10 +1868,21 @@ export function WorkMode({
             </div>
           )}
 
+          {/* Live Autonomous Engineering Loop Feed (Phase 2-5 SSE Harness) */}
+          {activeLoopTaskId && (
+            <div style={{ marginBottom: 10 }}>
+              <LoopAgentRunPanel
+                taskId={activeLoopTaskId}
+                onFinished={() => {}}
+              />
+            </div>
+          )}
+
           {/* Execution progress — only shown when execution is actually live with real steps */}
-          {isExecutionLive && convertedActivitySteps.length > 0 && (
+          {!backgroundBuild && isExecutionLive && convertedActivitySteps.length > 0 && (
             <AgentActivityCard
               isActive={isExecutionLive}
+              runId={currentAgentRunId}
               steps={convertedActivitySteps}
               onCancel={() => {
                 onCancelAgentRun?.();
@@ -1482,9 +1902,8 @@ export function WorkMode({
             </div>
           )}
 
-          {/* Hina Brain Orchestration Panel */}
-          {/* Shows live multi-specialist status during agent/research workflows */}
-          {(isSearching || isAgentActive || agentSteps.length > 0 || Boolean(currentAgentRunId)) && (
+          {/* Hina Brain Orchestration Panel — shown for search/brain orchestration without stacking on AgentActivityCard */}
+          {!backgroundBuild && !(isExecutionLive && convertedActivitySteps.length > 0) && (isSearching || isAgentActive || agentSteps.length > 0 || Boolean(currentAgentRunId)) && (
             <_BrainOrchestrationInline
               agentSteps={agentSteps}
               isThinking={isThinking}
@@ -1546,6 +1965,7 @@ export function WorkMode({
           {/* Spacer for composer - 96px ensures input toolbar never overlaps last message bubble */}
           <div style={{ height: "96px", flexShrink: 0 }} />
           <div ref={endRef} />
+        </div>
         </div>
 
         {/* Floating jump-to-bottom button when user scrolled up */}

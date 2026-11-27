@@ -4070,6 +4070,10 @@ body {
   z-index: 25;
   pointer-events: none;
   max-width: 90%;
+  transition: bottom 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.companion-stage-container.has-subtitles .iris-waveform-stage {
+  bottom: 84px;
 }
 .iris-waveform-dock {
   pointer-events: auto;

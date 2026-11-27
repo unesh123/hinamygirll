@@ -30,6 +30,27 @@ class CreativeAssetManager:
             self.storage_root = Path(storage_root)
         self.storage_root.mkdir(parents=True, exist_ok=True)
         self._assets: Dict[str, AssetMetadata] = {}
+        self._load_persisted_metadata()
+
+    def _meta_path(self, tenant_id: str, asset_id: str) -> Optional[Path]:
+        if not tenant_id or not asset_id:
+            return None
+        safe_tenant = Path(tenant_id).name
+        safe_asset = Path(asset_id).name
+        if safe_tenant != tenant_id or safe_asset != asset_id or ".." in tenant_id or ".." in asset_id:
+            return None
+        p = (self.storage_root / safe_tenant / f"{safe_asset}.meta.json").resolve()
+        if not str(p).startswith(str(self.storage_root.resolve())):
+            return None
+        return p
+
+    def _load_persisted_metadata(self) -> None:
+        for meta_file in self.storage_root.glob("*/*.meta.json"):
+            try:
+                meta = AssetMetadata.model_validate_json(meta_file.read_text(encoding="utf-8"))
+                self._assets[meta.asset_id] = meta
+            except Exception:
+                continue
 
     def _sanitize_filename(self, filename: str) -> str:
         """Sanitizes filename while preserving Unicode/Devanagari characters."""
@@ -168,10 +189,24 @@ class CreativeAssetManager:
         )
 
         self._assets[asset_id] = meta
+        meta_path = self._meta_path(tenant_id, asset_id)
+        if meta_path is not None:
+            tmp_meta = meta_path.with_suffix(".tmp")
+            tmp_meta.write_text(meta.model_dump_json(indent=2), encoding="utf-8")
+            os.replace(tmp_meta, meta_path)
         return meta
 
     def get_asset_metadata(self, asset_id: str, tenant_id: str) -> Optional[AssetMetadata]:
         meta = self._assets.get(asset_id)
+        if not meta:
+            meta_path = self._meta_path(tenant_id, asset_id)
+            if meta_path is not None and meta_path.is_file():
+                try:
+                    loaded = AssetMetadata.model_validate_json(meta_path.read_text(encoding="utf-8"))
+                    self._assets[loaded.asset_id] = loaded
+                    meta = loaded
+                except Exception:
+                    return None
         if not meta or meta.tenant_id != tenant_id:
             return None
         return meta

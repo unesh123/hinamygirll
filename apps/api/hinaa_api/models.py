@@ -12,6 +12,8 @@ Language = Literal[
     "mixed",
 ]
 ProviderMode = Literal[
+    "cantrustai",
+    "cantrust",
     "gmi",
     "auto",
     "mock",
@@ -38,6 +40,8 @@ ProviderMode = Literal[
     "articul8",
     "respan",
     "coarena",
+    "toptools",
+    "tokenrouter",
     "experiential",
 ]
 CompanionId = Literal["hinaa", "hiro"]
@@ -144,6 +148,8 @@ class ToolRequest(BaseModel):
     status: str | None = None
     confirmed: bool = False
     approvalSource: Literal["none", "standing-consent", "user", "policy-engine"] = "none"
+    challengeId: str | None = Field(default=None, validation_alias=AliasChoices("challengeId", "challenge_id"))
+    tenantId: str | None = Field(default=None, validation_alias=AliasChoices("tenantId", "tenant_id"))
     idempotencyKey: str | None = Field(default=None, max_length=160)
     userId: str | None = None
     conversationId: str | None = None
@@ -255,6 +261,8 @@ class TurnRequest(BaseModel):
     providerMode: ProviderMode = "mock"
     responseMode: ResponseMode | None = None
     persona_mode: str | None = None  # companion | roast | unfiltered | deep | sage | playful | professional
+    agenticMode: bool | None = None  # True=force multi-step agent, False=single turn, None=auto-detect build/code/video
+    activeAgentRunId: str | None = None  # Background builder runId to live-steer from concurrent Muse chat
     brainModel: Annotated[
         str | None,
         Field(max_length=80, pattern=r"^[A-Za-z0-9._:/-]+$"),

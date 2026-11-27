@@ -46,6 +46,15 @@ apps/web/blob-report/
 .terraform/
 crash.log
 crash.*.log
+.hina/*.db
+.hina/*.db-wal
+.hina/*.db-shm
+.hina/*.db-journal
+
+# Git bundles and offline backups
+*.bundle
+**/*.bundle
+.hina/backup*
 
 # Certificates, keys, logs, audio captures
 *.log
@@ -146,3 +155,7 @@ infra/observability/prometheus/metrics_token
 
 # User prompt downloads
 Complete HINAA Test Prompt*
+
+# Generated local motion projects and vision review frames
+/motion-projects/
+/.hina/previews/

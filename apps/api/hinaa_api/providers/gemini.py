@@ -175,6 +175,185 @@ class GeminiLLMProvider:
         """The model id this instance sends, for whoever has to report it honestly."""
         return self._model
 
+    async def complete_raw_agentic(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int = 8192,
+        images: list[tuple[str, bytes]] | None = None,
+        tool_schemas: list[dict[str, Any]] | None = None,
+        messages: list[dict[str, Any]] | None = None,
+        tool_choice: str = "auto",
+    ) -> str:
+        """Direct raw completion for bounded coding/studio agent loops with native function calling + safe fallback."""
+        import json as _json
+
+        client = genai.Client(api_key=self._key)
+
+        def _build_declarations() -> list[types.FunctionDeclaration]:
+            decls: list[types.FunctionDeclaration] = []
+            for item in tool_schemas or []:
+                fn = item.get("function") if isinstance(item, dict) else None
+                if not isinstance(fn, dict) or not fn.get("name"):
+                    continue
+                schema = fn.get("parameters") or {"type": "object", "properties": {}}
+                decls.append(
+                    types.FunctionDeclaration(
+                        name=str(fn["name"]),
+                        description=str(fn.get("description") or "")[:500],
+                        parameters_json_schema=schema,
+                    )
+                )
+            return decls
+
+        def _build_contents(use_structured_msgs: bool) -> Any:
+            if not use_structured_msgs or not messages:
+                if images:
+                    parts: list[Any] = [user_prompt]
+                    for mime_type, raw_bytes in images[:8]:
+                        if raw_bytes:
+                            parts.append(types.Part.from_bytes(data=raw_bytes, mime_type=mime_type or "image/jpeg"))
+                    if len(parts) > 1:
+                        return parts
+                return user_prompt
+
+            built: list[types.Content] = []
+            name_by_call_id: dict[str, str] = {}
+            for msg in messages:
+                role = str(msg.get("role") or "user")
+                if role == "assistant" and isinstance(msg.get("tool_calls"), list):
+                    parts_m: list[types.Part] = []
+                    for tc in msg["tool_calls"]:
+                        if not isinstance(tc, dict):
+                            continue
+                        tc_id = str(tc.get("id") or "")
+                        fn = tc.get("function") or {}
+                        fn_name = str(fn.get("name") or "")
+                        if tc_id and fn_name:
+                            name_by_call_id[tc_id] = fn_name
+                        raw_args = fn.get("arguments")
+                        try:
+                            parsed_args = _json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
+                        except Exception:
+                            parsed_args = {}
+                        if fn_name:
+                            parts_m.append(
+                                types.Part.from_function_call(
+                                    name=fn_name,
+                                    args=parsed_args if isinstance(parsed_args, dict) else {},
+                                )
+                            )
+                    if parts_m:
+                        built.append(types.Content(role="model", parts=parts_m))
+                elif role == "tool":
+                    tc_id = str(msg.get("tool_call_id") or "")
+                    fn_name = str(msg.get("name") or name_by_call_id.get(tc_id) or "tool")
+                    try:
+                        parsed_obs = _json.loads(str(msg.get("content") or "{}"))
+                    except Exception:
+                        parsed_obs = {"result": str(msg.get("content") or "")}
+                    if not isinstance(parsed_obs, dict):
+                        parsed_obs = {"result": parsed_obs}
+                    part_r = types.Part.from_function_response(name=fn_name, response=parsed_obs)
+                    if built and built[-1].role == "user":
+                        built[-1].parts.append(part_r)
+                    else:
+                        built.append(types.Content(role="user", parts=[part_r]))
+                else:
+                    txt = msg.get("content")
+                    text_str = txt if isinstance(txt, str) else _json.dumps(txt or "", ensure_ascii=False)
+                    if text_str.strip():
+                        built.append(types.Content(role="user", parts=[types.Part.from_text(text=text_str)]))
+            if images:
+                img_parts: list[Any] = [
+                    types.Part.from_bytes(data=raw_bytes, mime_type=mime_type or "image/jpeg")
+                    for mime_type, raw_bytes in images[:8]
+                    if raw_bytes
+                ]
+                if img_parts:
+                    if built and built[-1].role == "user":
+                        built[-1].parts.extend(img_parts)
+                    else:
+                        built.append(
+                            types.Content(
+                                role="user",
+                                parts=[types.Part.from_text(text="Inspect the attached visual preview carefully."), *img_parts],
+                            )
+                        )
+            return built or user_prompt
+
+        decls = _build_declarations() if tool_schemas else []
+        try:
+            if decls:
+                try:
+                    gen_cfg_kw: dict[str, Any] = {
+                        "system_instruction": system_prompt,
+                        "temperature": 0.2,
+                        "max_output_tokens": max_tokens,
+                        "tools": [types.Tool(function_declarations=decls)],
+                    }
+                    if tool_choice == "required":
+                        gen_cfg_kw["tool_config"] = types.ToolConfig(
+                            function_calling_config=types.FunctionCallingConfig(
+                                mode=types.FunctionCallingConfigMode.ANY
+                            )
+                        )
+                    response = await client.aio.models.generate_content(
+                        model=self._model,
+                        contents=_build_contents(bool(messages)),
+                        config=types.GenerateContentConfig(**gen_cfg_kw),
+                    )
+                    fcs = getattr(response, "function_calls", None) or []
+                    if fcs:
+                        if len(fcs) == 1:
+                            fc0 = fcs[0]
+                            return _json.dumps(
+                                {
+                                    "action": "call_tool",
+                                    "tool": str(getattr(fc0, "name", "") or ""),
+                                    "arguments": dict(getattr(fc0, "args", None) or {}),
+                                    "rationale": (getattr(response, "text", None) or "Native function call")[:200],
+                                },
+                                ensure_ascii=False,
+                            )
+                        return _json.dumps(
+                            {
+                                "action": "call_tools",
+                                "calls": [
+                                    {
+                                        "tool": str(getattr(fc, "name", "") or ""),
+                                        "arguments": dict(getattr(fc, "args", None) or {}),
+                                    }
+                                    for fc in fcs[:6]
+                                ],
+                                "rationale": "Parallel native function calls",
+                            },
+                            ensure_ascii=False,
+                        )
+                    txt_native = (getattr(response, "text", None) or "").strip()
+                    if txt_native:
+                        return txt_native
+                except Exception as fn_exc:
+                    logger.debug("Gemini native tool call fell back to prompt mode: %s", fn_exc)
+
+            response = await client.aio.models.generate_content(
+                model=self._model,
+                contents=_build_contents(False),
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    temperature=0.2,
+                    max_output_tokens=max_tokens,
+                ),
+            )
+            return (response.text or "").strip()
+        except HinaaError:
+            raise
+        except Exception as error:
+            raise self._map_provider_error(error) from error
+        finally:
+            await client.aio.aclose()
+
     async def create_plan(
         self,
         text: str,

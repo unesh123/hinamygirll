@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
+
+logger = logging.getLogger("hinaa.agent.runtime")
 
 from .context import ContextBuilder
 from .contracts import (
@@ -39,7 +42,7 @@ def _sanitize_value(val: Any, key: str | None = None) -> Any:
             return "[REDACTED]"
         v = re.sub(r"(?i)(api[_-]?key|access[_-]?token|authorization|secret|password)\s*[:=]\s*[^\s,;]+", r"\1=[REDACTED]", val)
         v = re.sub(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]+=*", "Bearer [REDACTED]", v)
-        v = re.sub(r"(?i)\b(?:sk|key|token|bearer|secret)[-_][A-Za-z0-9._-]{6,}", "[REDACTED]", v)
+        v = re.sub(r"(?i)\b(?:mlai_sk|sk|key|token|bearer|secret)[-_][A-Za-z0-9._-]{6,}", "[REDACTED]", v)
         return v
     elif isinstance(val, dict):
         return {k: _sanitize_value(v, k) for k, v in val.items()}

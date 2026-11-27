@@ -1351,14 +1351,34 @@ class NativeComputerOperator:
     @classmethod
     def read_folder(cls, folder_path: str, limit: int = 100) -> dict[str, Any]:
         """Safely inspects authorized folder contents without path traversal."""
-        p = Path(folder_path).resolve()
-        sensitive_roots = ["C:\\Windows\\System32\\config", "C:\\Windows\\System32\\drivers"]
-        for s in sensitive_roots:
-            if str(p).lower().startswith(s.lower()):
+        if os.name == "nt":
+            p = Path(folder_path).resolve()
+            sensitive_roots = ("c:\\windows\\system32\\config", "c:\\windows\\system32\\drivers")
+            p_norm = str(p).lower().rstrip("\\")
+            for s in sensitive_roots:
+                if p_norm == s or p_norm.startswith(s + "\\"):
+                    return {
+                        "success": False,
+                        "error": f"Path '{p}' is a protected system directory.",
+                    }
+        else:
+            raw_win = folder_path.replace("/", "\\").lower().rstrip("\\")
+            if any(
+                raw_win == s or raw_win.startswith(s + "\\")
+                for s in ("c:\\windows\\system32\\config", "c:\\windows\\system32\\drivers")
+            ):
                 return {
                     "success": False,
-                    "error": f"Path '{p}' is a protected system directory.",
+                    "error": f"Path '{folder_path}' is a protected system directory.",
                 }
+            p = Path(folder_path).resolve()
+            p_str = str(p)
+            for s in ("/etc", "/root", "/boot", "/proc", "/sys"):
+                if p_str == s or p_str.startswith(s + "/"):
+                    return {
+                        "success": False,
+                        "error": f"Path '{p}' is a protected system directory.",
+                    }
         if not p.exists() or not p.is_dir():
             return {
                 "success": False,
@@ -1463,16 +1483,21 @@ class NativeComputerOperator:
         work_dir = Path(cwd).resolve() if cwd else default_ws
         work_dir.mkdir(parents=True, exist_ok=True)
 
-        start_time = time.time()
+        start_time = time.perf_counter()
+        cmd_args = (
+            [_powershell_exe(), "-NoProfile", "-Command", command]
+            if os.name == "nt"
+            else ["/bin/bash", "-c", command]
+        )
         try:
             res = subprocess.run(
-                [_powershell_exe() if os.name == "nt" else "/bin/bash", "-NoProfile" if os.name == "nt" else "-c", "-Command" if os.name == "nt" else command, command if os.name == "nt" else ""],
+                cmd_args,
                 cwd=str(work_dir),
                 capture_output=True,
                 text=True,
                 timeout=timeout_seconds,
             )
-            dur = round((time.time() - start_time) * 1000, 2)
+            dur = round((time.perf_counter() - start_time) * 1000, 2)
             return {
                 "exit_code": res.returncode,
                 "stdout": res.stdout[:50_000],
@@ -1495,7 +1520,7 @@ class NativeComputerOperator:
                 "exit_code": 1,
                 "stdout": "",
                 "stderr": str(e),
-                "duration_ms": round((time.time() - start_time) * 1000, 2),
+                "duration_ms": round((time.perf_counter() - start_time) * 1000, 2),
                 "command": command,
                 "cwd": str(work_dir),
             }

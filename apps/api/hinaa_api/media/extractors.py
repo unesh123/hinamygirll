@@ -5,6 +5,7 @@ import io
 import logging
 import zipfile
 import xml.etree.ElementTree as ET
+from typing import Any
 
 logger = logging.getLogger("hinaa.media.extractors")
 
@@ -182,8 +183,9 @@ def extract_pdf_text(raw_bytes: bytes, max_chars: int = 100000) -> str:
         return f"PDF Document: Unable to parse ({str(err)})."
 
 
-def inspect_zip_archive(raw_bytes: bytes, max_entries: int = 100) -> str:
-    """Safely inspects a ZIP archive file tree and uncompressed sizes without extraction."""
+def inspect_zip_archive(raw_bytes: bytes, max_entries: int = 100, *, include_previews: bool = True) -> str:
+    """Safely inspects a ZIP archive tree and bounded key text/code contents without disk extraction."""
+    _PREVIEW_EXTS = (".md", ".txt", ".json", ".py", ".ts", ".tsx", ".js", ".jsx", ".html", ".css", ".yaml", ".yml", ".toml")
     try:
         with zipfile.ZipFile(io.BytesIO(raw_bytes)) as zf:
             infolist = zf.infolist()
@@ -191,7 +193,7 @@ def inspect_zip_archive(raw_bytes: bytes, max_entries: int = 100) -> str:
             total_uncompressed = sum(info.file_size for info in infolist)
 
             lines = [
-                f"ZIP Archive Inspection (Safe Manifest):",
+                "ZIP Archive Inspection (Safe Manifest):",
                 f"- Total Items: {total_files}",
                 f"- Total Uncompressed Size: {total_uncompressed / (1024 * 1024):.2f} MB",
                 "",
@@ -205,6 +207,38 @@ def inspect_zip_archive(raw_bytes: bytes, max_entries: int = 100) -> str:
 
             if total_files > max_entries:
                 lines.append(f"  ... ({total_files - max_entries} additional items omitted)")
+
+            if include_previews and total_uncompressed <= 30 * 1024 * 1024:
+                preview_budget = 24_000
+                used_chars = 0
+                preview_count = 0
+                # Prioritize README / markdown / config / top-level source files
+                def _priority(inf: zipfile.ZipInfo) -> tuple[int, str]:
+                    low = inf.filename.lower()
+                    if low.endswith(("readme.md", "package.json", "pyproject.toml")):
+                        return (0, low)
+                    if low.endswith((".md", ".txt")):
+                        return (1, low)
+                    return (2, low)
+
+                for info in sorted(infolist, key=_priority):
+                    if preview_count >= 8 or used_chars >= preview_budget:
+                        break
+                    if info.is_dir() or info.file_size == 0 or info.file_size > 250_000:
+                        continue
+                    low = info.filename.lower()
+                    if not low.endswith(_PREVIEW_EXTS) or "/node_modules/" in low or "/.git/" in low:
+                        continue
+                    try:
+                        chunk = zf.read(info.filename)[:8000].decode("utf-8", errors="replace").strip()
+                    except Exception:
+                        continue
+                    if not chunk or "\x00" in chunk:
+                        continue
+                    snippet = chunk[: min(3500, preview_budget - used_chars)]
+                    lines.append(f"\n--- FILE IN ZIP: {info.filename} ---\n{snippet}")
+                    used_chars += len(snippet)
+                    preview_count += 1
 
             return "\n".join(lines)
     except Exception as err:

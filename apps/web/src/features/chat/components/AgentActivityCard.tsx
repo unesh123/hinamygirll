@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Loader2, CheckCircle2, XCircle, StopCircle, Sparkles, Wrench, FileSearch, Globe } from "lucide-react";
+import { ActivityFeedV2 } from "./ActivityFeedV2";
 
 export interface ActivityStep {
   id: string;
@@ -14,6 +15,7 @@ export interface ActivityStep {
 export interface AgentActivityCardProps {
   isActive: boolean;
   steps: ActivityStep[];
+  runId?: string;
   currentAction?: string;
   onCancel?: () => void;
   onResume?: () => void;
@@ -25,6 +27,7 @@ export interface AgentActivityCardProps {
 export function AgentActivityCard({
   isActive,
   steps,
+  runId,
   currentAction = "Thinking & Planning...",
   onCancel,
   onResume,
@@ -51,7 +54,7 @@ export function AgentActivityCard({
       setElapsedMs(Math.max(0, Date.now() - (startedAtRef.current ?? Date.now())));
     }, 100);
     return () => clearInterval(interval);
-  }, [isActive]);
+  }, [isActive, runId]);
 
   // Keep the pre-flight state honest: until the server emits steps we show an
   // indeterminate stage instead of inventing completed work or fake percentages.
@@ -289,8 +292,12 @@ export function AgentActivityCard({
         data-tool-activity="true"
         role="status"
         aria-live="polite"
-        style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 6 }}
+        style={{ marginTop: 6 }}
       >
+        {steps.length > 1 ? (
+          <ActivityFeedV2 steps={steps} orientation="stacked" />
+        ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
         {effectiveSteps.map((st) => {
           const isDone = st.status === "completed";
           const isFail = st.status === "failed";
@@ -347,6 +354,8 @@ export function AgentActivityCard({
             </div>
           );
         })}
+        </div>
+        )}
       </div>
     </div>
   );

@@ -138,3 +138,50 @@ async def get_browser_task_artifacts(request: Request, task_id: str) -> Dict[str
         raise HTTPException(status_code=404, detail="Browser service not initialized")
     artifacts = service.get_task_artifacts(task_id)
     return {"taskId": task_id, "artifacts": artifacts}
+
+
+@router.post("/api/v4/runs")
+@router.post("/v1/browser/runs")
+async def create_browser_use_v4_run(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    """Browser Use v4 Day-1 run launcher (`allowed_domains`, yellow/red confirm gate)."""
+    from ..tools.browser_cloud import BrowserCloudTaskParams, execute_browser_cloud_task
+
+    task_text = str(body.get("task") or body.get("objective") or "").strip()
+    if not task_text:
+        raise HTTPException(status_code=400, detail="Browser run `task` is required.")
+    params = BrowserCloudTaskParams(
+        task=task_text,
+        startUrl=body.get("startUrl") or body.get("start_url"),
+        max_steps=int(body.get("maxSteps") or body.get("max_steps") or 25),
+        flash_mode=bool(body.get("flashMode", body.get("flash_mode", True))),
+        allowed_domains=list(body.get("allowed_domains") or body.get("allowedDomains") or []),
+        confirmed=bool(body.get("confirmed", False)),
+    )
+    res = await execute_browser_cloud_task(params)
+    if res.get("status") == "confirmation_required":
+        raise HTTPException(status_code=409, detail=res)
+    return res
+
+
+@router.post("/api/v4/sessions/{session_id}/queue")
+@router.post("/v1/browser/sessions/{session_id}/queue")
+async def queue_browser_use_v4_session(
+    session_id: str, body: Dict[str, Any] = Body(...)
+) -> Dict[str, Any]:
+    """Queue a follow-up step into an active Browser Use v4 session."""
+    from ..tools.browser_cloud import BrowserCloudTaskParams, execute_browser_cloud_task
+
+    task_text = str(body.get("task") or body.get("objective") or "").strip()
+    if not task_text:
+        raise HTTPException(status_code=400, detail="Queued `task` is required.")
+    params = BrowserCloudTaskParams(
+        task=task_text,
+        session_id=session_id,
+        allowed_domains=list(body.get("allowed_domains") or body.get("allowedDomains") or []),
+        confirmed=bool(body.get("confirmed", False)),
+        max_steps=int(body.get("maxSteps") or body.get("max_steps") or 25),
+    )
+    res = await execute_browser_cloud_task(params)
+    if res.get("status") == "confirmation_required":
+        raise HTTPException(status_code=409, detail=res)
+    return res

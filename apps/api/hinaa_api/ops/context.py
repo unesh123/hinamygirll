@@ -13,6 +13,8 @@ from .otel import current_ids
 request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("hinaa_request_id", default="-")
 trace_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("hinaa_trace_id", default="-")
 user_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("hinaa_user_id", default="-")
+actor_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("hinaa_actor_id", default="-")
+tenant_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("hinaa_tenant_id", default="-")
 
 _REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _TRACEPARENT_RE = re.compile(r"^[0-9a-f]{2}-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}$")

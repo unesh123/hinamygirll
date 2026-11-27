@@ -57,6 +57,14 @@ export interface CanonicalProvider {
 
 export const CANONICAL_PROVIDERS: CanonicalProvider[] = [
   {
+    mode: "cantrustai",
+    label: "⚡ CanTrustAI (DeepSeek)",
+    defaultModel: "deepseek/deepseek-v4.1-flash",
+    models: [
+      { id: "deepseek/deepseek-v4.1-flash", label: "DeepSeek V4.1 Flash", isDefault: true },
+    ],
+  },
+  {
     mode: "agent-router",
     label: "🔀 Agent Router (Bynara)",
     defaultModel: "agnes-2.5-flash",
@@ -188,6 +196,23 @@ export const CANONICAL_PROVIDERS: CanonicalProvider[] = [
       { id: "claude-fable-5", label: "Claude Fable 5", isDefault: true },
       { id: "claude-opus-5", label: "Claude Opus 5" },
       { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+    ],
+  },
+  {
+    mode: "toptools",
+    label: "⚡ Top-Tools AI (1M Pro)",
+    defaultModel: "Top-Tools-Ai-Pro",
+    models: [
+      { id: "Top-Tools-Ai-Pro", label: "Top-Tools-Ai-Pro (1M Pro)", isDefault: true },
+    ],
+  },
+  {
+    mode: "tokenrouter",
+    label: "🔀 TokenRouter (DeepSeek / Unified)",
+    defaultModel: "deepseek/deepseek-chat",
+    models: [
+      { id: "deepseek/deepseek-chat", label: "DeepSeek Chat", isDefault: true },
+      { id: "deepseek/deepseek-reasoner", label: "DeepSeek Reasoner (R1)" },
     ],
   },
   {
@@ -380,6 +405,10 @@ export function ModelControlBar({
                     ? "Oxion AI"
                     : currentMode === "coarena"
                       ? "Coarena AI"
+                    : currentMode === "toptools"
+                      ? "Top-Tools AI"
+                    : currentMode === "tokenrouter"
+                      ? "TokenRouter"
                     : providerOptions.find((p) => p.mode === currentMode)?.label || currentMode;
 
   const currentImageObj = IMAGE_ENGINES.find((e) => e.id === imageEngine) || IMAGE_ENGINES[0];
@@ -561,6 +590,11 @@ export function ModelControlBar({
                   <div style={{ padding: "4px 8px", fontSize: 10, fontWeight: 700, color: theme.subHeaderText }}>
                     {p.label}
                     {p.health !== "healthy" && <span style={{ marginLeft: 6, fontWeight: 400 }}>{p.health === "untested" ? "Not tested yet" : p.health}</span>}
+                    {!p.available && p.healthReason && (
+                      <div style={{ fontWeight: 400, fontSize: 9, color: theme.mutedText, marginTop: 1 }}>
+                        {p.healthReason}
+                      </div>
+                    )}
                   </div>
                   {models.map((m) => {
                     const isSelectedModel = isSelectedProvider && (currentModel === m.id || (!currentModel && m.isDefault));

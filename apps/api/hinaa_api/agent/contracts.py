@@ -212,4 +212,47 @@ class ToolObservation(BaseModel):
         )
 
 
+MOTION_CONTRACT = """
+MOTION COMPOSITION CONTRACT — read before emitting JSON.
+
+HARD LIMITS (violation = rejection):
+1. sum(scene.duration for scene in scenes) <= 30.0
+   Derivation: audio_len = ffprobe(audio).duration
+               target    = min(audio_len, 30.0)
+               scene.duration = target / len(scenes)
+2. every keyframe.scale >= 0.05
+3. every layer: layer.start < scene.duration, layer.end <= scene.duration (or layer.start + layer.duration <= scene.duration)
+4. every layer.start >= 0
+5. transition_duration <= scene.duration (0.05..1.0)
+6. accents sorted unique seconds strictly inside 0 <= t < total_duration
+
+SHAPE:
+{
+  "version": 1,
+  "scenes": [{
+    "duration": <float >= 0.3>,
+    "transition": "cut|crossfade|whip|diagonal|iris|wipe",
+    "transition_duration": <float 0.05..1.0>,
+    "layers": [{
+      "start": <float >= 0>,
+      "end": <float <= scene.duration>,
+      "keyframes": [{"time": <float 0..layer_span>, "scale": <float >= 0.05>}]
+    }]
+  }],
+  "accents": [<float 0 <= t < total_duration>]
+}
+
+SELF-CHECK BEFORE EMITTING:
+  total = sum(s["duration"] for s in scenes)
+  assert total <= 30.0
+  for s in scenes:
+      for l in s["layers"]:
+          assert l["start"] + l.get("duration", 0.0) <= s["duration"] + 1e-6
+          assert l.get("end", s["duration"]) <= s["duration"] + 1e-6
+          for kf in l.get("keyframes", []):
+              assert kf.get("scale", 1.0) >= 0.05
+""".strip()
+
+
+
 

@@ -47,6 +47,7 @@ export interface AppearanceSettings {
 
 /** Provider modes supported by the backend. */
 export type ProviderPreferenceMode =
+  | "cantrustai"
   | "gmi"
   | "auto"
   | "custom"
@@ -71,6 +72,8 @@ export type ProviderPreferenceMode =
   | "oxion"
   | "respan"
   | "coarena"
+  | "toptools"
+  | "tokenrouter"
   | "experiential";
 
 /** Saved model selection per provider. Null = automatic. */
@@ -125,6 +128,8 @@ export const DEFAULT_SETTINGS: HinaaSettings = {
       "cx-gateway": "cx/gpt-5.6-sol",
       ollama: "dolphin-mistral:7b",
       coarena: "gemini-4-argon",
+      toptools: "Top-Tools-Ai-Pro",
+      tokenrouter: "deepseek/deepseek-chat",
       xkiro: "mistralai/codestral-2508",
     },
   },
