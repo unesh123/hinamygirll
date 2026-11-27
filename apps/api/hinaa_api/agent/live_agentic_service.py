@@ -22,6 +22,7 @@ from ..config import Settings
 from ..errors import safe_error_text
 from ..runtime_paths import project_root
 from ..tools.registry import registry
+from .contracts import MOTION_CONTRACT
 from .agentic_runner import (
     DEFAULT_AGENTIC_TOOLS,
     AgenticLoopRunner,
@@ -220,8 +221,10 @@ def build_agentic_messages(
         tail_items = transcript[-6:]
 
     header = goal_content
+    if allowed_tools & {"render_code_animation", "create_motion_video"}:
+        header = f"{header}\n\n{MOTION_CONTRACT}"
     if compact_prefix:
-        header = f"{goal_content}\n\n[Rolling Workspace Scratchpad — earlier steps summary]:\n{compact_prefix}"
+        header = f"{header}\n\n[Rolling Workspace Scratchpad — earlier steps summary]:\n{compact_prefix}"
     messages: list[dict[str, Any]] = [{"role": "user", "content": header}]
 
     idx = 0
@@ -318,6 +321,12 @@ def build_compact_tool_prompt(allowed_tools: set[str], transcript: list[dict[str
                 )
                 break
 
+    contract_note = (
+        f"\n{MOTION_CONTRACT}\n"
+        if allowed_tools & {"render_code_animation", "create_motion_video"}
+        else ""
+    )
+
     return (
         f"Step {step_num}/{max_steps}.\n"
         "Respond with a single JSON object (or multiple XML <tool ...> blocks for parallel reads):\n"
@@ -325,6 +334,7 @@ def build_compact_tool_prompt(allowed_tools: set[str], transcript: list[dict[str
         '2) Parallel tools: {"action": "call_tools", "calls": [{"tool": "<name>", "arguments": {...}}, ...], "rationale": "<short why>"}\n'
         '3) Finish after verifying: {"action": "final", "summary": "<concise evidence-backed report>"}\n'
         + ready_note
+        + contract_note
         + "\nAvailable tools:\n"
         + "\n".join(tool_lines)
         + "\n\nTranscript & observations:\n"

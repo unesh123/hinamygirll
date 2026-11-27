@@ -55,7 +55,8 @@ class MotionVideoParams(BaseModel):
                         d["duration"] = dur_alias
                 normalized.append({k: v for k, v in d.items() if k in allowed_keys})
             out["scenes"] = normalized
-        return out
+        from ..agent.hooks import apply_guards
+        return apply_guards("create_motion_video", out)
 
     @field_validator("title", mode="before")
     @classmethod

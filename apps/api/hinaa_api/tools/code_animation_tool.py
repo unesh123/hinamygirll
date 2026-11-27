@@ -777,6 +777,10 @@ class RenderCodeAnimationParams(BaseModel):
                     out[dim_k] = (val // 2) * 2
                 except (TypeError, ValueError):
                     pass
+        if isinstance(out.get("composition_json"), dict):
+            from ..agent.hooks import apply_guards
+
+            out = apply_guards("render_code_animation", out)
         return out
 
 
@@ -788,6 +792,7 @@ async def render_code_animation_handler(params: RenderCodeAnimationParams) -> di
     source_project: dict[str, str] | None = None
     motion_spec = None
     if params.composition_json is not None or params.inspect_only or params.reference_path:
+        from ..agent.hooks import apply_guards
         from ..motion_studio import MotionComposition
         from ..motion_studio.analysis import analyze_audio, analyze_reference
         from ..motion_studio.compiler import confined_path
@@ -797,7 +802,8 @@ async def render_code_animation_handler(params: RenderCodeAnimationParams) -> di
         if params.composition_json is not None:
             if params.timeline_json or params.html_code or params.html_path:
                 raise HinaaError("AMBIGUOUS_MOTION_SOURCE", "Use one of composition_json, timeline_json or HTML", 422, False)
-            motion_spec = MotionComposition.model_validate(params.composition_json)
+            guarded = apply_guards("render_code_animation", {"composition_json": dict(params.composition_json)})
+            motion_spec = MotionComposition.model_validate(guarded["composition_json"])
             duration = motion_spec.duration
         if params.audio_path:
             audio_file = confined_path(params.audio_path, ws_root)

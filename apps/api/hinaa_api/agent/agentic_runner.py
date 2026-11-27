@@ -28,6 +28,9 @@ from ..tools.policy import (
     local_effects_permitted,
 )
 from ..tools.registry import RiskTier, ToolDefinition, registry
+from .fingerprint import errors_from_exception, fingerprint
+from .hooks import apply_guards
+from .repair import REPAIRS
 from .runtime import _sanitize_value
 from .tool_labels import describe_tool_call
 
@@ -368,6 +371,7 @@ class AgenticLoopRunner:
             and not args.get("workspace_root")
         ):
             args["workspace_root"] = self.workspace_root
+        args = apply_guards(tdef.name, args)
 
         # Validate against callable's pydantic parameter model when present
         sig = inspect.signature(handler)
@@ -383,11 +387,37 @@ class AgenticLoopRunner:
                 try:
                     call_arg = ann.model_validate(args)
                 except Exception as val_err:
-                    return {
-                        "status": "error",
-                        "code": "TOOL_ARGUMENTS_INVALID",
-                        "error": safe_error_text(val_err, []),
-                    }
+                    errs = errors_from_exception(val_err)
+                    repaired = json.loads(json.dumps(args, default=str))
+                    mutated = False
+                    for err in errs:
+                        for match, fix in REPAIRS:
+                            if match(err):
+                                repaired = fix(repaired, err)
+                                mutated = True
+                                break
+                    repaired = apply_guards(tdef.name, repaired)
+                    if mutated or repaired != args:
+                        try:
+                            call_arg = ann.model_validate(repaired)
+                            args = repaired
+                        except Exception as repair_err:
+                            repair_errs = errors_from_exception(repair_err)
+                            return {
+                                "status": "error",
+                                "code": "TOOL_ARGUMENTS_INVALID",
+                                "error": safe_error_text(repair_err, []),
+                                "errors": repair_errs,
+                                "errorFingerprint": fingerprint(repair_errs),
+                            }
+                    else:
+                        return {
+                            "status": "error",
+                            "code": "TOOL_ARGUMENTS_INVALID",
+                            "error": safe_error_text(val_err, []),
+                            "errors": errs,
+                            "errorFingerprint": fingerprint(errs),
+                        }
 
         timeout = min(self.per_tool_timeout_seconds, float(getattr(tdef, "timeout_seconds", 120.0) or 120.0))
         if inspect.iscoroutinefunction(handler):
@@ -523,6 +553,8 @@ class AgenticLoopRunner:
         ]
         last_error_sig: str | None = None
         consecutive_same_errors = 0
+        seen_error_fps: dict[str, int] = {}
+        failed_payload_fps: dict[str, str] = {}
 
         async def _emit(evt_type: str, payload: dict[str, Any]) -> None:
             if on_event is not None:
@@ -857,6 +889,53 @@ class AgenticLoopRunner:
                     })
                     continue
 
+                args = apply_guards(tool_name, args)
+                payload_sig = f"{tool_name}:{_hash_args(tool_name, args)}"
+                if payload_sig in failed_payload_fps:
+                    prev_fp = failed_payload_fps[payload_sig]
+                    seen_error_fps[prev_fp] = seen_error_fps.get(prev_fp, 1) + 1
+                    consecutive_same_errors = consecutive_same_errors + 1 if prev_fp == last_error_sig else 1
+                    last_error_sig = prev_fp
+                    dup_err = (
+                        f"Identical payload for '{tool_name}' already failed "
+                        f"(fingerprint={prev_fp}, repeat={seen_error_fps[prev_fp]}); mutate failing fields before retrying."
+                    )
+                    dup_obs = {
+                        "status": "error",
+                        "code": "IDENTICAL_RETRY_BLOCKED",
+                        "error": dup_err,
+                        "errorFingerprint": prev_fp,
+                    }
+                    steps.append(AgenticStepRecord(
+                        step=step_num, action="call_tool", tool=tool_name,
+                        arguments=_sanitize_value(args), status="failed",
+                        observation=dup_obs, error=dup_err, rationale=rationale,
+                    ))
+                    transcript.append({
+                        "role": "tool_observation",
+                        "trusted": False,
+                        "step": step_num,
+                        "call_id": str(call_item.get("call_id") or f"call_{step_num}_dup"),
+                        "tool": tool_name,
+                        "arguments": _sanitize_value(args),
+                        "observation": dup_obs,
+                        "result": dup_obs,
+                    })
+                    if seen_error_fps[prev_fp] >= 3 or consecutive_same_errors >= self.max_consecutive_failures:
+                        await _emit("agent.step.completed", {"step": step_num, "maxSteps": self.max_steps})
+                        return AgenticRunResult(
+                            run_id=rid,
+                            status="blocked",
+                            summary=f"Stopped after repeated identical failure on {tool_name}: {dup_err}",
+                            steps_executed=len(steps),
+                            steps=steps,
+                            artifacts=artifacts,
+                            files_changed=files_changed,
+                            elapsed_ms=round((time.perf_counter() - t0) * 1000, 2),
+                            blocker=dup_err,
+                        )
+                    continue
+
                 validated_calls.append((tool_name, args, rationale, tdef))
 
             if not validated_calls:
@@ -938,10 +1017,19 @@ class AgenticLoopRunner:
                             "lane": meta["lane"],
                         },
                     )
-                    err_sig = f"{tool_name}:{safe_obs.get('code')}:{str(safe_obs.get('error'))[:80]}"
+                    err_errs = safe_obs.get("errors")
+                    if isinstance(err_errs, list) and err_errs:
+                        err_sig = fingerprint(err_errs)
+                    elif safe_obs.get("errorFingerprint"):
+                        err_sig = str(safe_obs["errorFingerprint"])
+                    else:
+                        err_sig = fingerprint([{"type": str(safe_obs.get("code") or "error"), "msg": str(safe_obs.get("error") or ""), "loc": [tool_name]}])
+                    payload_sig = f"{tool_name}:{_hash_args(tool_name, args)}"
+                    failed_payload_fps[payload_sig] = err_sig
+                    seen_error_fps[err_sig] = seen_error_fps.get(err_sig, 0) + 1
                     consecutive_same_errors = consecutive_same_errors + 1 if err_sig == last_error_sig else 1
                     last_error_sig = err_sig
-                    if consecutive_same_errors >= self.max_consecutive_failures:
+                    if seen_error_fps[err_sig] >= 3 or consecutive_same_errors >= self.max_consecutive_failures:
                         await _emit("agent.step.completed", {"step": step_num, "maxSteps": self.max_steps})
                         return AgenticRunResult(
                             run_id=rid,
