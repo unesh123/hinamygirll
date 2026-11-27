@@ -58,7 +58,7 @@ def test_real_dispatcher_execution_e2e_approval_lifecycle(e2e_test_env):
     # 1. Unapproved tool call to terminal_execute must be blocked before starting any process
     unapproved_payload = {
         "toolName": "terminal_execute",
-        "parameters": {"command": "echo E2E_PRE_APPROVAL_TEST", "runtime": "powershell"},
+        "parameters": {"command": "echo E2E_PRE_APPROVAL_TEST", "runtime": "auto"},
         "confirmed": False,
         "approvalSource": "none",
     }
@@ -67,7 +67,7 @@ def test_real_dispatcher_execution_e2e_approval_lifecycle(e2e_test_env):
     assert "TOOL_CONFIRMATION_REQUIRED" in resp1.text
 
     # 2. Authorized challenge verification and real execution
-    valid_params = {"command": "echo E2E_REAL_PROCESS_RUN_OK", "runtime": "powershell"}
+    valid_params = {"command": "echo E2E_REAL_PROCESS_RUN_OK", "runtime": "auto"}
     
     # Request approval challenge
     loop = asyncio.new_event_loop()
@@ -116,7 +116,7 @@ def test_real_dispatcher_execution_e2e_approval_lifecycle(e2e_test_env):
     task2 = loop2.create_task(
         gate.request_approval(
             "terminal_execute",
-            {"command": "echo AUTHORIZED_COMMAND", "runtime": "powershell"},
+            {"command": "echo AUTHORIZED_COMMAND", "runtime": "auto"},
             tenant_id=tenant_id,
             actor_id="actor_e2e",
             device_id="device_e2e",
@@ -131,7 +131,7 @@ def test_real_dispatcher_execution_e2e_approval_lifecycle(e2e_test_env):
 
     tampered_payload = {
         "toolName": "terminal_execute",
-        "parameters": {"command": "echo MALICIOUS_TAMPERED_COMMAND", "runtime": "powershell"},
+        "parameters": {"command": "echo MALICIOUS_TAMPERED_COMMAND", "runtime": "auto"},
         "challengeId": cid2,
         "tenantId": tenant_id,
         "confirmed": True,
@@ -146,7 +146,7 @@ def test_real_dispatcher_execution_e2e_approval_lifecycle(e2e_test_env):
     task3 = loop3.create_task(
         gate.request_approval(
             "terminal_execute",
-            {"command": "echo TO_BE_DENIED", "runtime": "powershell"},
+            {"command": "echo TO_BE_DENIED", "runtime": "auto"},
             tenant_id=tenant_id,
             actor_id="actor_e2e",
             device_id="device_e2e",
@@ -161,7 +161,7 @@ def test_real_dispatcher_execution_e2e_approval_lifecycle(e2e_test_env):
 
     denied_payload = {
         "toolName": "terminal_execute",
-        "parameters": {"command": "echo TO_BE_DENIED", "runtime": "powershell"},
+        "parameters": {"command": "echo TO_BE_DENIED", "runtime": "auto"},
         "challengeId": cid3,
         "tenantId": tenant_id,
         "confirmed": True,
@@ -176,7 +176,7 @@ def test_real_dispatcher_execution_e2e_approval_lifecycle(e2e_test_env):
     approved_exp, reason_exp, cid4 = loop4.run_until_complete(
         gate.request_approval(
             "terminal_execute",
-            {"command": "echo TO_BE_EXPIRED", "runtime": "powershell"},
+            {"command": "echo TO_BE_EXPIRED", "runtime": "auto"},
             tenant_id=tenant_id,
             actor_id="actor_e2e",
             device_id="device_e2e",
@@ -188,7 +188,7 @@ def test_real_dispatcher_execution_e2e_approval_lifecycle(e2e_test_env):
 
     expired_payload = {
         "toolName": "terminal_execute",
-        "parameters": {"command": "echo TO_BE_EXPIRED", "runtime": "powershell"},
+        "parameters": {"command": "echo TO_BE_EXPIRED", "runtime": "auto"},
         "challengeId": cid4,
         "tenantId": tenant_id,
         "confirmed": True,
@@ -204,7 +204,7 @@ def test_real_dispatcher_execution_e2e_approval_lifecycle(e2e_test_env):
     task5 = loop5.create_task(
         gate.request_approval(
             "terminal_execute",
-            {"command": "echo WRONG_KEY_TEST", "runtime": "powershell"},
+            {"command": "echo WRONG_KEY_TEST", "runtime": "auto"},
             tenant_id=tenant_id,
             actor_id="actor_e2e",
             device_id="device_e2e",
@@ -218,7 +218,7 @@ def test_real_dispatcher_execution_e2e_approval_lifecycle(e2e_test_env):
     loop5.close()
 
     ok_wrong, msg_wrong = wrong_key_gate.verify_and_consume(
-        cid5, {"command": "echo WRONG_KEY_TEST", "runtime": "powershell"}, tenant_id=tenant_id
+        cid5, {"command": "echo WRONG_KEY_TEST", "runtime": "auto"}, tenant_id=tenant_id
     )
     assert ok_wrong is False
     assert "SIGNATURE_INVALID" in msg_wrong

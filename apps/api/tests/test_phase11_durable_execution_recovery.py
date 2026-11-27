@@ -241,26 +241,37 @@ def test_phase11_cancellation_during_execution_or_recovery(durable_fixture):
         assert step["status"] == "cancelled"
 
 
-@pytest.mark.asyncio
-async def test_phase11_postgres_live_persistence_and_restore_parity():
+def test_phase11_postgres_live_persistence_and_restore_parity():
     """Verify live PostgreSQL 16 cluster persistence, schema migrations 0001-0019, and restoration parity."""
-    import asyncpg
+    import re
+    import psycopg
 
     pg_url = os.environ.get("HINAA_TEST_DATABASE_URL", "postgresql://postgres:postgres@127.0.0.1:5432/hinaa_test")
-    # Strip SQLAlchemy dialect prefix if present
-    clean_url = pg_url.replace("postgresql+asyncpg://", "postgresql://")
+    # Strip SQLAlchemy dialect prefix (e.g. postgresql+psycopg:// or postgresql+asyncpg://) if present
+    clean_url = re.sub(r"^postgresql\+[a-zA-Z0-9_]+://", "postgresql://", pg_url)
 
     try:
-        conn = await asyncpg.connect(clean_url, timeout=3.0)
+        conn = psycopg.connect(clean_url, connect_timeout=3)
     except Exception as exc:
         pytest.skip(f"PostgreSQL 16 daemon not reachable at {clean_url}: {exc}")
 
     try:
+        from hinaa_api.persistence.db import make_engine
+        from hinaa_api.persistence.migrations import run_migrations
+
+        # Ensure schema + migrations exist cleanly when running standalone on an empty DB
+        eng = make_engine(pg_url)
+        try:
+            run_migrations(eng)
+        finally:
+            eng.dispose()
+
         # Check active application schema in hinaa_test
-        table_count = await conn.fetchval(
-            "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'"
-        )
-        migration_count = await conn.fetchval("SELECT count(*) FROM schema_migrations")
+        with conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'")
+            table_count = cur.fetchone()[0]
+            cur.execute("SELECT count(*) FROM schema_migrations")
+            migration_count = cur.fetchone()[0]
 
         assert table_count >= 50, f"Expected at least 50 tables, got {table_count}"
         assert migration_count >= 19, f"Expected 19 migrations, got {migration_count}"
@@ -268,17 +279,17 @@ async def test_phase11_postgres_live_persistence_and_restore_parity():
         # If isolated restored database exists, assert parity
         restore_url = clean_url.rsplit("/", 1)[0] + "/hinaa_restore_verify"
         try:
-            restore_conn = await asyncpg.connect(restore_url, timeout=3.0)
-            rest_tables = await restore_conn.fetchval(
-                "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'"
-            )
-            rest_migrations = await restore_conn.fetchval("SELECT count(*) FROM schema_migrations")
+            with psycopg.connect(restore_url, connect_timeout=3) as restore_conn:
+                with restore_conn.cursor() as rcur:
+                    rcur.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'")
+                    rest_tables = rcur.fetchone()[0]
+                    rcur.execute("SELECT count(*) FROM schema_migrations")
+                    rest_migrations = rcur.fetchone()[0]
             assert rest_tables == table_count, f"Table parity mismatch: {rest_tables} vs {table_count}"
             assert rest_migrations == migration_count, f"Migration parity mismatch: {rest_migrations} vs {migration_count}"
-            await restore_conn.close()
         except Exception:
             pass  # Isolated db checked when available
 
     finally:
-        await conn.close()
+        conn.close()
 

@@ -108,9 +108,10 @@ async def test_computer_operator_read_folder():
     assert len(entries) > 0
 
     # Protected system directory check
+    protected_target = "C:\\Windows\\System32\\config" if os.name == "nt" else "/etc"
     blocked = await execute_computer_operator({
         "action": "read_folder",
-        "target": "C:\\Windows\\System32\\config",
+        "target": protected_target,
     })
     assert blocked["success"] is False
     assert "protected" in str(blocked["error_details"]).lower()
@@ -166,7 +167,7 @@ async def test_computer_operator_execute_workspace_command():
     # When user explicitly approves
     envelope = await execute_computer_operator({
         "action": "execute_workspace_command",
-        "command": "Write-Output 'HELLO_HINAA_TEST'",
+        "command": "Write-Output 'HELLO_HINAA_TEST'" if os.name == "nt" else "echo 'HELLO_HINAA_TEST'",
         "confirmed": True,
         "approval_source": "user",
         "timeout_seconds": 10,
@@ -181,7 +182,7 @@ async def test_computer_operator_execute_workspace_command():
     # When unapproved, policy gate stops it with EXPLICIT_USER_APPROVAL_REQUIRED
     unapproved = await execute_computer_operator({
         "action": "execute_workspace_command",
-        "command": "Write-Output 'UNAUTHORIZED'",
+        "command": "Write-Output 'UNAUTHORIZED'" if os.name == "nt" else "echo 'UNAUTHORIZED'",
         "confirmed": False,
     })
     assert unapproved["success"] is False
